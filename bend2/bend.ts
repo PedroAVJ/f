@@ -953,8 +953,8 @@ async function book_file(book: Book, file: string, spn?: Span): Promise<string> 
 const PRELUDES: Record<string, Array<[string, string[]]>> = {
   F: [
     ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "Tree", "Box", "text", "layout", "leaf", "rounded", "solid"]],
-    ["ui/components", ["Component", "Visual", "Composer", "Near", "NearIdentityView=NearIdentity", "HeaderView=Header", "NameField", "AppShell", "Component.append=append_components"]],
-    ["browser/components", ["Component.html=html"]],
+    ["ui/components", ["UI", "Visual", "Composer", "Near", "NearIdentityView=NearIdentity", "HeaderView=Header", "NameField", "AppShell", "UI.append=append_components"]],
+    ["browser/components", ["UI.html=html"]],
     ["browser/scene", ["Tree.html=html", "Tree.canvas=canvas"]],
     ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree"]],
   ],

@@ -35,16 +35,16 @@ Wasm; Canvas packets are transient paint values. Replacing HTML and repainting
 Canvas keeps the renderer attached to the current root.
 
 F, State and V are explicit preludes. The bridge remains internal backend support;
-there is no additional Browser prelude. The semantic Component renderer emits
+there is no additional Browser prelude. The semantic UI renderer emits
 escaped HTML forms, field-edit events and declared buttons. Photo fields select a
 file, decode/resize it through browser APIs and upload it to the application's
 endpoint. JSON POST replies return to Bend; application state and validation remain
 Bend data/functions. The browser adapter bounds requests and responses and releases
-listeners and pending effects on stop. Component records use HTML; positioned
+listeners and pending effects on stop. UI records use HTML; positioned
 Primitives/Kit trees support both HTML and Canvas.
 
 Glass refraction has no new implementation. The positioned-tree renderer keeps its
-existing Light-scheme default. Use the application's CSS for semantic Component
+existing Light-scheme default. Use the application's CSS for semantic UI
 presentation.
 
 ## CPU and GPU

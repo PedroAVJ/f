@@ -18,8 +18,8 @@ def sprite(f: N.Frame) -> String:
     case N.Frame{id, +asset, animation, time, reduced, row, column, x, y, +width, +height, sheet_width, sheet_height}:
       Bool.pick(String, String.is_empty(asset), "", "<svg class=\"sprite\" role=\"img\" aria-label=\"Near\" width=\"" ++ U32.show(width) ++ "\" height=\"" ++ U32.show(height) ++ "\" viewBox=\"" ++ U32.show(x) ++ " " ++ U32.show(y) ++ " " ++ U32.show(width) ++ " " ++ U32.show(height) ++ "\" preserveAspectRatio=\"none\"><image href=\"" ++ S.escape(asset) ++ "\" width=\"" ++ U32.show(sheet_width) ++ "\" height=\"" ++ U32.show(sheet_height) ++ "\"/></svg>")
 type Render is Data:
-  One{component: C.Component}
-  Many{components: List<&2, C.Component>}
+  One{ui: C.UI}
+  Many{uis: List<&2, C.UI>}
 def go(fuel: Nat, r: Render) -> String:
   match fuel:
     case 0n: "<p>Demasiados componentes.</p>"
@@ -36,4 +36,4 @@ def go(fuel: Nat, r: Render) -> String:
         case One{C.TaskRow{id, title, done}}: "<p>" ++ S.escape(title) ++ Bool.pick(String, done, " ✓", "") ++ "</p>"
         case One{C.Symbol{C.Glyph{drawing}}}: glyph(drawing)
         case One{C.Symbol{C.Sprite{frame}}}: sprite(frame)
-def html(c: C.Component) -> String: go(4096n, One{c})
+def html(c: C.UI) -> String: go(4096n, One{c})

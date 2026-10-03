@@ -13,10 +13,10 @@ F supplies component functions, Shape/Layout trees and function transitions.
 State supplies component data, AI stream/request data and Dot session records.
 V supplies release/deployment declarations and plan/check functions.
 
-Names enter the importing file's scope. For example, `Component`, `layout`,
+Names enter the importing file's scope. For example, `UI`, `layout`,
 `Session.initial`, `StreamState.reduce`, `Release` and `plan` require no F/State/V
 prefix. Constructors with different meanings stay under their type: use
-`Component.Text`, `Geometry.Text` and `Command.Start`.
+`UI.Text`, `Geometry.Text` and `Command.Start`.
 Private helpers in the copied source do not become bare bindings.
 
 Direct `.bend` imports still work. Prelude bindings refer to those same canonical
