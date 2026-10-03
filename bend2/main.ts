@@ -378,7 +378,7 @@ function cli_emit(book: Bend.Book, out: string): void {
       for (const name of ["worker.js", "shell.js", "gpu.js", "renderer.js"]) {
         fs.copyFileSync(path.join(Bend.BEND_DIR, "std/F/browser", name), path.join(dir, name));
       }
-      fs.writeFileSync(path.join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>Bend</title>
+      fs.writeFileSync(path.join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bend</title>
 <div id="app"></div><pre id="output"></pre><script type="module">
 import {startBend} from './shell.js';
 window.bend = startBend(document.getElementById('app'), {workers:Number(new URLSearchParams(location.search).get('workers')) || undefined,
