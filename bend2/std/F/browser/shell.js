@@ -19,19 +19,101 @@ async function responseText(response) {
   for (const part of parts) { bytes.set(part, at); at += part.length; }
   return new TextDecoder().decode(bytes);
 }
+// Keep compatible browser nodes; Bend still chooses every rendered value.
+function domKey(node) {
+  if (node.nodeType !== 1) return null;
+  for (const name of ['id','data-bend-field','data-bend-upload','data-bend-event']) {
+    if (node.hasAttribute(name)) return name + ':' + node.getAttribute(name);
+  }
+  // Labels follow their control; general containers keep positional identity.
+  const field = node.nodeName === 'LABEL' && node.querySelector('[data-bend-field],[data-bend-upload]');
+  return field ? 'field-label:' + domKey(field) : null;
+}
+function compatible(a, b) {
+  return a.nodeType === b.nodeType && a.nodeName === b.nodeName &&
+    a.namespaceURI === b.namespaceURI && domKey(a) === domKey(b) &&
+    (a.nodeName !== 'INPUT' || a.type === b.type);
+}
+function reconcile(parent, next, edits, composing, requestId) {
+  const before = [...parent.childNodes], after = [...next.childNodes];
+  const used = new Set(), keyed = new Map(), reserved = new Map(), held = new Set();
+  for (const node of before) {
+    const key = domKey(node);
+    if (key !== null) keyed.set(key, keyed.has(key) ? null : node);
+  }
+  // Reserve unchanged branches before positional matching can consume them.
+  for (const fresh of after) if (domKey(fresh) === null) {
+    const node = before.find(n => !held.has(n) && compatible(n,fresh) && n.isEqualNode(fresh));
+    if (node) { reserved.set(fresh,node); held.add(node); }
+  }
+  // Changed containers can still contain the same retained controls/IDs.
+  const anchors = node => node.nodeType === 1 ? new Set([...node.querySelectorAll('[id],[data-bend-field],[data-bend-upload],[data-bend-event]')].map(domKey)) : new Set();
+  for (const fresh of after) if (domKey(fresh) === null && !reserved.has(fresh)) {
+    const keys = anchors(fresh);let score=0, match;
+    for (const node of before) if (!held.has(node) && compatible(node,fresh)) {
+      const shared = [...anchors(node)].filter(k => keys.has(k)).length;
+      if (shared > score) { score=shared;match=node; }
+    }
+    if (match) { reserved.set(fresh,match); held.add(match); }
+  }
+  for (const [index, fresh] of after.entries()) {
+    const key = domKey(fresh);
+    let node = key === null ? reserved.get(fresh) || before[index] : keyed.get(key);
+    if (held.has(node) && reserved.get(fresh) !== node) node = null;
+    if (!node || used.has(node) || !compatible(node,fresh)) {
+      node = key === null ? before.find(n => !used.has(n) && !held.has(n) && domKey(n) === null && compatible(n,fresh)) : null;
+    }
+    if (!node) { parent.insertBefore(fresh,parent.childNodes[index] || null); continue; }
+    used.add(node);
+    const current = parent.childNodes[index];
+    if (current !== node) {
+      if (parent.moveBefore) parent.moveBefore(node,current || null);
+      else if (node.contains?.(document.activeElement)) {
+        // Move intervening siblings, never detach the active/composing branch.
+        const end = [...parent.childNodes].indexOf(node);
+        for (const sibling of [...parent.childNodes].slice(index,end).reverse()) parent.insertBefore(sibling,node.nextSibling);
+      } else parent.insertBefore(node,current || null);
+    }
+    if (node.nodeType !== 1) { if (node.nodeValue !== fresh.nodeValue) node.nodeValue = fresh.nodeValue; continue; }
+    const edit = edits.get(node), pending = edit && requestId <= edit.delivered;
+    for (const attr of [...node.attributes]) if (!fresh.hasAttribute(attr.name) &&
+      !(attr.name === 'value' && (pending || composing.has(node)))) node.removeAttribute(attr.name);
+    for (const attr of fresh.attributes) {
+      if (attr.name === 'value' && (pending || composing.has(node))) continue;
+      if (node.getAttribute(attr.name) !== attr.value) node.setAttribute(attr.name,attr.value);
+    }
+    if ((node.nodeName === 'INPUT' || node.nodeName === 'TEXTAREA') && node.type !== 'file') {
+      if (!pending && !composing.has(node)) {
+        if (node.value !== fresh.value) node.value = fresh.value;
+        edits.delete(node);
+      }
+      if (node.checked !== fresh.checked) node.checked = fresh.checked;
+    }
+    if (node.nodeName !== 'TEXTAREA' || !(pending || composing.has(node)))
+      reconcile(node,fresh,edits,composing,requestId);
+  }
+  for (const node of before) if (!used.has(node) && node.parentNode === parent) node.remove();
+}
 export function startBend(root, options = {}) {
   const workers = Math.max(1, Math.min(8, options.workers ?? 1));
   const threaded = workers > 1 && crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
   const worker = new Worker(new URL('./worker.js', import.meta.url), {type: 'module'});
   const scope = 'bend-' + crypto.randomUUID() + '-';
   const events = [], active = new Map(), messages = [];
+  const edits = new WeakMap(), composing = new WeakSet();
   let waiter, stopped = false;
   const notify = m => { messages.push(m); if (messages.length > 256) messages.shift(); options.onMessage?.(m); };
   const compute = createGpuCompute(options, notify);
-  const deliver = text => {
+  const consume = (entry, id) => {
+    const edit = entry.field && edits.get(entry.field);
+    if (edit?.version === entry.version) edit.delivered = id;
+    return entry.text;
+  };
+  const deliver = (text, field, version) => {
     if (stopped) return;
-    if (waiter) { const w = waiter; waiter = null; w(text); }
-    else if (events.length < 256) events.push(text);
+    const entry = {text, field, version};
+    if (waiter) { const w = waiter; waiter = null; w(entry); }
+    else if (events.length < 256) events.push(entry);
   };
   const renderer = createCanvasRenderer(root, deliver);
   const event = e => {
@@ -43,7 +125,11 @@ export function startBend(root, options = {}) {
   root.addEventListener('click', event);
   const input = e => {
     const field = e.target.closest('[data-bend-field]');
-    if (field && root.contains(field)) deliver(JSON.stringify({action:'field',name:field.dataset.bendField,value:field.value}));
+    if (field && root.contains(field)) {
+      const version = (edits.get(field)?.version || 0) + 1;
+      edits.set(field,{version,delivered:Infinity});
+      deliver(JSON.stringify({action:'field',name:field.dataset.bendField,value:field.value}),field,version);
+    }
   };
   const upload = async e => {
     const field = e.target.closest('[data-bend-upload]'), file = field?.files?.[0];
@@ -71,14 +157,25 @@ export function startBend(root, options = {}) {
       if (!response.ok) throw Error(JSON.parse(text).error || 'No se pudo leer la foto.');
       if (active.get(field) === abort) deliver(JSON.stringify({action:'uploaded',data:JSON.parse(text)}));
     } catch(error) { if (active.get(field) === abort) deliver(JSON.stringify({action:'error',error:String(error.message || error)})); }
-    finally { clearTimeout(timer); if (active.get(field) === abort) active.delete(field); }
+    finally {
+      clearTimeout(timer);
+      if (active.get(field) === abort) { active.delete(field); field.value = ''; }
+    }
   };
+  const composition = e => {
+    const field = e.target.closest('[data-bend-field]');
+    if (field && root.contains(field)) {
+      if (e.type === 'compositionstart') composing.add(field);
+      else composing.delete(field);
+    }
+  };
+  root.addEventListener('compositionstart',composition);root.addEventListener('compositionend',composition);
   root.addEventListener('input',input); root.addEventListener('change',upload);
   const bounded = text => {
     if (encoder.encode(text).length > LIMIT) throw Error('message exceeds 1 MiB');
     return text;
   };
-  async function request(operation, data, signal) {
+  async function request(operation, data, signal, requestId) {
     bounded(data);
     if (operation === 1) {
       const view = document.createElement('template'); view.innerHTML = data;
@@ -94,13 +191,23 @@ export function startBend(root, options = {}) {
         const match=/^url\(#(bend-fill-[^)]+)\)$/.exec(node.getAttribute('fill'));
         if (match && ids.has(match[1])) node.setAttribute('fill','url(#'+ids.get(match[1])+')');
       }
-      root.replaceChildren(view.content); return '';
+      const focused = root.contains(document.activeElement) ? document.activeElement : null;
+      const selection = focused && typeof focused.selectionStart === 'number'
+        ? [focused.selectionStart,focused.selectionEnd,focused.selectionDirection] : null;
+      reconcile(root,view.content,edits,composing,requestId);
+      if (focused && root.contains(focused)) {
+        if (document.activeElement !== focused) focused.focus({preventScroll:true});
+        if (selection && !composing.has(focused) &&
+          (focused.selectionStart !== selection[0] || focused.selectionEnd !== selection[1] || focused.selectionDirection !== selection[2]))
+          focused.setSelectionRange(...selection);
+      }
+      return '';
     }
     if (operation === 2) {
-      if (events.length) return events.shift();
+      if (events.length) return consume(events.shift(),requestId);
       if (waiter) throw Error('an event request is already pending');
       return await new Promise((resolve, reject) => {
-        waiter = resolve;
+        waiter = entry => resolve(consume(entry,requestId));
         signal.addEventListener('abort', () => { waiter = null; reject(signal.reason); }, {once: true});
       });
     }
@@ -122,7 +229,7 @@ export function startBend(root, options = {}) {
     const abort = new AbortController(); active.set(m.id, abort);
     const timeout = m.operation === 2 ? null : setTimeout(() => abort.abort(Error('request timeout')), 30000);
     let reply;
-    try { reply = {status:1, data:bounded(await request(m.operation, m.data, abort.signal))}; }
+    try { reply = {status:1, data:bounded(await request(m.operation, m.data, abort.signal, m.id))}; }
     catch (e) { reply = {status:abort.signal.aborted ? 3 : 2, data:String(e?.message || e)}; }
     finally { clearTimeout(timeout); active.delete(m.id); }
     if (!stopped) worker.postMessage({type:'reply', id:m.id, reply});
@@ -134,6 +241,7 @@ export function startBend(root, options = {}) {
     cancelPending() { for (const abort of active.values()) abort.abort(Error('cancelled')); },
     stop() {
       stopped = true; root.removeEventListener('click', event); root.removeEventListener('input',input);root.removeEventListener('change',upload);
+      root.removeEventListener('compositionstart',composition);root.removeEventListener('compositionend',composition);
       compute.close(); renderer.close();
       for (const abort of active.values()) abort.abort(Error('stopped'));
       active.clear(); events.length = 0; worker.postMessage({type:'stop'});
