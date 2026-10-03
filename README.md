@@ -201,6 +201,8 @@ def add_zero(x):
 - Guide: [GUIDE.md](guide/GUIDE.md), also printed by `bend guide`.
 - Demos: [demos/](demos), apps, servers and proofs, each with its `LAWS.bend`.
 - Base: [base.bend](bend2/base.bend), the base library, also printed by `bend base`.
+- F framework: explicit F/State/V imports select bare bindings from the copied implementation in [bend2/std/F](bend2/std/F), with internal web compiler support. See [F.md](guide/F.md), [WEB.md](guide/WEB.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- Web: [WEB.md](guide/WEB.md), Wasm application execution, browser effects and generated WebGPU kernels; [demos/browser](demos/browser) is the initial UI example.
 - Paper: [BendTT: An Affine Dependent Type Theory](paper/BendTT.pdf).
 - Paper: [BendRT: A Parallel Runtime for CPUs and GPUs](paper/BendRT.pdf).
 - Formalization: [bendtt.lean](bend2/bendtt.lean), the kernel of `--verdict` and its proofs, in Lean.
@@ -274,3 +276,5 @@ can add it here.
 
 Thanks to [Ayush Somani](https://ayushsomani.me/) for reserving the
 `bend-lang` name for us.
+
+Framework extensions use explicit `import F`, `import State` and `import V` preludes. See [the framework guide](guide/F.md) and [web compilation](guide/WEB.md).

@@ -35,7 +35,7 @@ const VERSION = "2.0.34";
 // the commands, one row each: [usage, what it does]; bend guide stays last
 const USAGE = [
   ["bend <file.bend> [args]", "check the file, then run main with args"],
-  ["bend <file.bend> -o <out>", "build a binary, or C, JS, .mjs or BendTT by extension"],
+  ["bend <file.bend> -o <out>", "build a binary, or C, JS, .mjs, .web or BendTT by extension"],
   ["bend <file.bend> --check-only", "check the file and its imports; run nothing"],
   ["bend <file.bend> --verdict", "check it, then recheck it with the proven kernel"],
   ["bend <file.bend> --publish [<name>@<version>]", "publish the file and its imports; a name needs login"],
@@ -309,7 +309,7 @@ async function cli_file(args: string[]): Promise<void> {
       t.$ === "Def" && t.i !== undefined ? t.i.map(path_real) : [])]);
     for (const out of outs) {
       const at = path_real(out);
-      if (ins.has(at) || (fs.existsSync(at) && fs.statSync(at).isDirectory())) {
+      if (ins.has(at) || (fs.existsSync(at) && fs.statSync(at).isDirectory() && !out.endsWith(".web"))) {
         cli_fail("-o " + out + " is a file the program reads, or a directory");
       }
       cli_emit(book, out);
@@ -356,7 +356,63 @@ function path_real(p: string): string {
 }
 
 function cli_emit(book: Bend.Book, out: string): void {
-  if (out.endsWith(".mjs")) {
+  if (out.endsWith(".web")) {
+    const dir = fs.mkdtempSync(path.join(path.dirname(path.resolve(out)), ".bend-web-"));
+    try {
+      const c = path.join(dir, "app.c");
+      fs.writeFileSync(c, Comp.compile_book(book, true));
+      const flags = [c, "-O3", "-DBEND_WEB=1", "--js-library",
+        path.join(Bend.BEND_DIR, "std/F/browser/stdio.js"), "-sMODULARIZE=1", "-sEXPORT_ES6=1",
+        "-sENVIRONMENT=web,worker,node", "-sINVOKE_RUN=0", "-sASYNCIFY=1",
+        "-sASYNCIFY_STACK_SIZE=262144", "-sINITIAL_MEMORY=134217728",
+        "-sALLOW_MEMORY_GROWTH=0", "-sSTACK_SIZE=1048576",
+        "-sEXPORTED_FUNCTIONS=_bend_start,_bend_worker_rows,_malloc,_free",
+        "-sEXPORTED_RUNTIME_METHODS=ccall"];
+      for (const threaded of [false, true]) {
+        const args = [...flags, ...(threaded ? ["-pthread", "-sEXPORTED_RUNTIME_METHODS=ccall,PThread", "-sPTHREAD_POOL_SIZE=8",
+          "-sDEFAULT_PTHREAD_STACK_SIZE=1048576"] : []), "-o",
+          path.join(dir, threaded ? "threads.mjs" : "seq.mjs")];
+        const got = child.spawnSync(process.env.BEND_EMCC ?? "emcc", args, {stdio:"inherit"});
+        if (got.status !== 0) throw "Error: web build needs Emscripten (emcc or BEND_EMCC)";
+      }
+      for (const name of ["worker.js", "shell.js", "gpu.js", "renderer.js"]) {
+        fs.copyFileSync(path.join(Bend.BEND_DIR, "std/F/browser", name), path.join(dir, name));
+      }
+      fs.writeFileSync(path.join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>Bend</title>
+<div id="app"></div><pre id="output"></pre><script type="module">
+import {startBend} from './shell.js';
+window.bend = startBend(document.getElementById('app'), {workers:Number(new URLSearchParams(location.search).get('workers')) || undefined,
+onMessage:m => { if (m.type === 'stdout' || m.type === 'stderr' || m.type === 'error') document.getElementById('output').textContent = (document.getElementById('output').textContent + (m.text || '') + '\\n').slice(-65536); }});
+</script>`);
+      const files = [...fs.readdirSync(dir).filter(n => n !== "app.c"), "manifest.json"];
+      fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({bendWeb:1, files, memoryBytes:134217728,
+        corpusBytes:33554432, workStackBytes:2097152, maxWorkers:8,
+        headers:{"Cross-Origin-Opener-Policy":"same-origin", "Cross-Origin-Embedder-Policy":"require-corp"}}, null, 2));
+      fs.unlinkSync(c);
+      if (fs.existsSync(out)) {
+        const manifest = path.join(out, "manifest.json");
+        if (!fs.existsSync(manifest) || JSON.parse(fs.readFileSync(manifest,"utf8")).bendWeb !== 1) {
+          throw "Error: refusing to replace a directory without a Bend web manifest";
+        }
+        // Keep caller-owned assets while replacing generated build files.
+        const old = JSON.parse(fs.readFileSync(manifest,"utf8"));
+        const owned = new Set(old.files ?? ["index.html", "manifest.json", "seq.mjs", "seq.wasm",
+          "threads.mjs", "threads.wasm", "worker.js", "shell.js"]);
+        for (const name of fs.readdirSync(out)) {
+          if (!owned.has(name) && !fs.existsSync(path.join(dir,name))) {
+            fs.cpSync(path.join(out,name), path.join(dir,name), {recursive:true,verbatimSymlinks:true});
+          }
+        }
+        const previous = out + ".previous-" + crypto.randomBytes(6).toString("hex");
+        fs.renameSync(out, previous);
+        try { fs.renameSync(dir, out); }
+        catch (e) { fs.renameSync(previous, out); throw e; }
+        fs.rmSync(previous, {recursive:true});
+      } else {
+        fs.renameSync(dir, out);
+      }
+    } finally { fs.rmSync(dir, {recursive:true,force:true}); }
+  } else if (out.endsWith(".mjs")) {
     fs.writeFileSync(out, Comp.js_lib(book, true));
   } else if (/\.c?js$/.test(out)) {
     fs.writeFileSync(out, Comp.js_book(book));

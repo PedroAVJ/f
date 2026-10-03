@@ -10,7 +10,7 @@ def main():
 
 #|SOME PROOFS FAIL
 #|Error:
-#|- expected : an import ('import Base', or 'import <path> as <Name>')
+#|- expected : an import ('import Base', 'import F', 'import State', 'import V', or 'import <path> as <Name>')
 #|- observed : 'import Wat'
 #|Location:
 #|3 | # the i

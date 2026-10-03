@@ -9,7 +9,8 @@ prelude; main.ts is the CLI. Every test is a Bend file that ends in the `#|`
 lines its run must print, and the gates run on the mini cluster.
 
     bend2/bend.ts       the language: parser, theory, checker
-    bend2/comp.ts       the compiler and the runtimes (C, Metal, CUDA, JS)
+    bend2/comp.ts       the compiler and runtimes (C, Metal, CUDA, JS, Wasm,
+                        browser WGSL kernel lowering)
     bend2/main.ts       the CLI; imported, the .bend loader for bun and node
     bend2/safe.ts       --verdict and -o <out>.bendtt: the elaborator from a
                         checked book to BendTT text
@@ -18,6 +19,10 @@ lines its run must print, and the gates run on the mini cluster.
                         builds its CLI once, with Lean v4.34.0
     bend2/base.bend     the base library
     bend2/effs/         IO effect sources per backend; related effects may share
+    bend2/std/F/        copied F implementation and internal browser support;
+                        from near-bend's packages/function, MIT, each
+                        tree's LICENSE beside it (THIRD_PARTY_NOTICES.md).
+                        Explicit F, State and V imports select bare public bindings.
     bend2/pack/         package.json, tsconfig.json, bun.lock
     bend2/docs/         the papers' Typst sources, the film, gen_pins.ts (the
                         record pins on this Mac), gen_charts.ts (the landing
@@ -39,7 +44,8 @@ lines its run must print, and the gates run on the mini cluster.
                         minis: `tests` or `hub` (a BendHub store, $SAFE_HUB)
     gates/_run.ts       the four gates with --gate
     demos/              one dir per demo
-    guide/              GUIDE.md
+    guide/              GUIDE.md, and the extras `bend guide <name>` prints:
+                        EFFECTS.md, SHADERS.md, F.md, WEB.md
     paper/              BendTT.pdf, BendRT.pdf
     media/              the film and the charts
     .github/            ISSUE_TEMPLATE/bug.yml, the bug report form, and

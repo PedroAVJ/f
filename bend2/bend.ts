@@ -949,6 +949,30 @@ async function book_file(book: Book, file: string, spn?: Span): Promise<string> 
   return fs.realpathSync(file);
 }
 
+// Explicit framework preludes select bindings; files retain canonical identities.
+const PRELUDES: Record<string, Array<[string, string[]]>> = {
+  F: [
+    ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "Tree", "Box", "text", "layout", "leaf", "rounded", "solid"]],
+    ["ui/components", ["Component", "Visual", "Composer", "Near", "NearIdentityView=NearIdentity", "HeaderView=Header", "NameField", "AppShell", "Component.append=append_components"]],
+    ["browser/components", ["Component.html=html"]],
+    ["browser/scene", ["Tree.html=html", "Tree.canvas=canvas"]],
+    ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree"]],
+  ],
+  State: [
+    ["dot/session", ["Session", "Permission", "Permissions", "TaskApproval", "Command", "Call", "Message", "MessageRole", "MessageSource", "MessageStatus", "Task", "TaskStatus", "TaskEvent", "Continuity", "Session.initial=initial", "Session.update=update", "Session.phase=phase", "Session.in_call=in_call", "Continuity.initial=history_initial", "Continuity.message=history_message", "Continuity.task=history_task"]],
+    ["ai/protocol", ["StreamState", "Frame", "StreamTransition=Transition", "Framing", "StreamState.initial=initial", "StreamState.reduce=reduce", "StreamState.text=text", "StreamState.terminal=terminal", "StreamState.Phase=Phase", "StreamTransition.Event=TextEvent"]],
+    ["ui/kit", ["Remote", "Moment", "Motion", "FieldState", "Press", "FixedState", "ServedState", "Moment.still=still"]],
+    ["ai/codecs", ["Provider", "Usage", "ModelError=Error"]],
+    ["ai/requests", ["OpenRouterRequest", "ResponsesRequest", "AnthropicRequest", "SpeechRequest", "ClaudeRequest", "HTTPRequest", "RequestError", "OpenRouterRequest.Role=Role", "OpenRouterRequest.Message=Message", "OpenRouterRequest.encode=openrouter", "ResponsesRequest.encode=responses", "AnthropicRequest.encode=anthropic", "AnthropicRequest.Role=Role", "AnthropicRequest.Message=Message", "SpeechRequest.encode=speech", "ClaudeRequest.arguments=claude_arguments"]],
+  ],
+  V: [
+    ["deployment/domain/architecture/system/release/type", ["Release", "Repository", "Package", "Plugin"]],
+    ["deployment/domain/architecture/system/deployment/type", ["Deployment", "Break"]],
+    ["deployment/domain/architecture/system/plan/type", ["Observed", "Step", "RepositoryStatus=Remote", "PackageStatus=Hub", "ReleaseTag=Tag"]],
+    ["deployment/domain/architecture/system/plan/ops", ["plan", "blocked", "any_blocked", "show_all"]],
+  ],
+};
+
 export async function book_load(book: Book, file: string, ns: string, seen: Map<string, string | null>, spn?: Span, root?: string): Promise<number> {
   const real = await book_file(book, file, spn);
   if (seen.has(real)) {
@@ -978,18 +1002,41 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     const m   = /^import\s+(\S+)(?:\s+as\s+([A-Za-z_]\w*))?\s*(?:#.*)?$/.exec(line);
     const beg = at + lines[i].indexOf(m?.[1] ?? line);
     const sp  = { file: { str: text, ns, al }, beg, end: beg };
-    if (m === null || (m[2] === undefined && m[1] !== "Base")) {
-      throw Err(book, ctx_nil(), "an import ('import Base', or 'import <path> as <Name>')", "'" + line + "'", sp);
+    if (m === null || (m[2] === undefined && m[1] !== "Base" && !Object.hasOwn(PRELUDES, m[1]))) {
+      throw Err(book, ctx_nil(), "an import ('import Base', 'import F', 'import State', 'import V', or 'import <path> as <Name>')", "'" + line + "'", sp);
     }
     body[i] = "";
     if (m[2] === undefined) {
-      await book_load(book, BASE_BEND, "", seen, sp);
+      if (m[1] === "Base") {
+        await book_load(book, BASE_BEND, "", seen, sp);
+      } else {
+        for (const [entry, names] of PRELUDES[m[1]]) {
+          const sub = "std/F/" + entry;
+          await book_load(book, BEND_DIR + sub + ".bend", sub, seen, sp, top);
+          const bind = (name: string, target: string) => {
+            const key = "=" + name;
+            if (name.split(".")[0] in al || (key in al && al[key] !== target)) throw Err(book, ctx_nil(), "an unambiguous prelude binding " + name, undefined, sp);
+            al[key] = target;
+          };
+          for (const binding of names) {
+            const [name, local = name] = binding.split("=");
+            const target = sub + ":" + local;
+            const def = book.tlds[target];
+            if (!def) throw Err(book, ctx_nil(), "a defined prelude binding " + name, undefined, sp);
+            bind(name, target);
+            for (const ctr of (def as ADT).c ?? []) {
+              const child = ctr.k.slice(sub.length + 1);
+              bind(child === local ? name : name + "." + child.replace(local + ".", ""), ctr.k);
+            }
+          }
+        }
+      }
       continue;
     }
     if (!m[1].endsWith(".bend")) {
       throw Err(book, ctx_nil(), "an import of a .bend file", "'" + m[1] + "'", sp);
     }
-    if (m[2] in al) {
+    if (m[2] in al || "=" + m[2] in al) {
       throw Err(book, ctx_nil(), "a fresh alias (" + m[2] + " names an earlier import)", "'" + line + "'", sp);
     }
     const bad = () => Err(book, ctx_nil(), "an import path of plain names (letters, digits, _ and -; the hub's files import the hub's)", "'" + m[1] + "'", sp);
@@ -1001,7 +1048,9 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     }
     const got = await book_file(book, hub(as) ? BEND_LIB + "/" + rel : path.posix.resolve(dir, rel), sp);
     const lib = fs.existsSync(BEND_LIB) ? fs.realpathSync(BEND_LIB) + "/" : "\0";
-    const sub = (got.startsWith(lib) ? got.slice(lib.length)
+    const std = fs.realpathSync(BEND_DIR) + "/std/";
+    const sub = (got.startsWith(std) ? "std/" + got.slice(std.length)
+      : got.startsWith(lib) ? got.slice(lib.length)
       : path.posix.relative(top, got)).replace(/\.bend$/, "");
     if (!ok(sub, got.startsWith(lib)) || (hub(ns) && !got.startsWith(lib))) {
       throw bad();
@@ -1213,6 +1262,8 @@ export function name_show(file: File | undefined, k: Name): string {
     return name_key(k);
   }
   const [ns, nm] = k.includes(":") ? k.split(":") : ["", k];
+  const bare = Object.keys(file.al).find((a) => a.startsWith("=") && file.al[a] === k);
+  if (bare !== undefined) return bare.slice(1);
   const a = Object.keys(file.al).find((a) => file.al[a] === ns);
   return ns === file.ns ? nm : a === undefined ? name_key(k) : a + "." + nm;
 }
@@ -1670,6 +1721,7 @@ export function parse_qual(p: Parse, k: Name): Name {
 export function parse_reso(p: Parse, k: Name): Name {
   const dot = k.indexOf(".");
   let q = parse_qual(p, k);
+  if (!(q in p.book.tlds || q in p.book.ctrs) && "=" + k in p.al) return p.al["=" + k];
   if (dot !== -1 && k.slice(0, dot) in p.al) {
     q = p.al[k.slice(0, dot)] + ":" + k.slice(dot + 1);
     if (q !== k && (q in p.book.tlds || q in p.book.ctrs) && (k in p.book.tlds || k in p.book.ctrs)) {
