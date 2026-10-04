@@ -2,7 +2,7 @@
 
 Dot, an assistant app written in F, running on your own Codex or Claude subscription.
 
-- `f.bend`: the UI, `UI = f(state)`.
+- `ui.bend`: the UI, `UI = f(state)`.
 - `state.bend`: the state.
 - `copy.bend`: the text, per language.
 - `main.bend`: a preview that prints both screens.
