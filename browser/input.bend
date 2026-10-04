@@ -16,6 +16,12 @@ type Input is Data:
   Blurred{label: String}
   Navigated{address: String}
   Ignored{}
+  Resized{width: U32, height: U32}
+
+# Native window dimensions are content points, before any Canvas layout.
+# Apps without a window() hook keep the original frame-sized shell.
+type WindowConfig is Data:
+  WindowConfig{width: U32, height: U32, min_width: U32, min_height: U32}
 
 def field(r: Result<&1, &1, String, J.Json>, +key: String) -> String:
   match r:
@@ -33,12 +39,35 @@ def typed(+data: String) -> Input:
       Bool.pick(Input, String.eq(action, "focus"), Focused{label},
         Bool.pick(Input, String.eq(action, "blur"), Blurred{label}, Ignored{}))))
 
+def dimension(value: Maybe<&2, J.Json>) -> Maybe<&2, U32>:
+  match value:
+    case Some{J.Number{text}}: U32.read(text)
+    case _: None{}
+
+def resized_dimensions(w: Maybe<&2, U32>, h: Maybe<&2, U32>) -> Input:
+  match w:
+    case Some{+width}:
+      match h:
+        case Some{+height}:
+          Bool.pick(Input, (width > 0 : U32) && (height > 0 : U32), Resized{width, height}, Ignored{})
+        case _: Ignored{}
+    case _: Ignored{}
+
+def resized(r: Result<&1, &1, String, J.Json>) -> Input:
+  match r:
+    case Done{+j}:
+      resized_dimensions(dimension(J.get(j, "width")), dimension(J.get(j, "height")))
+    case _: Ignored{}
+
+def json_input(+data: String) -> Input:
+  Bool.pick(Input, String.eq(field(J.read(data), "action"), "resize"), resized(J.read(data)), typed(data))
+
 # A browser event as an Input: a button region sends its node name, a textbox a field edit.
 def of(r: Host.Reply) -> Input:
   match r:
     case Host.Reply{+status, +data}:
       Bool.pick(Input, Bool.not(U32.is_eq(status, 1)), Ignored{},
-        Bool.pick(Input, String.starts_with(data, "{"), typed(data),
+        Bool.pick(Input, String.starts_with(data, "{"), json_input(data),
           Bool.pick(Input, String.starts_with(data, "button · "), Clicked{String.drop(data, 9n)},
             Bool.pick(Input, String.starts_with(data, "address · "), Navigated{String.drop(data, 10n)}, Ignored{}))))
 
@@ -97,3 +126,11 @@ def show_canvas_in(u: K.UI, r: K.Rendering, +scheme: T.Scheme) -> IO(Unit):
 # its first paint; the browser keeps its existing input-storage behavior.
 def configure_input_persistence(enabled: Bool) -> IO(Unit):
   IO.bind(Host.Reply, Unit, Host.request(7, Bool.pick(String, enabled, "1", "0")), x => IO.pure(Unit, Unit{}))
+
+def configure_window(w: WindowConfig) -> IO(Unit):
+  match w:
+    case WindowConfig{width, height, min_width, min_height}:
+      IO.bind(Host.Reply, Unit, Host.request(9,
+        "{\"width\":" ++ U32.show(width) ++ ",\"height\":" ++ U32.show(height) ++
+        ",\"min_width\":" ++ U32.show(min_width) ++ ",\"min_height\":" ++ U32.show(min_height) ++ "}"),
+        x => IO.pure(Unit, Unit{}))
