@@ -60,3 +60,4 @@ def one_odd(ev):
 #|   |       ^^^^
 #|48 |
 #|exit 1
+# no-base

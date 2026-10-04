@@ -24,3 +24,4 @@ def main(o):
       S{v}
 
 #|\{Only: (v => S{v})}
+# no-base

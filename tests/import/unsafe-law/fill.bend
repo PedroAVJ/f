@@ -4,3 +4,4 @@ import ./laws.bend as Laws
 
 def Laws.false_law?():
   Laws.false_law()
+# no-base

@@ -10,7 +10,7 @@ def main():
 
 #|SOME PROOFS FAIL
 #|Error:
-#|- expected : an import ('import Base', 'import F', 'import State', 'import V', or 'import <path> as <Name>')
+#|- expected : an import ('import F', 'import State', or 'import <path> as <Name>'; Base is always there, V in system.bend)
 #|- observed : 'import Wat'
 #|Location:
 #|3 | # the i
@@ -18,3 +18,4 @@ def main():
 #|  |        ^
 #|5 | law main:
 #|exit 1
+# no-base

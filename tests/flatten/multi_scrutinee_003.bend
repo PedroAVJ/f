@@ -19,3 +19,4 @@ def main(a, b):
       B{a}
 
 #|a => \{S: (b => A{a, b}); Z: B{a}}
+# no-base

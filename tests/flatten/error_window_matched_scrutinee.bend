@@ -17,3 +17,4 @@ def bad(x: One) -> Type:
 #|  |       ^
 #|9 | 
 #|exit 1
+# no-base

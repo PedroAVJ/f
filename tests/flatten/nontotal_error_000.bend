@@ -31,3 +31,4 @@ def main(): f(Sx6{Zx6{}})
 #|   |   ^^^^^^^^
 #|16 |     case Sx6{a}:
 #|exit 1
+# no-base

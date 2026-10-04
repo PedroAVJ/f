@@ -42,3 +42,4 @@ law main:
 def main(): fst(packed())
 
 #|Z{}
+# no-base

@@ -38,3 +38,4 @@ def main(a, b, c):
       H{}
 
 #|\{S: (a => \{S: (b => \{S: (c => A{a, b, c}); Z: B{a, b}}); Z: \{S: (c => C{a, c}); Z: D{a}}}); Z: \{S: (b => \{S: (c => E{b, c}); Z: F{b}}); Z: \{S: (c => G{c}); Z: H{}}}}
+# no-base

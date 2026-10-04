@@ -26,3 +26,4 @@ def main(x, y):
           q
 
 #|\{Z: (y => y); S: (p => \{Z: p; S: (q => q)})}
+# no-base

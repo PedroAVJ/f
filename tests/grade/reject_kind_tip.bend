@@ -25,3 +25,4 @@ type Foo is Nat:
 #|   |             ^^^
 #|16 |   MkFoo{}
 #|exit 1
+# no-base

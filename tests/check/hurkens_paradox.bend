@@ -121,3 +121,4 @@ def main(): Uu{}
 #|   |                      ^
 #|45 |
 #|exit 1
+# no-base

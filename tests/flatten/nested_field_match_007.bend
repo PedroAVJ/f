@@ -34,3 +34,4 @@ def main(w):
       go(h, t)
 
 #|\{Leaf: Z{}; Node: (h => t => go(h, t))}
+# no-base

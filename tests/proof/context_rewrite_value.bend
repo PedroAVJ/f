@@ -30,3 +30,4 @@ law main:
 def main(): castF(Z{}, Z{}, {==}, U{})
 
 #|U{}
+# no-base

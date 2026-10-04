@@ -18,3 +18,4 @@ def main(a):
       Some{a}
 
 #|\{None: None{}; Some: (a => Some{a})}
+# no-base

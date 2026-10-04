@@ -22,3 +22,4 @@ def main(x):
       RD{n}
 
 #|\{Z: RZ{}; (x => RD{x})}
+# no-base

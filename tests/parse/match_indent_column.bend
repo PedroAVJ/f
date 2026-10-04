@@ -23,3 +23,4 @@ law main:
 def main(): notb(Tt7{})
 
 #|Ff7{}
+# no-base

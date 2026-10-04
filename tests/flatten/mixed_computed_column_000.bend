@@ -70,3 +70,4 @@ def main(x, n):
   sel(par(x), n)
 
 #|x => n => sel(par(x), n)
+# no-base

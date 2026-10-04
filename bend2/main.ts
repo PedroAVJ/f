@@ -336,7 +336,7 @@ async function cli_system(cmd: string, argv: string[]): Promise<void> {
     const sys = book.tlds["system"];
     if (book_main(book) === null) {
       if (sys?.$ !== "Def" || (sys.T as { k?: string }).k !== V + "type:System") {
-        cli_fail("system.bend must define system() -> System (import V)");
+        cli_fail("system.bend must define system() -> System");
       }
       const n0 = book.order.length;
       Bend.parse_book(book, path.dirname(file), "def main() -> IO(Unit):\n  "
@@ -366,7 +366,7 @@ async function cli_checkup(file: string): Promise<void> {
     cli_say(1, "--- " + m[1] + " ---\n");
     let code = 1;
     try {
-      const own = /^import Base$/m.test(fs.readFileSync(at, "utf8"));
+      const own = !/^# no-base$/m.test(fs.readFileSync(at, "utf8"));
       code = book_run(await book_read(at, own ? base : undefined), [at]);
     } catch (e) {
       cli_say(2, book_err(e) + "\n");

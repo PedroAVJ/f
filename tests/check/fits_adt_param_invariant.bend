@@ -24,3 +24,4 @@ def cType(): cData
 #|   |              ^^^^^
 #|16 |
 #|exit 1
+# no-base

@@ -24,3 +24,4 @@ def main(v):
 #|   |      ^
 #|15 |   y
 #|exit 1
+# no-base

@@ -33,3 +33,4 @@ def bad(x):
 #|   |       ^^^^^^^^
 #|22 |         case B0{}: B0{}
 #|exit 1
+# no-base

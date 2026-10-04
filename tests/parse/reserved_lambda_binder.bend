@@ -15,3 +15,4 @@ def main(): Type => Type
 #|  |                    ^
 #|7 |
 #|exit 1
+# no-base

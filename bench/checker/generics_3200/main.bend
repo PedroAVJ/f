@@ -195301,3 +195301,4 @@ law cs3199:
 def cs3199(x, y):
   Cs{x, Cs{y, Nl{}}}
 
+# no-base

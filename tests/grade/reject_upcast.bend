@@ -31,3 +31,4 @@ def up(xs):
 #|   |   ^^
 #|21 | 
 #|exit 1
+# no-base

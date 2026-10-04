@@ -29,3 +29,4 @@ def main(a):
       C{}
 
 #|\{Cons: \{F: (a => A{a}); T: (a => B{a})}; Nil: C{}}
+# no-base

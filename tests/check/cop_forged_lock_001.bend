@@ -37,3 +37,4 @@ def main():
 #|   |         ^
 #|11 | 
 #|exit 1
+# no-base

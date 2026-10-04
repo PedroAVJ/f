@@ -35,3 +35,4 @@ def main(): f(Sx7{Zx7{}})
 #|   |   ^^^^^^^^
 #|18 |     case Sx7{Sx7{a}}:
 #|exit 1
+# no-base

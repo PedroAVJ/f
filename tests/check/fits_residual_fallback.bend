@@ -18,3 +18,4 @@ law main: Unit
 def main(): matcher(B{})
 
 #|Unit{}
+# no-base

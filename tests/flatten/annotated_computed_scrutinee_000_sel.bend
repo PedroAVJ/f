@@ -97,3 +97,4 @@ def main(n):
       k
 
 #|\{Z: S{Z{}}; (n => n)}
+# no-base

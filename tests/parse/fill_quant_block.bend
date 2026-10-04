@@ -10,3 +10,4 @@ law main: Type
 def main(): D<Type>
 
 #|D<&1, &1, Type>
+# no-base

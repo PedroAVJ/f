@@ -32,3 +32,4 @@ def main(): f(Zu{})
 #|   |          ^
 #|18 |       Au{}
 #|exit 1
+# no-base

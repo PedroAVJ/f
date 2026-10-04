@@ -19,3 +19,4 @@ def main(f):
   f(S{Z{}})
 
 #|f => f(S{Z{}})
+# no-base

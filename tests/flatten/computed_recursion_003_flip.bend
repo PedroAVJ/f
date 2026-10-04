@@ -21,3 +21,4 @@ def main(z):
       T{}
 
 #|\{T: F{}; F: T{}}
+# no-base

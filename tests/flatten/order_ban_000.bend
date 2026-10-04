@@ -33,3 +33,4 @@ def main():
 #|   |            ^
 #|16 |     case Zy{}, y:
 #|exit 1
+# no-base

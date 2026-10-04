@@ -37,3 +37,4 @@ def main(z):
       Z{}
 
 #|\{T: S{Z{}}; F: Z{}}
+# no-base

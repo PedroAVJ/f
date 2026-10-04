@@ -30,3 +30,4 @@ def main():
   tab(Ss5{Zz5{}}, Zz5{})
 
 #|Ss5{Ss5{Zz5{}}}
+# no-base

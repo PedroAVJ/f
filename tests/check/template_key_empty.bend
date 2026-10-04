@@ -39,3 +39,4 @@ def contradiction() -> Pick(~ANode{ANode{ALeaf{Unit{}}, ALeaf{Unit{}}}, ALeaf{Un
 #|   |   ^^^^
 #|31 | 
 #|exit 1
+# no-base

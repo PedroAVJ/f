@@ -20,3 +20,4 @@ def main():
 #|   |       ^^^^^^
 #|11 |   Type
 #|exit 1
+# no-base

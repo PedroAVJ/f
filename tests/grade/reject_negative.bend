@@ -25,3 +25,4 @@ type Knot is Data:
 #|   |              ^^^^^^^^^^^^^
 #|17 |
 #|exit 1
+# no-base

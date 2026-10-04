@@ -9,3 +9,4 @@ law main: Quant
 def main(): q
 
 #|&0
+# no-base

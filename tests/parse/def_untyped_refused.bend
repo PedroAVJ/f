@@ -14,3 +14,4 @@ def add(x, y):
 #|  |              ^
 #|5 |   x
 #|exit 1
+# no-base

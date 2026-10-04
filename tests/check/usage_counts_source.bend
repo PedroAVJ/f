@@ -31,3 +31,4 @@ def duplicate(t): (z => {z : Ty(z)})(Box{consume(t), t})
 #|   |               ^
 #|23 |
 #|exit 1
+# no-base

@@ -32,3 +32,4 @@ def main(): Type
 #|   |               ^
 #|16 |       f(DCon{f})
 #|exit 1
+# no-base

@@ -16,3 +16,4 @@ def law(): Type
 #|  |     ^^^
 #|7 | def law(): Type
 #|exit 1
+# no-base

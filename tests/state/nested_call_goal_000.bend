@@ -55,3 +55,4 @@ def turn_turn(d):
 #|   |   ^^^^
 #|45 |
 #|exit 1
+# no-base

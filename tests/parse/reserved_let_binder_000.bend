@@ -18,3 +18,4 @@ law main:
 def main(): f()
 
 #|Qv0{}
+# no-base

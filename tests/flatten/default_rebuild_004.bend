@@ -16,3 +16,4 @@ def main(a):
       n
 
 #|\{S: \{S: (p => p); (_5 => S{_5})}; (a => a)}
+# no-base

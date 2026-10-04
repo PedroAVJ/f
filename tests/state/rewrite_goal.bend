@@ -59,3 +59,4 @@ def spec_thm(n, x):
 #|   |       ^^^^
 #|48 |
 #|exit 1
+# no-base

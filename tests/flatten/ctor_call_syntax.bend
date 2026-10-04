@@ -31,3 +31,4 @@ def main(): f(Zw4{})
 #|   |   ^^^
 #|16 |
 #|exit 1
+# no-base

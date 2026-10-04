@@ -35,3 +35,4 @@ def main(a):
   w
 
 #|a => S{S{S{S{a}}}}
+# no-base

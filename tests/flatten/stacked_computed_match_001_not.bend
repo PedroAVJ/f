@@ -40,3 +40,4 @@ def sel(a, b, c):
       K4{}
 
 #|\{T: F{}; F: T{}}
+# no-base

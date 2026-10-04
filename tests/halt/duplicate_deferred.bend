@@ -37,3 +37,4 @@ def main(): N{}
 #|   |              ^^^^
 #|19 |     case t:
 #|exit 1
+# no-base

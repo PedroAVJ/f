@@ -27,3 +27,4 @@ def main():
   IO.print(Nat.show(dup_eq(3n)))
 
 #|3
+# no-base

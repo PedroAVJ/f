@@ -40,3 +40,4 @@ def main(): Num{}
 #|   |       ^^^
 #|20 |     case Cal{f, a2}:
 #|exit 1
+# no-base

@@ -16,3 +16,4 @@ def bad() -> Bool -> Bool:
 #|  |   ^^^^^^^^^^^^^^^
 #|8 |
 #|exit 1
+# no-base

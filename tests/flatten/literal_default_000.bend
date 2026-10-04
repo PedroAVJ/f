@@ -21,3 +21,4 @@ def main(a):
       R2{}
 
 #|\{Z: R1{}; (a => R2{})}
+# no-base

@@ -28,3 +28,4 @@ def main(a, b, c):
       D{a,b,c,d}
 
 #|\{Z: (b => c => A{}); S: (a => \{Nil: (c => B{a, c}); Cons: \{Z: (b => c => C{a, b, c}); S: (b => b => c => D{a, b^1, b, c})}})}
+# no-base

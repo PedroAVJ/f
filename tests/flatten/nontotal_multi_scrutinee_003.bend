@@ -32,3 +32,4 @@ def main(): mix(Ob{}, Ob{})
 #|   |   ^^^^^^^^^^^
 #|15 |     case Ob{}, Ob{}:
 #|exit 1
+# no-base

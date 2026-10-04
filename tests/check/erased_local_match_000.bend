@@ -25,3 +25,4 @@ def erase_then_match(z):
 #|   |   ^^
 #|15 |   match x:
 #|exit 1
+# no-base

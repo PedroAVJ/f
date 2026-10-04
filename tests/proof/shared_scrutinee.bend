@@ -40,3 +40,4 @@ law main:
 def main(): q()
 
 #|{==}
+# no-base

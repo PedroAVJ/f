@@ -47,3 +47,4 @@ def main():
         return Ss3{x})
 
 #|Ss3{Ss3{Zz3{}}}
+# no-base

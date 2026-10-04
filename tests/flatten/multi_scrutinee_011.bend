@@ -15,3 +15,4 @@ def main(a, b):
       a
 
 #|\{Z: (b => b); S: (a => b => a)}
+# no-base

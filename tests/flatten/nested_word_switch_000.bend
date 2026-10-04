@@ -32,3 +32,4 @@ def main(a, b):
           KM{n, m}
 
 #|\{Z: \{Z: K100{}; (b => KP{S{b}})}; (a => \{Z: KN{a}; (b => KM{a, b})})}
+# no-base

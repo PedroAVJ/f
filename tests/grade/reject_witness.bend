@@ -43,3 +43,4 @@ def dup(T, c, x):
 #|27 |   Sigma<&1, &1, T, _ => T>
 #|Note: +x can be used many times, so its type must be Data.
 #|exit 1
+# no-base

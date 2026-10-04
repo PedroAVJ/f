@@ -31,3 +31,4 @@ def cast(A):
 #|   |   ^
 #|21 | 
 #|exit 1
+# no-base

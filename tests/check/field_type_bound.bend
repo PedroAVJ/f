@@ -18,3 +18,4 @@ def main(): Mk9{}
 #|  |          ^^^^^^^^
 #|5 |
 #|exit 1
+# no-base

@@ -26,3 +26,4 @@ def main(a):
       D{}
 
 #|\{Cons: \{S: (a => b => A{a, b}); Z: \{Nil: B{}; Cons: (a => b => C{a, b})}}; Nil: D{}}
+# no-base

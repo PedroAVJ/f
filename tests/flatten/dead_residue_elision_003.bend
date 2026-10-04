@@ -39,3 +39,4 @@ def main(x, y):
 #|   |             ^
 #|26 |         case Z{}:
 #|exit 1
+# no-base

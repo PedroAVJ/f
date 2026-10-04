@@ -31,3 +31,4 @@ def main():
   pick(One{})
 
 #|One{}
+# no-base

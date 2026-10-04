@@ -36,3 +36,4 @@ def main(): f(Zw{}, Zw{})
 #|   |          ^^^^^^^^^^^^^
 #|20 |       Aw{x}
 #|exit 1
+# no-base

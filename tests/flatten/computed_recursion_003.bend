@@ -32,3 +32,4 @@ def main(n):
       flip(main(p))
 
 #|\{Zn: T{}; Sn: (p => flip(main(p)))}
+# no-base

@@ -18,3 +18,4 @@ law main:
 def main(): apply(as => as, Ok{})
 
 #|Ok{}
+# no-base

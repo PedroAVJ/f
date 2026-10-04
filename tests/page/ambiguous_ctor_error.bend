@@ -31,3 +31,4 @@ def main(): f(K{1})
 #|  |   ^
 #|9 |
 #|exit 1
+# no-base

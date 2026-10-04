@@ -31,3 +31,4 @@ law main:
 def main(): Z{}
 
 #|Z{}
+# no-base

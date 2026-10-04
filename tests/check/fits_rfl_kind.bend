@@ -17,3 +17,4 @@ def data_type(): {==}
 #|  |                  ^^^^
 #|9 |
 #|exit 1
+# no-base

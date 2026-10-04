@@ -28,3 +28,4 @@ def main(): pred(Se3{Ze3{}})
 #|   |   ^^^^^^^^
 #|13 |     case Se3{p}:
 #|exit 1
+# no-base

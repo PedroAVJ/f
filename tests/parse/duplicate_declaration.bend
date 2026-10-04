@@ -22,3 +22,4 @@ def main(): Un{}
 #|   |     ^^^^
 #|11 |   Uu
 #|exit 1
+# no-base

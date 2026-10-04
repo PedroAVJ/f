@@ -50,3 +50,4 @@ def main(): Z{}
 #|   |                     ^
 #|37 |
 #|exit 1
+# no-base

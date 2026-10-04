@@ -32,3 +32,4 @@ def main():
   f(S{Z{}}, Z{})
 
 #|C{S{Z{}}}
+# no-base

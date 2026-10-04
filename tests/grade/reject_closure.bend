@@ -30,3 +30,4 @@ def dupf(f):
 #|17 |   Nat
 #|Note: +f can be used many times, so its type must be Data.
 #|exit 1
+# no-base

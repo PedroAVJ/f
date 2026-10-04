@@ -37,3 +37,4 @@ def one_odd(ev):
 #|   |       ^^^^
 #|25 |     case ESS{p, e, eq}:
 #|exit 1
+# no-base

@@ -21,3 +21,4 @@ def main(w):
       a
 
 #|\{Box: \{P: (a => b => a)}}
+# no-base

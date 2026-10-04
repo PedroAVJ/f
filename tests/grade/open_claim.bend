@@ -25,3 +25,4 @@ def main():
 #|Error: 1 TODO found.
 #|The code is incomplete, and not a valid proof yet.
 #|exit 1
+# no-base

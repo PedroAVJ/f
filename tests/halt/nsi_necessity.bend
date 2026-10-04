@@ -40,3 +40,4 @@ def main(): Z{}
 #|   |       ^^^^
 #|24 |
 #|exit 1
+# no-base

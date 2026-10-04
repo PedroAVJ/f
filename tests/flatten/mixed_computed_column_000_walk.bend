@@ -62,3 +62,4 @@ def sel(k, n):
       R4{}
 
 #|\{Z: (x => WS{x}); S: (p => x => main(p, WS{x}))}
+# no-base

@@ -14,3 +14,4 @@ def main(a, b):
   A{a,b}
 
 #|a => b => A{a, b}
+# no-base

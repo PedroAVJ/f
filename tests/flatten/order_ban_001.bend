@@ -37,3 +37,4 @@ def main():
 #|   |                ^
 #|20 |         case Zy2{}, y:
 #|exit 1
+# no-base

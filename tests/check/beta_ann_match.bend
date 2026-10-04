@@ -9,3 +9,4 @@ def main() -> Nat:
   (x => {\{Zero: 1n; Succ: p => 2n} : Nat -> Nat})(0n)(3n)
 
 #|2n
+# no-base

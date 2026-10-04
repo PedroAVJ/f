@@ -31,3 +31,4 @@ type Cp<-T: Type, -x: T> is Data:
 #|   |           ^
 #|20 | 
 #|exit 1
+# no-base

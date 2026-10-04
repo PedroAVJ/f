@@ -17,3 +17,4 @@ def main(n):
       p
 
 #|\{Z: Z{}; S: (p => p)}
+# no-base

@@ -16,3 +16,4 @@ def n() -> Nat:
 #|  |   ^^
 #|8 | 
 #|exit 1
+# no-base

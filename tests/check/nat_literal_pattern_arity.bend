@@ -25,3 +25,4 @@ def f(b: N) -> U:
 #|   |          ^^^^
 #|15 |       Un{}
 #|exit 1
+# no-base

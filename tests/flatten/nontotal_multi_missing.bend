@@ -29,3 +29,4 @@ def main(): f(Aa1{})
 #|   |   ^^^^^^^^
 #|14 |     case Aa1{}:
 #|exit 1
+# no-base

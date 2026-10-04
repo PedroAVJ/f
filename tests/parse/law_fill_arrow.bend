@@ -18,3 +18,4 @@ def claim(n) -> {0n == 1n : Nat}:
 #|  |              ^
 #|9 |   {==}
 #|exit 1
+# no-base

@@ -13,3 +13,4 @@ def match(): Unit{}
 #|  |     ^^^^^
 #|5 |
 #|exit 1
+# no-base

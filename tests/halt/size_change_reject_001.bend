@@ -36,3 +36,4 @@ def main(): sw(S{Z{}}, S{Z{}})
 #|   |       ^^
 #|20 |
 #|exit 1
+# no-base

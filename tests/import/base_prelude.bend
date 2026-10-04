@@ -24,3 +24,4 @@ def main():
   depth(Sx{Zx{}})
 
 #|Sx{Zx{}}
+# no-base

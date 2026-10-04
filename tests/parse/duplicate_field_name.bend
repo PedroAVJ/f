@@ -18,3 +18,4 @@ def main() -> U32:
 #|  |              ^
 #|6 |
 #|exit 1
+# no-base

@@ -54,8 +54,8 @@ function test_read(dir: string, file: string): Test {
   const effs = [...src.matchAll(/^\s*import "\.\/[a-z0-9_]+\.(c|js)"$/gm)]
     .map((m) => m[1]);
   // A program compiles only over Base (its IO runs main): a test without
-  // it checks and interprets alone.
-  const lanes = ["js", "c"].filter((l) => /^import Base$/m.test(src)
+  // it (# no-base) checks and interprets alone.
+  const lanes = ["js", "c"].filter((l) => !/^# no-base$/m.test(src)
     && (effs.length === 0 || effs.includes(l)));
   return { name: dir + "_" + path.basename(file, ".bend"), src,
     want: tidy(want), main: /^(def|law) main(\(|:)/m.test(src), lanes };

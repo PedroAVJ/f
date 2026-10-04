@@ -3,11 +3,11 @@
 Import the parts you use explicitly:
 
 ```bend
-import Base
 import F
 import State
-import V
 ```
+
+V needs no import: it is in every file named `system.bend`, and only there.
 
 F supplies component functions, Shape/Layout trees and function transitions.
 State supplies component data, AI stream/request data and Dot session records.

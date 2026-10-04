@@ -43,3 +43,4 @@ law main:
 def main(): and_comm(T{}, F{})
 
 #|{==}
+# no-base

@@ -40,3 +40,4 @@ def main():
 #|21 |   Two
 #|Note: +x can be used many times, so its type must be Data.
 #|exit 1
+# no-base

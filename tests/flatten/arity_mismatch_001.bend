@@ -32,3 +32,4 @@ def main(): f(Zw2{}, Zw2{})
 #|   |          ^^^^^
 #|18 |       Aw2{}
 #|exit 1
+# no-base

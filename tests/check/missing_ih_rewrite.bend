@@ -40,3 +40,4 @@ def add_zero(a):
 #|   |       ^^^^
 #|30 |
 #|exit 1
+# no-base

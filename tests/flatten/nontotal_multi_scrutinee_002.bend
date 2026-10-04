@@ -48,3 +48,4 @@ def main(): f(Zz2b{}, Nl2{}, Zz2b{}, Nl2{})
 #|   |   ^^^^^^^^^^^^^^^^^
 #|26 |     case Zz2b{}, xs, b, Nl2{}:
 #|exit 1
+# no-base

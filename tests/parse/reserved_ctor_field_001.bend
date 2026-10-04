@@ -19,3 +19,4 @@ def main(): Unit{}
 #|  |       ^^^^^
 #|6 |
 #|exit 1
+# no-base

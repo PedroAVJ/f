@@ -38,3 +38,4 @@ def main(z):
       K7{}
 
 #|\{T: K6{}; F: K7{}}
+# no-base

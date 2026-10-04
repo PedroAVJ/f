@@ -21,3 +21,4 @@ def main(): Unit{}
 #|  |        ^
 #|7 |   Zz{}
 #|exit 1
+# no-base

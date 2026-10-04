@@ -49,3 +49,4 @@ def main(n):
       dec(zro(p))
 
 #|\{Zn: K5{}; Sn: (p => dec(zro(p)))}
+# no-base

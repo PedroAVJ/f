@@ -28,3 +28,4 @@ def main(): not(T{})
 #|   |          ^^^^
 #|14 |       F{}
 #|exit 1
+# no-base
