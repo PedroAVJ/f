@@ -78,62 +78,79 @@ def ports(xs: List<&2, L.Agent>) -> List<&2, U32>:
     case a <> rest:
       port_of(a) <> ports(rest)
 
-# ---- the plan for a launchd node, from what was seen on it: each program built and installed, each agent
-# (re)loaded when its plist changed, it is not loaded or a program was installed, each serve on Tailscale ----
+# ---- the plans for a launchd node, from what was seen on it: building each program into dist/, and
+# deploying what is there: each agent (re)loaded when its plist changed or it is not loaded, each serve on
+# Tailscale. A deploy never builds: it stops at a program not built from the current inputs ----
 
 def at(+dir: String, +p: String) -> String:
   Bool.pick(String, String.starts_with(p, "/"), p, dir ++ "/" ++ p)
 
-def built_step(b: P.Built, +e: String, +path: String, +dir: String) -> P.Step:
-  match b:
-    case P.Built{+fresh, same, error}:
-      Bool.pick(P.Step, String.is_empty(fresh), P.Blocked{"build " ++ e, error},
-        Bool.pick(P.Step, same, P.Current{"build " ++ e ++ " -> " ++ path}, P.Install{fresh, at(dir, path)}))
-
-def program_step(p: L.Program, b: P.Built, +dir: String) -> P.Step:
+def build_step(p: L.Program, b: P.Built) -> P.Step:
   match p:
     case L.Program{+path, build}:
       match build:
         case L.Installed{}:
           P.Current{"program " ++ path}
-        case L.Bend{e}:
-          built_step(b, e, path, dir)
+        case L.Page{+ui}:
+          match b:
+            case P.Fresh{}:
+              P.Current{"build " ++ ui ++ " -> " ++ path}
+            case _:
+              P.BuildPage{ui, path}
         case L.Next{f}:
           P.Blocked{"build " ++ f, "Next.js builds are not run from here yet"}
         case L.Node{f}:
           P.Blocked{"build " ++ f, "Node builds are not run from here yet"}
 
-def program_steps(ps: List<&2, L.Program>, bs: List<&2, P.Built>, +dir: String) -> List<&2, P.Step>:
+# What a deploy needs of a program: built, from the current inputs.
+def shipped_step(p: L.Program, b: P.Built) -> List<&2, P.Step>:
+  match p:
+    case L.Program{+path, build}:
+      match build:
+        case L.Page{_}:
+          match b:
+            case P.Fresh{}:
+              []
+            case P.Stale{}:
+              [P.Blocked{"deploy " ++ path, "built from other sources; build first (bend system build)"}]
+            case P.Missing{}:
+              [P.Blocked{"deploy " ++ path, "not built; build first (bend system build)"}]
+        case _:
+          []
+
+def build_steps_of(ps: List<&2, L.Program>, bs: List<&2, P.Built>) -> List<&2, P.Step>:
   match ps:
     case []:
       []
     case p <> prest:
       match bs:
         case []:
-          [P.Blocked{"program observation", "missing build for a declared program"}]
+          [P.Blocked{"program observation", "missing build state for a declared program"}]
         case b <> brest:
-          program_step(p, b, dir) <> program_steps(prest, brest, dir)
+          build_step(p, b) <> build_steps_of(prest, brest)
 
-def installs(ss: List<&2, P.Step>) -> Bool:
-  match ss:
+def shipped_steps(ps: List<&2, L.Program>, bs: List<&2, P.Built>) -> List<&2, P.Step>:
+  match ps:
     case []:
-      False{}
-    case P.Install{_, _} <> rest:
-      True{}
-    case _ <> rest:
-      installs(rest)
+      []
+    case p <> prest:
+      match bs:
+        case []:
+          [P.Blocked{"program observation", "missing build state for a declared program"}]
+        case b <> brest:
+          List.append(&2, P.Step, shipped_step(p, b), shipped_steps(prest, brest))
 
-def agent_step(r: P.Running, +a: L.Agent, +home: String, +domain: String, +dir: String, relaunch: Bool) -> P.Step:
+def agent_step(r: P.Running, +a: L.Agent, +home: String, +domain: String, +dir: String) -> P.Step:
   match r:
     case P.Running{now, +loaded, +listener}:
       +label = label_of(a)
       +want = plist(home, dir, a)
       Bool.pick(P.Step, Bool.not(loaded) && Bool.not(String.is_empty(listener)),
         P.Blocked{"port " ++ U32.show(port_of(a)), "already in use by " ++ listener},
-        Bool.pick(P.Step, loaded && String.eq(now, want) && Bool.not(relaunch),
+        Bool.pick(P.Step, loaded && String.eq(now, want),
           P.Current{"launchd " ++ label}, P.Launch{label, path(home, label), want, domain}))
 
-def agent_steps(xs: List<&2, L.Agent>, rs: List<&2, P.Running>, +home: String, +domain: String, +dir: String, +relaunch: Bool) -> List<&2, P.Step>:
+def agent_steps(xs: List<&2, L.Agent>, rs: List<&2, P.Running>, +home: String, +domain: String, +dir: String) -> List<&2, P.Step>:
   match xs:
     case []:
       []
@@ -142,7 +159,7 @@ def agent_steps(xs: List<&2, L.Agent>, rs: List<&2, P.Running>, +home: String, +
         case []:
           [P.Blocked{"agent observation", "missing launchd state for a declared agent"}]
         case r <> rrest:
-          agent_step(r, a, home, domain, dir, relaunch) <> agent_steps(arest, rrest, home, domain, dir, relaunch)
+          agent_step(r, a, home, domain, dir) <> agent_steps(arest, rrest, home, domain, dir)
 
 # The line after the first line holding needle: what `tailscale serve status` serves under a port's heading.
 def under(ls: List<&2, String>, +needle: String) -> Maybe<&2, String>:
@@ -196,9 +213,21 @@ def address_step(+ss: List<&2, ND.Serve>, +name: String, +address: String) -> Li
     Bool.pick(List<&2, P.Step>, answers(ss, name, address) || List.is_empty(&2, ND.Serve, ss), [],
       [P.Blocked{"address", address ++ " is not one of this node's serves on " ++ name}]))
 
-def steps(ld: L.Launchd, s: P.Seen, +address: String) -> List<&2, P.Step>:
+# Building: each program into dist/.
+def build_steps(ld: L.Launchd, s: P.Seen) -> List<&2, P.Step>:
   match ld s:
-    case L.Launchd{ps, xs, +ss} P.Seen{+home, +domain, +dir, bs, rs, +ts, +name, +served}:
-      +built = program_steps(ps, bs, dir)
-      List.append(&2, P.Step, address_step(ss, name, address), List.append(&2, P.Step, built,
-        List.append(&2, P.Step, agent_steps(xs, rs, home, domain, dir, installs(built)), serve_steps(ss, served, ts))))
+    case L.Launchd{ps, _, _} P.Seen{_, _, _, bs, _, _, _, _}:
+      build_steps_of(ps, bs)
+
+# Shipping: each program built from the current inputs, which a deploy needs and never makes.
+def ship_steps(ld: L.Launchd, s: P.Seen) -> List<&2, P.Step>:
+  match ld s:
+    case L.Launchd{ps, _, _} P.Seen{_, _, _, bs, _, _, _, _}:
+      shipped_steps(ps, bs)
+
+# Serving: the address, each agent and each serve.
+def serve_all(ld: L.Launchd, s: P.Seen, +address: String) -> List<&2, P.Step>:
+  match ld s:
+    case L.Launchd{_, xs, +ss} P.Seen{+home, +domain, +dir, _, rs, +ts, +name, +served}:
+      List.append(&2, P.Step, address_step(ss, name, address),
+        List.append(&2, P.Step, agent_steps(xs, rs, home, domain, dir), serve_steps(ss, served, ts)))

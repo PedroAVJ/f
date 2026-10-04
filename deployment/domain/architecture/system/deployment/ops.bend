@@ -113,14 +113,6 @@ def recorded_stores(+text: String) -> List<&2, String>:
 
 # ---- lowering a Mac deployment to its topology: what V derives from the intent and the Mac ----
 
-# A web app's entry as a file, and its name: the entry's last path segment, without ".bend".
-def entry_file(+e: String) -> String:
-  Bool.pick(String, String.ends_with(e, ".bend"), e, e ++ ".bend")
-
-def app_name(+e: String) -> String:
-  +b = Maybe.default(&2, String, List.last(&2, String, String.split(e, '/')), e)
-  Bool.pick(String, String.ends_with(b, ".bend"), String.take(b, Nat.sub(String.length(b), 5n)), b)
-
 def digits(+s: String) -> U32:
   +p = Maybe.default(&2, U32, U32.read(s), 0)
   Bool.pick(U32, String.eq(U32.show(p), s), p, 0)
@@ -146,17 +138,17 @@ def local_port(+https: U32, h: D.Here) -> U32:
 def tailnet_address(+name: String, +https: U32) -> String:
   "https://" ++ name ++ Bool.pick(String, U32.is_eq(https, 443), "", ":" ++ U32.show(https))
 
-# A web app on this Mac: its page built to dist/<app>/index.html, a launch agent com.<user>.<repo>.<app>
-# serving that folder on 127.0.0.1 at the local port (python3's http.server), and the tailnet HTTPS port
-# proxied to it.
+# A web app on this Mac, named web: its page built to dist/web/index.html, a launch agent
+# com.<user>.<repo>.web serving that folder on 127.0.0.1 at the local port (python3's http.server), and the
+# tailnet HTTPS port proxied to it.
 def web_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Application) -> D.Node:
   match app:
-    case D.Web{+e}:
-      +a = app_name(e)
+    case D.Web{ui}:
+      +a : String = "web"
       +dir = "dist/" ++ a
       D.Node{"mac", "this Mac", "launchd", D.Server{}, H.Owned{"this Mac"},
         D.Launchd{L.Launchd{
-          [L.Program{dir ++ "/index.html", L.Bend{entry_file(e)}}],
+          [L.Program{dir ++ "/index.html", L.Page{ui}}],
           [L.Agent{a, "com." ++ user ++ "." ++ repo ++ "." ++ a, "/usr/bin/python3",
             ["-m", "http.server", U32.show(port), "--bind", "127.0.0.1", "--directory", dir], [], repo ++ "-" ++ a, port}],
           [ND.Serve{a, https, port, "/"}]}},

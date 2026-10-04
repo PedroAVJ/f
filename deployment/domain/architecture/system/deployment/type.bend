@@ -35,10 +35,10 @@ type Topology is Data:
 type Exposure is Data:
   Tailscale{port: U32}
 
-# One app V builds and runs: a web app, its page the run of a Bend file (entry, ".bend" optional), served
-# as dist/<its last path segment>/index.html.
+# One app V builds and runs: a web app, its page a UI module's f (ui, its path without ".bend") at
+# state.bend's initial(), built to dist/web/index.html.
 type Application is Data:
-  Web{entry: String}
+  Web{ui: String}
 
 # Where the system runs, as intent: on this Mac, these apps, reached this way. V lowers it to a Topology.
 type Deployment is Data:

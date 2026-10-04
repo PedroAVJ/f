@@ -146,8 +146,8 @@ def show(s: P.Step) -> String:
       "release  plugin " ++ n ++ "@" ++ v ++ " to marketplace github " ++ r ++ " as tag " ++ n ++ "-v" ++ v ++ Bool.pick(String, create, " (a new repository)", "")
     case P.Launch{l, _, _, _}:
       "launch   " ++ l
-    case P.Install{_, t}:
-      "install  " ++ t
+    case P.BuildPage{u, p}:
+      "build    " ++ u ++ " -> " ++ p
     case P.BuildNext{f, +tree, d}:
       "build    " ++ f ++ " @ " ++ String.take(tree, 7n) ++ " (Next.js) into " ++ d
     case P.BuildNode{f, +tree, d}:

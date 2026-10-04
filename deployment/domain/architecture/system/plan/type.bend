@@ -23,11 +23,11 @@ type Tag is Data:
 type Observed is Data:
   Observed{files: List<&2, String>, reached: List<&2, String>, hubs: List<&2, Hub>, remotes: List<&2, Remote>, tags: List<&2, Tag>}
 
-# One step of a plan. Publish, Push, ReleasePlugin, Rebuild, ServePort and Launch change the world; Current and Change do not
+# One step of a plan. BuildPage, Publish, Push, ReleasePlugin, Rebuild, ServePort and Launch change the world; Current and Change do not
 # (a Change is what a Rebuild would change, shown by a dry run); Blocked stops the deploy.
 # Rebuild: write a nix-darwin node's flake and darwin-rebuild switch it. ServePort: serve a tailnet
 # HTTPS port from a local target, with the given Tailscale command. Launch: write a launch agent's plist and
-# (re)load it in the user's launchd domain.
+# (re)load it in the user's launchd domain. BuildPage: render a UI module's page to its path in dist/.
 type Step is Data:
   Current{what: String}
   Publish{name: String, version: String, entry: String}
@@ -36,16 +36,19 @@ type Step is Data:
   Rebuild{host: String, flake: String, mac: String}
   ServePort{https: U32, target: String, tailscale: String}
   Launch{label: String, path: String, plist: String, domain: String}
-  Install{from: String, to: String}
+  BuildPage{ui: String, page: String}
   BuildNext{folder: String, tree: String, dir: String}
   BuildNode{folder: String, tree: String, dir: String}
   Change{what: String, now: String, want: String}
   Blocked{what: String, why: String}
 
-# What one program of a launchd node looks like now: a fresh build of it in a temporary file ("" when it did
-# not build, and why), and whether that build equals what is installed at the program's path.
+# What one program of a launchd node looks like now: built from the current inputs (the repository's Bend
+# files, the generated entry and the fork's commit, as its build recorded them beside it, with the page's
+# hash), built from others or since changed, or not built.
 type Built is Data:
-  Built{fresh: String, same: Bool, error: String}
+  Fresh{}
+  Stale{}
+  Missing{}
 
 # What one launch agent looks like now: its plist on disk ("" when absent), whether the user's launchd domain
 # has it loaded, and the process listening on its port ("" for none).
