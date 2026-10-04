@@ -6,6 +6,9 @@
 //
 //   bun bend2/tool.ts <file.bend> -o <out>...      build: a binary, or C, JS,
 //                                                   .mjs, .web or BendTT by extension
+//   bun bend2/tool.ts <file.bend> -o <dir>.macos --id <bundle id> --name <name>
+//     [--version N] [--short X.Y] [--origin <url>] [--identity <sha1|name|->]
+//                                                   a Mac app (see Mac below)
 //   bun bend2/tool.ts <page.html> -o <dir>          bundle a page that imports .bend
 //   bun bend2/tool.ts <file.bend> --check-only      check it and its imports
 //   bun bend2/tool.ts <file.bend> --verdict         then recheck with BendTT's kernel
@@ -95,6 +98,7 @@ async function tool(): Promise<void> {
     return base(args[1]);
   }
   const outs: string[] = [];
+  const mac: Record<string, string> = {};
   let file: string | undefined;
   let only = false;
   let verdict = false;
@@ -103,7 +107,10 @@ async function tool(): Promise<void> {
   let named: string | undefined;
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
-    if (a === "--check-only") {
+    if (MAC_FLAGS.includes(a)) {
+      i += 1;
+      mac[a.slice(2)] = args[i] ?? fail(a + " needs a value");
+    } else if (a === "--check-only") {
       only = true;
     } else if (a === "--verdict") {
       verdict = true;
@@ -134,6 +141,9 @@ async function tool(): Promise<void> {
     fail((publish ? "--publish" : outs.length !== 0 ? "-o" : "--verdict")
       + " takes no other option");
   }
+  if (Object.keys(mac).length !== 0 && !outs.some((o) => o.endsWith(".macos"))) {
+    fail(MAC_FLAGS.join(", ") + " go with -o <dir>.macos");
+  }
   if (file.endsWith(".html")) {
     return outs.length === 1 ? bundle(file, outs[0]) : fail("a page bundles with -o <dir>");
   }
@@ -155,10 +165,10 @@ async function tool(): Promise<void> {
       t.$ === "Def" && t.i !== undefined ? t.i.map(path_real) : [])]);
     for (const out of outs) {
       const at = path_real(out);
-      if (ins.has(at) || (fs.existsSync(at) && fs.statSync(at).isDirectory() && !out.endsWith(".web"))) {
+      if (ins.has(at) || (fs.existsSync(at) && fs.statSync(at).isDirectory() && !/\.(web|macos)$/.test(out))) {
         fail("-o " + out + " is a file the program reads, or a directory");
       }
-      emit(book, out);
+      emit(book, out, mac);
     }
   } catch (e) {
     say(2, Main.book_err(e) + "\n");
@@ -204,8 +214,10 @@ function path_real(p: string): string {
 // Build
 // =====
 
-function emit(book: Bend.Book, out: string): void {
-  if (out.endsWith(".web")) {
+function emit(book: Bend.Book, out: string, mac: Record<string, string> = {}): void {
+  if (out.endsWith(".macos")) {
+    mac_build(book, out, mac_opts(mac));
+  } else if (out.endsWith(".web")) {
     const dir = fs.mkdtempSync(path.join(path.dirname(path.resolve(out)), ".bend-web-"));
     try {
       const c = path.join(dir, "app.c");
@@ -360,6 +372,211 @@ async function bundle(page: string, dir: string): Promise<void> {
   for (const a of out.outputs) {
     say(1, a.path + " (" + (a.size / 1024).toFixed(1) + "kb)\n");
   }
+}
+
+// Mac
+// ===
+
+// -o <dir>.macos builds a Bend program as a Mac app, <dir>/<name>.app, with
+// no Xcode project and no Swift. The program's C, built with
+// -DBEND_NATIVE=1 (std/F/browser/host.c's requests then go to the shell)
+// and its main renamed bend_main, links with std/F/apple/shell.c (the
+// app's main: AppKit owns the main thread, Bend runs on its own, and the
+// shell answers the browser's requests: events, canvas paints, fetch and
+// post) and std/F/apple/paint.c (the canvas painter: renderer.js in
+// CoreGraphics), both Objective-C in .c files, as effs/window.c is. The
+// bundle gets a generated Info.plist (CFBundleVersion --version, the build's
+// Unix time by default; BendOrigin --origin, the base of relative fetch
+// URLs) and is signed with --identity, else the keychain's first Apple
+// Development identity, else ad hoc (-), which it also falls back to when
+// that identity cannot sign (a locked keychain). <dir>/manifest.json
+// records the build; a build replaces only a directory that has one.
+
+const MAC_FLAGS = ["--id", "--name", "--version", "--short", "--origin", "--identity"];
+
+const MAC_MIN = "14.0";
+
+type MacOpts = {
+  id: string; name: string; version: string; short: string; origin?: string;
+  identity?: string;
+};
+
+function mac_opts(o: Record<string, string>): MacOpts {
+  const id = o.id ?? fail("-o <dir>.macos needs --id <bundle id>, like com.you.app");
+  const name = o.name ?? fail("-o <dir>.macos needs --name <the app's name>");
+  if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(id)) {
+    fail("--id " + id + " is not a bundle id (letters, digits, - and dots, like com.you.app)");
+  }
+  if (name.trim() !== name || name === "" || name.startsWith(".") || /[/:\0-\x1f]/.test(name)) {
+    fail("--name " + JSON.stringify(name) + " is not an app name");
+  }
+  const version = o.version ?? String(Math.floor(Date.now() / 1000));
+  const short = o.short ?? "1.0";
+  if (!/^\d+(\.\d+){0,2}$/.test(version) || !/^\d+(\.\d+){0,2}$/.test(short)) {
+    fail("--version and --short take one to three numbers, like 12 or 1.0.2");
+  }
+  if (o.origin !== undefined && !/^https?:\/\/[^/\s]+/.test(o.origin)) {
+    fail("--origin takes an http or https URL, like https://example.com");
+  }
+  return { id, name, version, short, origin: o.origin, identity: o.identity };
+}
+
+function mac_build(book: Bend.Book, out: string, o: MacOpts): void {
+  const sdk = xr("xcrun", ["--sdk", "macosx", "--show-sdk-path"]);
+  const sdk_ver = xr("xcrun", ["--sdk", "macosx", "--show-sdk-version"]);
+  const target = "arm64-apple-macos" + MAC_MIN;
+  const cc = ["--sdk", "macosx", "clang", "-target", target, "-isysroot", sdk];
+  const objc = ["-x", "objective-c", "-fobjc-arc", "-fmodules"];
+  const c = Comp.compile_book(book);
+  if (c.split("\nint main(int argc, char** argv) {\n").length !== 2) {
+    throw "Error: the runtime's C no longer has exactly one main, so -o .macos"
+      + " cannot rename it bend_main: update mac_build in bend2/tool.ts";
+  }
+  const apple = path.join(Bend.BEND_DIR, "std/F/apple");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bend-macos-"));
+  const dir = fs.mkdtempSync(path.join(path.dirname(path.resolve(out)), ".bend-macos-"));
+  try {
+    const t = (f: string): string => path.join(tmp, f);
+    const app = path.join(dir, o.name + ".app");
+    const exe = path.join(app, "Contents/MacOS", o.name);
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.mkdirSync(path.join(app, "Contents/Resources"));
+    fs.writeFileSync(t("app.c"), c);
+    // A program with a framework effect (#import: a window) builds as
+    // Objective-C, as build does; the rest is plain C.
+    xr("xcrun", [...cc, ...(/^#import /m.test(c) ? [...objc, "-fmodules-ignore-macro=main"] : []),
+      "-std=c11", "-O3", "-DBEND_NATIVE=1", "-Dmain=bend_main", "-c", t("app.c"), "-o", t("app.o")]);
+    for (const f of ["shell", "paint"]) {
+      xr("xcrun", [...cc, ...objc, "-std=c11", "-O2", "-c", path.join(apple, f + ".c"), "-o", t(f + ".o")]);
+    }
+    xr("xcrun", [...cc, t("app.o"), t("shell.o"), t("paint.o"), "-lpthread", "-lm",
+      ...["AppKit", "CoreText", "QuartzCore", "Foundation", "CoreImage", "ImageIO"].flatMap((f) => ["-framework", f]),
+      "-o", exe]);
+    const info: Record<string, unknown> = {
+      CFBundleDevelopmentRegion: "en",
+      CFBundleDisplayName: o.name,
+      CFBundleExecutable: o.name,
+      CFBundleIdentifier: o.id,
+      CFBundleInfoDictionaryVersion: "6.0",
+      CFBundleName: o.name,
+      CFBundlePackageType: "APPL",
+      CFBundleShortVersionString: o.short,
+      CFBundleSupportedPlatforms: ["MacOSX"],
+      CFBundleVersion: o.version,
+      DTPlatformName: "macosx",
+      DTSDKName: "macosx" + sdk_ver,
+      LSMinimumSystemVersion: MAC_MIN,
+      NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
+      NSHighResolutionCapable: true,
+      NSPrincipalClass: "NSApplication",
+      NSSupportsAutomaticGraphicsSwitching: true,
+      ...(o.origin === undefined ? {} : { BendOrigin: o.origin }),
+    };
+    fs.writeFileSync(path.join(app, "Contents/Info.plist"), plist_xml(info));
+    fs.writeFileSync(path.join(app, "Contents/PkgInfo"), "APPL????");
+    xr("plutil", ["-lint", path.join(app, "Contents/Info.plist")]);
+    const signer = mac_sign(app, o.identity);
+    xr("codesign", ["--verify", "--strict", app]);
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ bendMacos: 1,
+      app: o.name + ".app", executable: "Contents/MacOS/" + o.name, id: o.id, name: o.name,
+      version: o.version, short: o.short, origin: o.origin ?? null, target,
+      sdk: sdk_ver, identity: signer.sha1, signer: signer.who,
+      built: new Date().toISOString() }, null, 2) + "\n");
+    fs.chmodSync(dir, 0o755);
+    dir_swap(dir, out);
+    say(1, path.join(out, o.name + ".app") + " (" + o.id + " " + o.version + ", "
+      + signer.who + ")\n");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// mac_sign signs the app with --identity (a SHA-1, part of a name, or -
+// for ad hoc), else the first Apple Development identity, else ad hoc; a
+// chosen identity that fails is an error, a found one falls back to ad hoc
+function mac_sign(app: string, want?: string): { sha1: string; who: string } {
+  const ids = want === "-" ? [] : [...xr("security", ["find-identity", "-v", "-p", "codesigning"])
+    .matchAll(/^\s*\d+\) ([0-9A-F]{40}) "(.+)"$/gm)].map((m) => ({ sha1: m[1], who: m[2] }));
+  const pick = want === "-" ? undefined : want !== undefined
+    ? ids.find((x) => x.sha1 === want.toUpperCase() || x.who.includes(want))
+      ?? fail("--identity " + want + " is no signing identity in the keychain"
+        + " (security find-identity -v -p codesigning)")
+    : ids.find((x) => x.who.startsWith("Apple Development:"));
+  if (pick !== undefined) {
+    const got = child.spawnSync("codesign", ["--force", "--timestamp=none", "--sign", pick.sha1, app],
+      { encoding: "utf8" });
+    if (got.status === 0) {
+      return pick;
+    }
+    if (want !== undefined) {
+      throw "Error: codesign with " + pick.who + " failed: " + (got.stderr ?? "").trim();
+    }
+    say(2, "warning: codesign with " + pick.who + " failed (" + (got.stderr ?? "").trim()
+      + "), so the app is signed ad hoc\n");
+  }
+  xr("codesign", ["--force", "--timestamp=none", "--sign", "-", app]);
+  return { sha1: "-", who: "ad hoc" };
+}
+
+// dir_swap puts a finished build at out, replacing only an earlier one
+function dir_swap(dir: string, out: string): void {
+  if (!fs.existsSync(out)) {
+    fs.renameSync(dir, out);
+    return;
+  }
+  let old: { bendMacos?: unknown } | null = null;
+  try {
+    old = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+  } catch {}
+  if (old?.bendMacos !== 1) {
+    throw "Error: refusing to replace " + out + ", a directory without a Bend Mac manifest";
+  }
+  const prev = out + ".previous-" + crypto.randomBytes(6).toString("hex");
+  fs.renameSync(out, prev);
+  try {
+    fs.renameSync(dir, out);
+  } catch (e) {
+    fs.renameSync(prev, out);
+    throw e;
+  }
+  fs.rmSync(prev, { recursive: true, force: true });
+}
+
+// plist_xml writes a value as an XML property list: an object is a dict,
+// an array an array, a whole number an integer
+function plist_xml(v: unknown): string {
+  const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const val = (x: unknown, pad: string): string => {
+    if (typeof x === "boolean") {
+      return pad + (x ? "<true/>" : "<false/>") + "\n";
+    }
+    if (typeof x === "number") {
+      return pad + (Number.isInteger(x) ? "<integer>" + x + "</integer>" : "<real>" + x + "</real>") + "\n";
+    }
+    if (typeof x === "string") {
+      return pad + "<string>" + esc(x) + "</string>\n";
+    }
+    if (Array.isArray(x)) {
+      return pad + "<array>\n" + x.map((y) => val(y, pad + "\t")).join("") + pad + "</array>\n";
+    }
+    const ks = Object.keys(x as object).sort();
+    return pad + "<dict>\n" + ks.map((k) => pad + "\t<key>" + esc(k) + "</key>\n"
+      + val((x as Record<string, unknown>)[k], pad + "\t")).join("") + pad + "</dict>\n";
+  };
+  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\""
+    + " \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n" + val(v, "")
+    + "</plist>\n";
+}
+
+// xr runs a command and answers its stdout; a failure throws its output
+function xr(cmd: string, args: string[]): string {
+  const got = child.spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 1 << 28 });
+  if (got.status !== 0) {
+    throw "Error: " + [cmd, ...args].join(" ") + " failed"
+      + (got.error ? ": " + got.error.message : "") + "\n" + (got.stderr ?? "") + (got.stdout ?? "");
+  }
+  return (got.stdout ?? "").trim();
 }
 
 // base prints the base library; with --types, its type declarations
