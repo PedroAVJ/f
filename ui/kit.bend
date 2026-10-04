@@ -1989,3 +1989,32 @@ def call_controls(permission: Permission, slice: CallSlice(permission)) -> CallC
 def call_controls_tree(c: CallControls) -> P.Tree:
   match c:
     case CallControls{tree}: tree
+
+# App blocks
+# ----------
+
+# One call each, sized to the column: an app's view needs no widths or slices.
+def caption(+text: String) -> P.Tree:
+  paragraph("Caption", text, body(), hint(), column(), P.Leading{})
+def input(+placeholder: String, value: String) -> P.Tree:
+  field_tree(field(plain(Lines.Single{}, placeholder, [], FieldState{value, Focus.Blurred{}}), column()))
+def action(+kind: ButtonKind, +label: String, enabled: Bool) -> P.Tree:
+  button_tree(Bool.pick(Button, enabled, say(kind, label), say_off(kind, label)))
+# A line of a conversation: who said it and what.
+type Line is Data:
+  Line{role: Role, text: String}
+def said(line: Line) -> P.Tree:
+  match line:
+    case Line{role, text}:
+      match role:
+        case Role.Mine{}: bubble_tree(bubble(Role.Mine{}, Delivery.Sent{}, Said.Words{text}, Presence.Shown{}, column()))
+        case Role.Near{}: bubble_tree(bubble(Role.Near{}, Unit{}, Said.Words{text}, Presence.Shown{}, column()))
+def lines(xs: List<&2, Line>) -> List<&2, P.Tree>:
+  match xs:
+    case []: []
+    case x <> rest: said(x) <> lines(rest)
+# A whole screen (the column plus its margins), and a stack inside it.
+def screen(+name: String, children: List<&2, P.Tree>) -> P.Tree:
+  P.layout(name, P.Vertical{}, 16, 24, U32.add(column(), 48), 0, P.Middle{}, children)
+def stack(+name: String, children: List<&2, P.Tree>) -> P.Tree:
+  P.layout(name, P.Vertical{}, 10, 0, column(), 0, P.Leading{}, children)
