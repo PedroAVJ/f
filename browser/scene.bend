@@ -208,10 +208,10 @@ def html_frame(size: P.Size, children: String) -> String:
       "<div style=\"position:relative;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px\">" ++ children ++ "</div>"
 def html_boxes(size: P.Size, +placed: List<&2,P.Box>, order: List<&2,U32>) -> String:
   html_frame(size,boxes(placed) ++ focus_html(placed,order) ++ disabled_html(placed,0))
-def placed(size: P.Size, tree: P.Tree) -> List<&2,P.Box>:
+def placed(size: P.Size, tree: P.UI) -> List<&2,P.Box>:
   match size:
     case P.Size{+width,+height,count}: P.place(tree,P.Depth{},0,0,0,width,height,0,0,0)
-def html(+tree: P.Tree) -> String:
+def html(+tree: P.UI) -> String:
   html_boxes(P.size(tree),placed(P.size(tree),tree),P.focus_order(tree))
 
 # A closed paint packet: the JS shell only applies browser drawing operations.
@@ -280,4 +280,4 @@ def canvas_commands(+placed: List<&2,P.Box>) -> String:
 def canvas_frame(size: P.Size, placed: List<&2,P.Box>) -> String:
   match size:
     case P.Size{width,height,count}: "[" ++ join("[\"frame\"," ++ U32.show(width) ++ "," ++ U32.show(height) ++ "]",canvas_commands(placed)) ++ "]"
-def canvas(+tree: P.Tree) -> String: canvas_frame(P.size(tree),placed(P.size(tree),tree))
+def canvas(+tree: P.UI) -> String: canvas_frame(P.size(tree),placed(P.size(tree),tree))

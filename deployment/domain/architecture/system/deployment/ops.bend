@@ -138,9 +138,17 @@ def local_port(+https: U32, h: D.Here) -> U32:
 def tailnet_address(+name: String, +https: U32) -> String:
   "https://" ++ name ++ Bool.pick(String, U32.is_eq(https, 443), "", ":" ++ U32.show(https))
 
-# A web app on this Mac, named web: its page built to dist/web/index.html, a launch agent
-# com.<user>.<repo>.web serving that folder on 127.0.0.1 at the local port (python3's http.server), and the
-# tailnet HTTPS port proxied to it.
+# A web app on this Mac, named web: built to dist/web, a launch agent com.<user>.<repo>.web serving that
+# folder on 127.0.0.1 at the local port (python3's http.server, its index.html for any path that is not a
+# file, so every page's address loads the app), and the tailnet HTTPS port proxied to it.
+def app_server() -> String:
+  "import functools, http.server as s, os, sys\n" ++
+  "class H(s.SimpleHTTPRequestHandler):\n" ++
+  "    def send_head(self):\n" ++
+  "        if not os.path.isfile(self.translate_path(self.path)): self.path = '/index.html'\n" ++
+  "        return super().send_head()\n" ++
+  "s.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(H, directory=sys.argv[2])).serve_forever()\n"
+
 def web_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Application) -> D.Node:
   match app:
     case D.Web{ui}:
@@ -150,7 +158,7 @@ def web_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Appli
         D.Launchd{L.Launchd{
           [L.Program{dir ++ "/index.html", L.Page{ui}}],
           [L.Agent{a, "com." ++ user ++ "." ++ repo ++ "." ++ a, "/usr/bin/python3",
-            ["-m", "http.server", U32.show(port), "--bind", "127.0.0.1", "--directory", dir], [], repo ++ "-" ++ a, port}],
+            ["-c", app_server(), U32.show(port), dir], [], repo ++ "-" ++ a, port}],
           [ND.Serve{a, https, port, "/"}]}},
         [], [a]}
 

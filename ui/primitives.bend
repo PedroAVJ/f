@@ -101,10 +101,10 @@ type Align is Data:
 # A specimen tree of Shape and Layout instances in first-child / next-sibling
 # form, so one structural recursion walks both children and siblings.
 # Width or height 0 means "hug children".
-type Tree is Data:
+type UI is Data:
   Last{}
-  Leaf{name: String, shape: Shape, width: U32, height: U32, align: Align, next: Tree}
-  Node{name: String, layout: Layout, width: U32, height: U32, align: Align, first: Tree, next: Tree}
+  Leaf{name: String, shape: Shape, width: U32, height: U32, align: Align, next: UI}
+  Node{name: String, layout: Layout, width: U32, height: U32, align: Align, first: UI, next: UI}
 
 type Size is Data:
   Size{width: U32, height: U32, count: U32}
@@ -147,22 +147,22 @@ type Specimen is Data:
 # Authoring helpers
 # -----------------
 
-def link(t: Tree, rest: Tree) -> Tree:
+def link(t: UI, rest: UI) -> UI:
   match t:
     case Last{}: rest
     case Leaf{name, shape, width, height, align, next}: Leaf{name, shape, width, height, align, rest}
     case Node{name, layout, width, height, align, first, next}: Node{name, layout, width, height, align, first, rest}
-def append_trees(xs: List<&2, Tree>, ys: List<&2, Tree>) -> List<&2, Tree>:
+def append_trees(xs: List<&2, UI>, ys: List<&2, UI>) -> List<&2, UI>:
   match xs:
     case Nil{}: ys
     case Con{x, rest}: Con{x, append_trees(rest, ys)}
-def chain(xs: List<&2, Tree>) -> Tree:
+def chain(xs: List<&2, UI>) -> UI:
   match xs:
     case Nil{}: Last{}
     case Con{head, tail}: link(head, chain(tail))
-def leaf(name: String, shape: Shape, width: U32, height: U32, align: Align) -> Tree:
+def leaf(name: String, shape: Shape, width: U32, height: U32, align: Align) -> UI:
   Leaf{name, shape, width, height, align, Last{}}
-def layout(name: String, axis: Axis, gap: U32, pad: U32, width: U32, height: U32, align: Align, children: List<&2, Tree>) -> Tree:
+def layout(name: String, axis: Axis, gap: U32, pad: U32, width: U32, height: U32, align: Align, children: List<&2, UI>) -> UI:
   Node{name, Layout{axis, gap, pad}, width, height, align, chain(children), Last{}}
 
 # Measurement
@@ -182,7 +182,7 @@ def own(+width: U32, +height: U32, +pad: U32, inner: Size) -> Size:
     case Size{iw, ih, count}:
       Size{Bool.pick(U32, U32.is_zero(width), U32.add(iw, U32.add(pad, pad)), width), Bool.pick(U32, U32.is_zero(height), U32.add(ih, U32.add(pad, pad)), height), 1}
 # Size of a sibling chain laid along `axis` with `gap` between items.
-def measure(t: Tree, +axis: Axis, +gap: U32) -> Size:
+def measure(t: UI, +axis: Axis, +gap: U32) -> Size:
   match t:
     case Last{}: Size{0, 0, 0}
     case Leaf{name, shape, width, height, align, next}:
@@ -198,13 +198,13 @@ def height_of(s: Size) -> U32:
 def count_of(s: Size) -> U32:
   match s:
     case Size{width, height, count}: count
-def size(t: Tree) -> Size:
+def size(t: UI) -> Size:
   measure(link(t, Last{}), Depth{}, 0)
 
 # Placement
 # ---------
 
-def is_last(t: Tree) -> Bool:
+def is_last(t: UI) -> Bool:
   match t:
     case Last{}: True{}
     case _: False{}
@@ -247,7 +247,7 @@ def concat(xs: List<&2, Box>, ys: List<&2, Box>) -> List<&2, Box>:
 
 # Places a sibling chain whose parent content box starts at (x, y) and is
 # room_w x room_h. The cursor moves along `axis`; Depth keeps it in place.
-def place(t: Tree, +axis: Axis, +gap: U32, +x: U32, +y: U32, +room_w: U32, +room_h: U32, +level: U32, +layer: U32, +index: U32) -> List<&2, Box>:
+def place(t: UI, +axis: Axis, +gap: U32, +x: U32, +y: U32, +room_w: U32, +room_h: U32, +level: U32, +layer: U32, +index: U32) -> List<&2, Box>:
   match t:
     case Last{}: []
     case Leaf{name, shape, +width, +height, +align, +next}:
@@ -268,14 +268,14 @@ def place(t: Tree, +axis: Axis, +gap: U32, +x: U32, +y: U32, +room_w: U32, +room
 
 # Exploded Depth view: one sheet per child of the root Depth layout, top layer
 # highest. Sheets share the root's size; centres step down by `dy` per layer.
-def sheets(t: Tree, +index: U32, +count: U32, +cx: U32, +cy: U32, +dy: U32, +width: U32, +height: U32, +scale: U32) -> List<&2, Layer>:
+def sheets(t: UI, +index: U32, +count: U32, +cx: U32, +cy: U32, +dy: U32, +width: U32, +height: U32, +scale: U32) -> List<&2, Layer>:
   match t:
     case Last{}: []
     case Leaf{name, shape, w, h, align, next}:
       Con{Layer{index, name, cx, U32.add(cy, U32.mul(U32.sub(U32.sub(count, 1), index), dy)), width, height, scale}, sheets(next, U32.add(index, 1), count, cx, cy, dy, width, height, scale)}
     case Node{name, lay, w, h, align, first, next}:
       Con{Layer{index, name, cx, U32.add(cy, U32.mul(U32.sub(U32.sub(count, 1), index), dy)), width, height, scale}, sheets(next, U32.add(index, 1), count, cx, cy, dy, width, height, scale)}
-def layers(root: Tree, explode: Explode) -> List<&2, Layer>:
+def layers(root: UI, explode: Explode) -> List<&2, Layer>:
   match root explode:
     case Node{name, lay, +width, +height, align, +first, next} Exploded{cx, cy, dy, scale}:
       sheets(first, 0, count_of(measure(first, Depth{}, 0)), cx, cy, dy, width, height, scale)
@@ -297,7 +297,7 @@ def interactive(+name: String) -> Bool:
   Bool.or(Bool.or(String.starts_with(name, "button · "), String.starts_with(name, "textbox · ")), Bool.or(String.ends_with(name, " button"), String.eq(name, "Field text")))
 def declares_order(+name: String) -> Bool:
   Bool.or(String.eq(name, "Header"), String.starts_with(name, "banner · "))
-def chain_count(t: Tree) -> U32:
+def chain_count(t: UI) -> U32:
   match t:
     case Last{}: 0
     case Leaf{name, shape, width, height, align, next}: U32.add(1, chain_count(next))
@@ -310,7 +310,7 @@ def is_depth(axis: Axis) -> Bool:
   match axis:
     case Depth{}: True{}
     case _: False{}
-def order_chain(t: Tree, +start: U32, +reverse: Bool, +overrides: Bool) -> List<&2, U32>:
+def order_chain(t: UI, +start: U32, +reverse: Bool, +overrides: Bool) -> List<&2, U32>:
   match t:
     case Last{}: []
     case Leaf{+name, shape, width, height, align, next}:
@@ -321,23 +321,23 @@ def order_chain(t: Tree, +start: U32, +reverse: Bool, +overrides: Bool) -> List<
       +own = Bool.pick(List<&2, U32>, interactive(name), [start], order_chain(first, U32.add(start, 1), Bool.and(is_depth(axis), Bool.not(Bool.and(overrides, declares_order(name)))), overrides))
       +rest = order_chain(next, U32.add(start, U32.add(1, chain_count(first))), reverse, overrides)
       Bool.pick(List<&2, U32>, reverse, append_indices(rest, own), append_indices(own, rest))
-def focus_order(t: Tree) -> List<&2, U32>: order_chain(t, 0, False{}, True{})
-def reading_order(t: Tree) -> List<&2, U32>: order_chain(t, 0, False{}, False{})
+def focus_order(t: UI) -> List<&2, U32>: order_chain(t, 0, False{}, True{})
+def reading_order(t: UI) -> List<&2, U32>: order_chain(t, 0, False{}, False{})
 
 # Frame chrome: kicker, title and caption on white, then the Near panel.
-def boxes_of(root: Tree, +width: U32, +height: U32) -> List<&2, Box>:
+def boxes_of(root: UI, +width: U32, +height: U32) -> List<&2, Box>:
   place(root, Depth{}, 0, 20, 104, U32.sub(width, 40), U32.sub(height, 124), 0, 0, 0)
-def specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, wide: U32, +root: Tree, explode: Explode) -> Specimen:
+def specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, wide: U32, +root: UI, explode: Explode) -> Specimen:
   Specimen{id, section, label, kicker, title, caption, "", "", x, y, width, height, wide, 20, 104, U32.sub(width, 40), U32.sub(height, 124), [],
     boxes_of(root, width, height), layers(root, explode), focus_order(root), []}
 # A Shape frame: the same boxes in a Dark panel and a Light panel.
-def shape_specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, +root: Tree) -> Specimen:
+def shape_specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, +root: UI) -> Specimen:
   +frame_width = U32.sub(U32.mul(width, 2), 20)
   +boxes = boxes_of(root, width, height)
   Specimen{id, section, label, kicker, title, caption, "", "", x, y, frame_width, height, frame_width, 20, 104, U32.sub(width, 40), U32.sub(height, 124),
     [Panel{T.Scheme.Dark{}, boxes}, Panel{T.Scheme.Light{}, boxes}], boxes, [], focus_order(root), []}
 # A Shape frame whose content depends on the scheme (the contrast grid).
-def scheme_specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, +dark: Tree, light: Tree) -> Specimen:
+def scheme_specimen(id: String, section: String, label: String, kicker: String, title: String, caption: String, x: U32, y: U32, +width: U32, +height: U32, +dark: UI, light: UI) -> Specimen:
   +frame_width = U32.sub(U32.mul(width, 2), 20)
   +boxes = boxes_of(dark, width, height)
   Specimen{id, section, label, kicker, title, caption, "", "", x, y, frame_width, height, frame_width, 20, 104, U32.sub(width, 40), U32.sub(height, 124),
@@ -486,67 +486,67 @@ def glass(over: T.Backdrop) -> Effect: glass_of(T.glass(), over)
 # ---------------
 
 # Text is glyph geometry with a Solid fill.
-def text(+name: String, string: String, text_type: TextType, color: T.TextRole, width: U32, height: U32, align: Align) -> Tree:
+def text(+name: String, string: String, text_type: TextType, color: T.TextRole, width: U32, height: U32, align: Align) -> UI:
   leaf(name, Shape{Text{string, text_type}, TextFill.Solid{color, T.State.Rest{}}, NoStroke{}, []}, width, height, align)
 # The approved symbols are open paths: no fill, drawn by the stroke, whose
 # colour is the Ink role.
 def outline(drawing: S.Drawing) -> Stroke:
   match drawing:
     case S.Drawing{name, x, y, width, shapes}: Stroke{T.LineRole.Ink{}, T.State.Rest{}, width}
-def symbol(name: String, +glyph: S.Symbol, +side: U32) -> Tree:
+def symbol(name: String, +glyph: S.Symbol, +side: U32) -> UI:
   leaf(name, Shape{Path{S.drawing(glyph)}, Fill.None{}, outline(S.drawing(glyph)), []}, side, side, Middle{})
 # A Rounded instance. The specimen knows the size, so it writes it into the
 # geometry and gives the layout the same box.
-def rounded(name: String, fill: Fill, +width: U32, +height: U32, radius: Radius, stroke: Stroke, align: Align) -> Tree:
+def rounded(name: String, fill: Fill, +width: U32, +height: U32, radius: Radius, stroke: Stroke, align: Align) -> UI:
   leaf(name, Shape{Rounded{width, height, radius}, fill, stroke, []}, width, height, align)
-def circle(name: String, fill: Fill, stroke: Stroke, +side: U32, align: Align) -> Tree:
+def circle(name: String, fill: Fill, stroke: Stroke, +side: U32, align: Align) -> UI:
   rounded(name, fill, side, side, Full{}, stroke, align)
 # Sprite placeholder. Supply a caller-owned atlas frame to paint artwork.
-def pet(name: String, animation: N.Animation, +width: U32, +height: U32) -> Tree:
+def pet(name: String, animation: N.Animation, +width: U32, +height: U32) -> UI:
   leaf(name, Shape{Rounded{width, height, Corner{0}}, Image{Bitmap.Atlas{N.sample(animation, 0, False{})}, 0}, NoStroke{}, []}, width, height, Middle{})
 # The header fade: square corners with a Gradient fill and a Blur effect.
-def fade(+width: U32, +height: U32) -> Tree:
+def fade(+width: U32, +height: U32) -> UI:
   leaf("Fade + blur", Shape{Rounded{width, height, Corner{0}}, Gradient{T.Stop.Of{T.SurfaceRole.Background{}}, T.Stop.Clear{}, 50}, NoStroke{}, [Blur{10}]}, width, height, Leading{})
-def dot() -> Tree:
+def dot() -> UI:
   # A dot: a circle drawn by a stroke half its size wide (a Muted line role).
   circle("Dot", Fill.None{}, Stroke{T.LineRole.Muted{}, T.State.Rest{}, "4"}, 8, Middle{})
-def dots() -> Tree:
+def dots() -> UI:
   layout("Dots", Horizontal{}, 5, 0, 0, 0, Middle{}, [dot(), dot(), dot()])
 # Approximate width of a short caption (11px): six pixels a character.
 def caption_width(+s: String) -> U32: U32.add(U32.mul(6, U32.from_nat(String.length(s))), 2)
 # A swatch: one surface role in a state, and its name.
-def swatch(+label: String, +color: T.SurfaceRole, +state: T.State) -> Tree:
+def swatch(+label: String, +color: T.SurfaceRole, +state: T.State) -> UI:
   layout(label, Vertical{}, 6, 0, 0, 0, Middle{}, [
     rounded("Solid " ++ label, Solid{color, state}, 60, 44, Corner{10}, hairline(T.LineRole.Line{}), Middle{}),
     text("Value", label, caption_type(), muted(), caption_width(label), 14, Middle{})])
 
 # Shared instances used by the Layout specimens. These are arrangements of
 # Shapes for the specimens, not components.
-def button(+name: String, fill: T.SurfaceRole, stroke: T.LineRole, glyph: S.Symbol, +side: U32, glyph_side: U32, align: Align) -> Tree:
+def button(+name: String, fill: T.SurfaceRole, stroke: T.LineRole, glyph: S.Symbol, +side: U32, glyph_side: U32, align: Align) -> UI:
   layout(name ++ " button", Depth{}, 0, 0, side, side, align, [circle("Circle", solid(fill), hairline(stroke), side, Middle{}), symbol(name, glyph, glyph_side)])
-def badge() -> Tree:
+def badge() -> UI:
   rounded("Badge", solid(T.SurfaceRole.Raised{}), 72, 32, Full{}, NoStroke{}, Middle{})
-def search_button() -> Tree:
+def search_button() -> UI:
   button("Search", T.SurfaceRole.Surface{}, T.LineRole.Muted{}, S.Search{}, 44, 24, Leading{})
-def call_button() -> Tree:
+def call_button() -> UI:
   button("Call", T.SurfaceRole.Raised{}, T.LineRole.Accent{}, S.Telephone{}, 44, 24, Leading{})
-def identity() -> Tree:
+def identity() -> UI:
   layout("Near identity", Vertical{}, 0, 0, 0, 0, Middle{}, [
     pet("Near", N.Idle{}, 56, 61),
     layout("Name badge", Depth{}, 0, 0, 72, 32, Middle{}, [badge(), text("Name", "Near", name_type(), ink(), 42, 22, Middle{})])])
-def header(+width: U32, +pad: U32) -> Tree:
+def header(+width: U32, +pad: U32) -> UI:
   layout("Header", Horizontal{}, U32.div(U32.sub(U32.sub(width, U32.add(pad, pad)), 160), 2), pad, width, 0, Leading{}, [search_button(), identity(), call_button()])
-def bubble(+name: String, value: String, fill: T.SurfaceRole, +width: U32, text_width: U32, align: Align) -> Tree:
+def bubble(+name: String, value: String, fill: T.SurfaceRole, +width: U32, text_width: U32, align: Align) -> UI:
   layout(name, Depth{}, 0, 0, width, 44, align, [rounded("Bubble", solid(fill), width, 44, Full{}, NoStroke{}, Middle{}), text("Text", value, body(), ink(), text_width, 20, Middle{})])
-def near_says(value: String, width: U32, text_width: U32) -> Tree:
+def near_says(value: String, width: U32, text_width: U32) -> UI:
   bubble("Near bubble", value, T.SurfaceRole.Surface{}, width, text_width, Leading{})
-def you_say(value: String, width: U32, text_width: U32) -> Tree:
+def you_say(value: String, width: U32, text_width: U32) -> UI:
   bubble("Your bubble", value, T.SurfaceRole.Accent{}, width, text_width, Trailing{})
-def receipt(value: String) -> Tree:
+def receipt(value: String) -> UI:
   text("Read receipt", value, caption_type(), muted(), 62, 14, Trailing{})
-def typing() -> Tree:
+def typing() -> UI:
   layout("Typing indicator", Depth{}, 0, 0, 64, 36, Leading{}, [rounded("Bubble", solid(T.SurfaceRole.Surface{}), 64, 36, Full{}, NoStroke{}, Middle{}), dots()])
-def composer(+width: U32) -> Tree:
+def composer(+width: U32) -> UI:
   layout("Composer", Depth{}, 0, 0, width, 52, Middle{}, [
     rounded("Pill", solid(T.SurfaceRole.Surface{}), width, 52, Full{}, hairline(T.LineRole.Line{}), Middle{}),
     layout("Row", Horizontal{}, 10, 0, 0, 0, Middle{}, [
@@ -557,12 +557,12 @@ def composer(+width: U32) -> Tree:
 # Shape · geometry cases
 # ----------------------
 
-def text_root() -> Tree:
+def text_root() -> UI:
   layout("Text instances", Vertical{}, 26, 0, 0, 0, Middle{}, [
     text("Message", "¿Cómo puedo ayudarte?", body(), ink(), 220, 20, Middle{}),
     text("Name", "Near", name_type(), ink(), 42, 22, Middle{}),
     text("Read receipt", "Read 12:52", caption_type(), muted(), 62, 14, Middle{})])
-def path_root() -> Tree:
+def path_root() -> UI:
   layout("Symbols", Vertical{}, 32, 0, 0, 0, Middle{}, [
     layout("Large", Horizontal{}, 36, 0, 0, 0, Middle{}, [symbol("Search", S.Search{}, 40), symbol("Call", S.Telephone{}, 40), symbol("Send", S.Send{}, 40), symbol("Plus", S.Plus{}, 40)]),
     layout("Actual size", Horizontal{}, 52, 0, 0, 0, Middle{}, [symbol("Search", S.Search{}, 24), symbol("Call", S.Telephone{}, 24), symbol("Send", S.Send{}, 24), symbol("Plus", S.Plus{}, 24)])])
@@ -570,11 +570,11 @@ def path_root() -> Tree:
 # which is a circle on a square and a pill on a wide box; then the Near
 # shapes that are Rounded instances.
 # A tile of the continuum: the Rounded box and its radius value under it.
-def tile(+name: String, +width: U32, radius: Radius, label: String, label_width: U32) -> Tree:
+def tile(+name: String, +width: U32, radius: Radius, label: String, label_width: U32) -> UI:
   layout(name, Vertical{}, 8, 0, 0, 0, Middle{}, [
     rounded(name, solid(T.SurfaceRole.Raised{}), width, 56, radius, hairline(T.LineRole.Line{}), Middle{}),
     text("Radius", label, caption_type(), muted(), label_width, 14, Middle{})])
-def rounded_root() -> Tree:
+def rounded_root() -> UI:
   layout("Rounded instances", Vertical{}, 32, 0, 0, 0, Middle{}, [
     layout("Radius 0 to Full", Horizontal{}, 20, 0, 0, 0, Middle{}, [
       tile("Radius 0", 56, Corner{0}, "0", 7), tile("Radius 6", 56, Corner{6}, "6", 7), tile("Radius 14", 56, Corner{14}, "14", 13), tile("Radius 22", 56, Corner{22}, "22", 13),
@@ -597,50 +597,50 @@ def rounded_root() -> Tree:
 # ------------------
 
 # None: the approved symbols paint nothing inside; only their stroke draws.
-def none_root() -> Tree:
+def none_root() -> UI:
   layout("Stroke only", Vertical{}, 34, 0, 0, 0, Middle{}, [
     symbol("Search", S.Search{}, 112),
     layout("Every symbol", Horizontal{}, 40, 0, 0, 0, Middle{}, [symbol("Call", S.Telephone{}, 28), symbol("Send", S.Send{}, 28), symbol("Plus", S.Plus{}, 28)])])
 # Solid: the surface roles, the state rules (Pressed darkens by one step,
 # Disabled is 50% opacity), and the contrast of every pair the types allow
 # in this scheme, with AA and AAA marks (AA is a hard law, checked in tests).
-def swatches() -> Tree:
+def swatches() -> UI:
   layout("Surface roles", Horizontal{}, 12, 0, 0, 0, Middle{}, [swatch("Background", T.SurfaceRole.Background{}, rest()), swatch("Surface", T.SurfaceRole.Surface{}, rest()), swatch("Raised", T.SurfaceRole.Raised{}, rest()), swatch("Accent", T.SurfaceRole.Accent{}, rest()), swatch("Danger", T.SurfaceRole.Danger{}, rest()), swatch("Field", T.SurfaceRole.Field{}, rest()), swatch("Action", T.SurfaceRole.Action{}, rest()), swatch("Mine", T.SurfaceRole.Mine{}, rest())])
-def states() -> Tree:
+def states() -> UI:
   layout("State rules", Horizontal{}, 12, 0, 0, 0, Middle{}, [swatch("Rest", T.SurfaceRole.Accent{}, T.State.Rest{}), swatch("Pressed", T.SurfaceRole.Accent{}, T.State.Pressed{}), swatch("Disabled", T.SurfaceRole.Accent{}, T.State.Disabled{})])
 def tenths(+r: U32) -> String: U32.show(U32.div(r, 100)) ++ "." ++ U32.show(U32.div(U32.mod(r, 100), 10))
 def grade(+r: U32, +use: T.Use) -> String:
   Bool.pick(String, U32.is_ge(r, 700), "AAA", Bool.pick(String, U32.is_ge(r, T.aa(use)), "AA", "fail"))
 # One cell: the surface, a sample of the foreground on it, the ratio and grade.
-def cell(+bg: T.SurfaceRole, sample: Tree, +r: U32, +use: T.Use) -> Tree:
+def cell(+bg: T.SurfaceRole, sample: UI, +r: U32, +use: T.Use) -> UI:
   +label = tenths(r) ++ " " ++ grade(r, use)
   layout("Pair", Depth{}, 0, 0, 72, 50, Middle{}, [
     rounded("Surface", solid(bg), 72, 50, Corner{8}, NoStroke{}, Middle{}),
     layout("Sample", Vertical{}, 3, 0, 0, 0, Middle{}, [sample, text("Ratio", label, caption_type(), ink(), caption_width(label), 14, Middle{})])])
-def line_sample(+role: T.LineRole) -> Tree: circle("Ring", Fill.None{}, Stroke{role, T.State.Rest{}, "2"}, 14, Middle{})
-def text_sample(+role: T.TextRole) -> Tree: text("Aa", "Aa", TextType{"Sample", 13, 600}, role, 18, 16, Middle{})
-def decorative_cell(+bg: T.SurfaceRole, +r: U32) -> Tree:
+def line_sample(+role: T.LineRole) -> UI: circle("Ring", Fill.None{}, Stroke{role, T.State.Rest{}, "2"}, 14, Middle{})
+def text_sample(+role: T.TextRole) -> UI: text("Aa", "Aa", TextType{"Sample", 13, 600}, role, 18, 16, Middle{})
+def decorative_cell(+bg: T.SurfaceRole, +r: U32) -> UI:
   +label = tenths(r)
   layout("Decorative pair", Depth{}, 0, 0, 72, 50, Middle{}, [
     rounded("Surface", solid(bg), 72, 50, Corner{8}, NoStroke{}, Middle{}),
     layout("Sample", Vertical{}, 0, 0, 0, 0, Middle{}, [text("Ratio note", label, caption_type(), ink(), caption_width(label), 14, Middle{}), text("Decorative", "decorative", caption_type(), ink(), caption_width("decorative"), 14, Middle{})])])
-def no_pair() -> Tree:
+def no_pair() -> UI:
   layout("Not allowed", Depth{}, 0, 0, 72, 50, Middle{}, [text("Not allowed", "not allowed", caption_type(), muted(), 66, 14, Middle{})])
 def has_bg(bgs: List<&2, T.SurfaceRole>, +bg: T.SurfaceRole) -> Bool:
   match bgs:
     case Nil{}: False{}
     case Con{b, rest}: Bool.or(String.eq(T.surface_name(b), T.surface_name(bg)), has_bg(rest, bg))
-def text_cells(+role: T.TextRole, bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, Tree>:
+def text_cells(+role: T.TextRole, bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, UI>:
   match bgs:
     case Nil{}: []
-    case Con{+bg, rest}: Con{Bool.pick(Tree, has_bg(T.text_on(role), bg), cell(bg, text_sample(role), T.ratio(T.rgb(T.text_tone(role), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{})), T.Use.Text{}), no_pair()), text_cells(role, rest, scheme)}
-def line_cells(+role: T.LineRole, bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, Tree>:
+    case Con{+bg, rest}: Con{Bool.pick(UI, has_bg(T.text_on(role), bg), cell(bg, text_sample(role), T.ratio(T.rgb(T.text_tone(role), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{})), T.Use.Text{}), no_pair()), text_cells(role, rest, scheme)}
+def line_cells(+role: T.LineRole, bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, UI>:
   match bgs:
     case Nil{}: []
-    case Con{+bg, rest}: Con{Bool.pick(Tree, has_bg(T.line_on(role), bg), cell(bg, line_sample(role), T.ratio(T.rgb(T.line_tone(role), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{})), T.Use.Graphic{}), no_pair()), line_cells(role, rest, scheme)}
-def grid_row(+label: String, cells: List<&2, Tree>) -> Tree:
+    case Con{+bg, rest}: Con{Bool.pick(UI, has_bg(T.line_on(role), bg), cell(bg, line_sample(role), T.ratio(T.rgb(T.line_tone(role), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{})), T.Use.Graphic{}), no_pair()), line_cells(role, rest, scheme)}
+def grid_row(+label: String, cells: List<&2, UI>) -> UI:
   layout(label, Horizontal{}, 6, 0, 0, 0, Leading{}, Con{layout("Row label", Horizontal{}, 0, 0, 72, 0, Middle{}, [text("Label", label, caption_type(), muted(), caption_width(label), 14, Leading{})]), cells})
-def column_heads() -> List<&2, Tree>:
+def column_heads() -> List<&2, UI>:
   [layout("Head", Horizontal{}, 0, 0, 72, 0, Middle{}, [text("Head", "Background", caption_type(), muted(), 64, 14, Middle{})]),
    layout("Head", Horizontal{}, 0, 0, 72, 0, Middle{}, [text("Head", "Surface", caption_type(), muted(), 44, 14, Middle{})]),
    layout("Head", Horizontal{}, 0, 0, 72, 0, Middle{}, [text("Head", "Raised", caption_type(), muted(), 38, 14, Middle{})]),
@@ -651,11 +651,11 @@ def column_heads() -> List<&2, Tree>:
    layout("Head", Horizontal{}, 0, 0, 72, 0, Middle{}, [text("Head", "Mine", caption_type(), muted(), 30, 14, Middle{})])]
 # The decorative Edge: shown on Field (its only use) with its ratio, marked
 # decorative (exempt from the 3:1 law, see tokens.decorative()).
-def edge_cells(bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, Tree>:
+def edge_cells(bgs: List<&2, T.SurfaceRole>, +scheme: T.Scheme) -> List<&2, UI>:
   match bgs:
     case Nil{}: []
-    case Con{+bg, rest}: Con{Bool.pick(Tree, String.eq(T.surface_name(bg), "Field"), decorative_cell(bg, T.ratio(T.rgb(T.line_tone(T.LineRole.Edge{}), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{}))), no_pair()), edge_cells(rest, scheme)}
-def contrast_grid(+scheme: T.Scheme) -> Tree:
+    case Con{+bg, rest}: Con{Bool.pick(UI, String.eq(T.surface_name(bg), "Field"), decorative_cell(bg, T.ratio(T.rgb(T.line_tone(T.LineRole.Edge{}), scheme, T.State.Rest{}), T.rgb(T.surface_tone(bg), scheme, T.State.Rest{}))), no_pair()), edge_cells(rest, scheme)}
+def contrast_grid(+scheme: T.Scheme) -> UI:
   layout("Contrast", Vertical{}, 6, 0, 0, 0, Middle{}, [
     grid_row("", column_heads()),
     grid_row("Text Ink", text_cells(T.TextRole.Ink{}, T.surfaces(), scheme)),
@@ -668,12 +668,12 @@ def contrast_grid(+scheme: T.Scheme) -> Tree:
     text("Exceptions", "Exceptions: none. AA is 4.5 for text, 3.0 for lines; AAA is 7.0.", caption_type(), muted(), 380, 14, Middle{}),
     text("Decorative note", "Decorative: Edge, the composer pill's faint border on Field (exempt from 3:1).", caption_type(), muted(), 480, 14, Middle{}),
     text("Icon only note", "Action carries icons only: no text sits on it. Glass pairs: see the Glass frame.", caption_type(), muted(), 460, 14, Middle{})])
-def solid_root(+scheme: T.Scheme) -> Tree:
+def solid_root(+scheme: T.Scheme) -> UI:
   layout("Colour roles", Vertical{}, 18, 0, 0, 0, Middle{}, [swatches(), states(), contrast_grid(scheme)])
 # The fade is the same value as in the Depth specimen, painted over Solid
 # stripes so the gradient and the blur are visible on the dark panel.
 # The fade bleeds 10 past the stripes so no blurred stripe edge shows.
-def gradient_root() -> Tree:
+def gradient_root() -> UI:
   layout("Header fade", Depth{}, 0, 0, 300, 188, Middle{}, [
     layout("Solid stripes", Horizontal{}, 0, 0, 0, 0, Middle{}, [
       rounded("Stripe", solid(T.SurfaceRole.Accent{}), 70, 168, Corner{0}, NoStroke{}, Middle{}),
@@ -687,28 +687,28 @@ def gradient_root() -> Tree:
 # Liquid Glass over moving content: a thread passes under a round button, a
 # badge and a pill (over Content: only Ink sits on them); the composer pill
 # sits over the Background only (over Base: Muted is allowed too).
-def at(+name: String, +x: U32, +y: U32, t: Tree) -> Tree:
+def at(+name: String, +x: U32, +y: U32, t: UI) -> UI:
   layout(name, Vertical{}, 0, 0, 0, 0, Leading{}, [layout("Offset", Vertical{}, 0, 0, 1, y, Leading{}, []), layout("Row", Horizontal{}, 0, 0, 0, 0, Leading{}, [layout("Offset", Horizontal{}, 0, 0, x, 1, Leading{}, []), t])])
-def glass_shape(+name: String, +w: U32, +h: U32, over: T.Backdrop) -> Tree:
+def glass_shape(+name: String, +w: U32, +h: U32, over: T.Backdrop) -> UI:
   leaf(name, Shape{Rounded{w, h, Full{}}, Solid{T.SurfaceRole.Glass{}, T.State.Rest{}}, NoStroke{}, [glass(over)]}, w, h, Middle{})
-def on_glass(+name: String, +w: U32, +h: U32, over: T.Backdrop, inner: Tree) -> Tree:
+def on_glass(+name: String, +w: U32, +h: U32, over: T.Backdrop, inner: UI) -> UI:
   layout(name, Depth{}, 0, 0, w, h, Middle{}, [glass_shape("Glass", w, h, over), inner])
-def glass_backdrop() -> Tree:
+def glass_backdrop() -> UI:
   layout("Content", Vertical{}, 10, 12, 300, 220, Leading{}, [
     near_says("The thread scrolls under the glass,", 276, 244),
     you_say("Pause the animation", 176, 144),
     near_says("Stopped", 96, 64),
     you_say("hello", 80, 48)])
-def glass_ratio(c: T.Contrast) -> Tree:
+def glass_ratio(c: T.Contrast) -> UI:
   match c:
     case T.Contrast{+fg, +bg, scheme, state, +use, +r, ok, best}:
       +label = fg ++ " on " ++ bg ++ ": " ++ tenths(r) ++ " " ++ grade(r, use)
       text("Glass pair", label, caption_type(), ink(), caption_width(label), 14, Leading{})
-def glass_ratios(xs: List<&2, T.Contrast>) -> List<&2, Tree>:
+def glass_ratios(xs: List<&2, T.Contrast>) -> List<&2, UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{glass_ratio(x), glass_ratios(rest)}
-def glass_root(+scheme: T.Scheme) -> Tree:
+def glass_root(+scheme: T.Scheme) -> UI:
   layout("Liquid Glass", Vertical{}, 14, 0, 0, 0, Middle{}, [
     layout("Scene", Depth{}, 0, 0, 300, 300, Leading{}, [
       glass_backdrop(),
@@ -723,7 +723,7 @@ def glass_root(+scheme: T.Scheme) -> Tree:
 
 # The chat is shared: the Vertical specimen shows it alone, the Depth specimen
 # floats the header over it.
-def chat() -> Tree:
+def chat() -> UI:
   layout("Chat", Vertical{}, 12, 16, 320, 516, Leading{}, [
     near_says("Hola, soy Near.", 140, 108),
     near_says("¿Cómo puedo ayudarte?", 252, 220),
@@ -734,11 +734,11 @@ def chat() -> Tree:
     receipt("Read 12:54"),
     near_says("¿Continuamos?", 132, 100),
     typing()])
-def horizontal_root() -> Tree:
+def horizontal_root() -> UI:
   composer(300)
-def vertical_root() -> Tree:
+def vertical_root() -> UI:
   chat()
-def depth_root() -> Tree:
+def depth_root() -> UI:
   layout("Screen", Depth{}, 0, 0, 320, 516, Leading{}, [chat(), fade(320, 150), header(320, 16)])
 
 # Frames. Shape frames show their panel in both schemes (Dark, then Light),

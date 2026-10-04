@@ -293,84 +293,84 @@ def readable() -> U32: M.width(M.readable_sample(), body())
 def line_height(text_type: P.TextType) -> U32:
   match text_type:
     case P.TextType{name, size, weight}: U32.add(U32.div(U32.mul(size, 5), 4), 1)
-def words_in(name: String, +string: String, +text_type: P.TextType, color: T.TextRole, state: T.State, align: P.Align) -> P.Tree:
+def words_in(name: String, +string: String, +text_type: P.TextType, color: T.TextRole, state: T.State, align: P.Align) -> P.UI:
   P.leaf(name, P.Shape{P.Text{string, text_type}, P.TextFill.Solid{color, state}, P.NoStroke{}, []}, M.width(string, text_type), line_height(text_type), align)
-def words(name: String, +string: String, +text_type: P.TextType, color: T.TextRole, align: P.Align) -> P.Tree:
+def words(name: String, +string: String, +text_type: P.TextType, color: T.TextRole, align: P.Align) -> P.UI:
   words_in(name, string, text_type, color, T.State.Rest{}, align)
-def stack_lines(xs: List<&2, String>, +text_type: P.TextType, +color: T.TextRole) -> List<&2, P.Tree>:
+def stack_lines(xs: List<&2, String>, +text_type: P.TextType, +color: T.TextRole) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{words("Line", x, text_type, color, P.Leading{}), stack_lines(rest, text_type, color)}
 # Wrap rule: text wrapped at `max` px into stacked lines.
-def paragraph(name: String, string: String, +text_type: P.TextType, color: T.TextRole, +max: U32, align: P.Align) -> P.Tree:
+def paragraph(name: String, string: String, +text_type: P.TextType, color: T.TextRole, +max: U32, align: P.Align) -> P.UI:
   P.layout(name, P.Vertical{}, 0, 0, 0, 0, align, stack_lines(M.lines(string, max, text_type), text_type, color))
-def filled(name: String, fill: T.SurfaceRole, +width: U32, +height: U32, radius: P.Radius, stroke: P.Stroke) -> P.Tree:
+def filled(name: String, fill: T.SurfaceRole, +width: U32, +height: U32, radius: P.Radius, stroke: P.Stroke) -> P.UI:
   P.rounded(name, P.Solid{fill, T.State.Rest{}}, width, height, radius, stroke, P.Middle{})
 def edge(color: T.LineRole) -> P.Stroke: P.Stroke{color, T.State.Rest{}, "1"}
 # An empty box: takes space, draws nothing.
-def spacer(name: String, +width: U32, +height: U32, align: P.Align) -> P.Tree:
+def spacer(name: String, +width: U32, +height: U32, align: P.Align) -> P.UI:
   P.layout(name, P.Horizontal{}, 0, 0, width, height, align, [])
 # Liquid Glass (queued): a Rounded shape whose fill is the Glass tint, with
 # the Glass effect (tokens.glass()) over its backdrop. Over Content only
 # Ink may sit on it; over Base (the Background) Muted too.
-def glassy(name: String, +w: U32, +h: U32, radius: P.Radius, over: T.Backdrop) -> P.Tree:
+def glassy(name: String, +w: U32, +h: U32, radius: P.Radius, over: T.Backdrop) -> P.UI:
   P.leaf(name, P.Shape{P.Rounded{w, h, radius}, P.Solid{T.SurfaceRole.Glass{}, T.State.Rest{}}, P.NoStroke{}, [P.glass(over)]}, w, h, P.Middle{})
 # A tree placed at (x, y) inside a Depth parent.
-def placed_at(+name: String, +x: U32, +y: U32, t: P.Tree) -> P.Tree:
+def placed_at(+name: String, +x: U32, +y: U32, t: P.UI) -> P.UI:
   P.layout(name, P.Vertical{}, 0, 0, 0, 0, P.Leading{}, [spacer("Offset", 0, y, P.Leading{}), P.layout("Row", P.Horizontal{}, 0, 0, 0, 0, P.Leading{}, [spacer("Offset", x, 0, P.Leading{}), t])])
-def glyph_in(+path: S.Drawing, +side: U32, state: T.State) -> P.Tree:
+def glyph_in(+path: S.Drawing, +side: U32, state: T.State) -> P.UI:
   match path:
     case S.Drawing{name, x, y, width, shapes}:
       P.leaf(name, P.Shape{P.Path{path}, P.Fill.None{}, P.Stroke{T.LineRole.Ink{}, state, width}, []}, side, side, P.Middle{})
-def glyph(+path: S.Drawing, +side: U32) -> P.Tree: glyph_in(path, side, T.State.Rest{})
+def glyph(+path: S.Drawing, +side: U32) -> P.UI: glyph_in(path, side, T.State.Rest{})
 # A glyph with its own stroke width (the drawing's geometry unchanged).
-def glyph_stroked(+path: S.Drawing, +side: U32, state: T.State, +stroke: String) -> P.Tree:
+def glyph_stroked(+path: S.Drawing, +side: U32, state: T.State, +stroke: String) -> P.UI:
   match path:
     case S.Drawing{name, x, y, width, shapes}:
       P.leaf(name, P.Shape{P.Path{path}, P.Fill.None{}, P.Stroke{T.LineRole.Ink{}, state, stroke}, []}, side, side, P.Middle{})
-def width(t: P.Tree) -> U32: P.width_of(P.size(t))
-def height(t: P.Tree) -> U32: P.height_of(P.size(t))
-def aligned(t: P.Tree, align: P.Align) -> P.Tree:
+def width(t: P.UI) -> U32: P.width_of(P.size(t))
+def height(t: P.UI) -> U32: P.height_of(P.size(t))
+def aligned(t: P.UI, align: P.Align) -> P.UI:
   match t:
     case P.Last{}: P.Last{}
     case P.Leaf{name, shape, w, h, a, next}: P.Leaf{name, shape, w, h, align, next}
     case P.Node{name, lay, w, h, a, first, next}: P.Node{name, lay, w, h, align, first, next}
-def align_of(t: P.Tree) -> P.Align:
+def align_of(t: P.UI) -> P.Align:
   match t:
     case P.Leaf{name, shape, w, h, a, next}: a
     case P.Node{name, lay, w, h, a, first, next}: a
     case _: P.Leading{}
-def renamed(t: P.Tree, name: String) -> P.Tree:
+def renamed(t: P.UI, name: String) -> P.UI:
   match t:
     case P.Last{}: P.Last{}
     case P.Leaf{n, shape, w, h, a, next}: P.Leaf{name, shape, w, h, a, next}
     case P.Node{n, lay, w, h, a, first, next}: P.Node{name, lay, w, h, a, first, next}
 # A dot in a line role: a circle drawn by a stroke half its size wide.
-def dot(+color: T.LineRole, +side: U32) -> P.Tree:
+def dot(+color: T.LineRole, +side: U32) -> P.UI:
   P.circle("Dot", P.Fill.None{}, P.Stroke{color, T.State.Rest{}, U32.show(U32.div(side, 2))}, side, P.Middle{})
-def danger_dot(+side: U32) -> P.Tree:
+def danger_dot(+side: U32) -> P.UI:
   P.circle("Dot", P.Solid{T.SurfaceRole.Danger{}, T.State.Rest{}}, P.NoStroke{}, side, P.Middle{})
-def accent_dot() -> P.Tree: dot(T.LineRole.Accent{}, 8)
-def muted_dot() -> P.Tree: dot(T.LineRole.Muted{}, 8)
+def accent_dot() -> P.UI: dot(T.LineRole.Accent{}, 8)
+def muted_dot() -> P.UI: dot(T.LineRole.Muted{}, 8)
 # Not approved: provisional drawings for the spinner and the mic
 # (dictation). The four approved symbols stay in symbols.bend, unchanged.
 def mic() -> S.Drawing:
   S.Drawing{"Mic", "0", "0", "2.3", [S.Path{"M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"}, S.Path{"M19 11a7 7 0 0 1-14 0M12 18v3"}]}
 def arc() -> S.Drawing:
   S.Drawing{"Spinner", "0", "0", "2.6", [S.Path{"M12 3a9 9 0 0 1 9 9"}]}
-def spinner(+side: U32) -> P.Tree:
+def spinner(+side: U32) -> P.UI:
   P.layout("Spinner", P.Depth{}, 0, 0, side, side, P.Middle{}, [
     P.rounded("Ring", P.Fill.None{}, side, side, P.Full{}, P.Stroke{T.LineRole.Line{}, T.State.Rest{}, "2"}, P.Middle{}),
     glyph(arc(), side)])
-def alert() -> P.Tree:
+def alert() -> P.UI:
   P.layout("Alert", P.Depth{}, 0, 0, 16, 16, P.Middle{}, [danger_dot(16), words("Mark", "!", P.TextType{"Mark", 11, 600}, ink(), P.Middle{})])
-def status_line(mark: P.Tree, +text: String) -> P.Tree:
+def status_line(mark: P.UI, +text: String) -> P.UI:
   P.layout(named(A11yRole.Status{}, text), P.Horizontal{}, 8, 0, 0, 0, P.Leading{}, [mark, words("Status", text, small_type(), ink(), P.Middle{})])
-def busy_line(+text: String) -> P.Tree:
+def busy_line(+text: String) -> P.UI:
   P.layout(named(A11yRole.Status{}, text), P.Horizontal{}, 8, 0, 0, 0, P.Leading{}, [spinner(14), words("Status", text, small_type(), ink(), P.Middle{})])
-def retry_line(+text: String, align: P.Align) -> P.Tree:
+def retry_line(+text: String, align: P.Align) -> P.UI:
   P.layout(named(A11yRole.Status{}, text), P.Horizontal{}, 6, 0, 0, 0, align, [alert(), words("Failed", text, small_type(), ink(), P.Middle{}), words("Retry", "Reintentar", small_type(), ink(), P.Middle{})])
-def append_trees(xs: List<&2, P.Tree>, ys: List<&2, P.Tree>) -> List<&2, P.Tree>:
+def append_trees(xs: List<&2, P.UI>, ys: List<&2, P.UI>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: ys
     case Con{x, rest}: Con{x, append_trees(rest, ys)}
@@ -543,7 +543,7 @@ def button_slice() -> List<&2, Part>:
    Part{"intent", "Remote<Intent>", Source.Server{}, Persistence.Persistent{}, "only when Served"},
    Part{"press motion", "Transit<Press>", Source.Local{}, Persistence.Ephemeral{}, ""}]
 type Button is Data:
-  Button{tree: P.Tree}
+  Button{tree: P.UI}
 type Shade is Data:
   Shade.Rest{}
   Shade.Down{}
@@ -579,17 +579,17 @@ def shade(pressed: Press) -> Shade:
 # The widest label before it truncates: three quarters of the column, less
 # the pill's padding.
 def label_max() -> U32: U32.sub(U32.div(U32.mul(column(), 3), 4), 36)
-def content_trees(xs: List<&2, Content>, +color: T.TextRole, +state: T.State) -> List<&2, P.Tree>:
+def content_trees(xs: List<&2, Content>, +color: T.TextRole, +state: T.State) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{Label{text}, rest}: Con{words_in("Label", fitted(text, TextRule.Truncate{}, label_max(), label_type()), label_type(), color, ink_state(state), P.Middle{}), content_trees(rest, color, state)}
     case Con{Icon{path, label}, rest}: Con{glyph_in(path, 22, ink_state(state)), content_trees(rest, color, state)}
     case Con{Row{items}, rest}: Con{P.layout("Row", P.Horizontal{}, 8, 0, 0, 0, P.Middle{}, content_trees(items, color, state)), content_trees(rest, color, state)}
-def only(xs: List<&2, P.Tree>) -> P.Tree:
+def only(xs: List<&2, P.UI>) -> P.UI:
   match xs:
     case Nil{}: P.Last{}
     case Con{x, rest}: x
-def content_tree(c: Content, color: T.TextRole, state: T.State) -> P.Tree:
+def content_tree(c: Content, color: T.TextRole, state: T.State) -> P.UI:
   only(content_trees([c], color, state))
 # The spoken label: a Row speaks its text labels (its icons are decoration),
 # or its icons' labels when it has no text.
@@ -613,18 +613,18 @@ def is_icon(c: Content) -> Bool:
     case _: False{}
 def button_name(+state: T.State, +label: String) -> String:
   Bool.pick(String, is_off(state), "button, disabled · " ++ label, named(A11yRole.Button{}, label))
-def container(fill: T.SurfaceRole, stroke: T.LineRole, +state: T.State, +w: U32, +h: U32, +bare: Bool) -> P.Tree:
-  Bool.pick(P.Tree, bare, P.rounded("Container", P.Fill.None{}, w, h, P.Full{}, P.NoStroke{}, P.Middle{}), P.rounded("Container", P.Solid{fill, state}, w, h, P.Full{}, P.Stroke{stroke, state, "1"}, P.Middle{}))
-def shell(fill: T.SurfaceRole, stroke: T.LineRole, +state: T.State, +w: U32, +inset: U32, label: String, inner: P.Tree, +bare: Bool) -> Button:
+def container(fill: T.SurfaceRole, stroke: T.LineRole, +state: T.State, +w: U32, +h: U32, +bare: Bool) -> P.UI:
+  Bool.pick(P.UI, bare, P.rounded("Container", P.Fill.None{}, w, h, P.Full{}, P.NoStroke{}, P.Middle{}), P.rounded("Container", P.Solid{fill, state}, w, h, P.Full{}, P.Stroke{stroke, state, "1"}, P.Middle{}))
+def shell(fill: T.SurfaceRole, stroke: T.LineRole, +state: T.State, +w: U32, +inset: U32, label: String, inner: P.UI, +bare: Bool) -> Button:
   Button{P.layout(button_name(state, label), P.Depth{}, 0, 0, w, 44, P.Middle{}, [container(fill, stroke, state, U32.sub(w, U32.mul(2, inset)), U32.sub(44, U32.mul(2, inset)), bare), inner])}
 # Icon content draws a circle (Rounded, Full, square); Label and Row a pill,
 # at least 44pt wide.
-def sized_inset(t: Tone, +content: Content, +name: String, +extra: P.Tree, +busy: Bool, +inset: U32) -> Button:
+def sized_inset(t: Tone, +content: Content, +name: String, +extra: P.UI, +busy: Bool, +inset: U32) -> Button:
   match t:
     case Tone{fill, stroke, +color, +state, +bare}:
-      +inner = Bool.pick(P.Tree, busy, P.layout("Busy", P.Horizontal{}, 8, 0, 0, 0, P.Middle{}, [content_tree(content, color, state), extra]), content_tree(content, color, state))
+      +inner = Bool.pick(P.UI, busy, P.layout("Busy", P.Horizontal{}, 8, 0, 0, 0, P.Middle{}, [content_tree(content, color, state), extra]), content_tree(content, color, state))
       shell(fill, stroke, state, Bool.pick(U32, Bool.and(is_icon(content), Bool.not(busy)), 44, U32.max(44, U32.add(width(inner), 36))), inset, name, inner, bare)
-def sized(t: Tone, +content: Content, +name: String, +extra: P.Tree, +busy: Bool) -> Button: sized_inset(t, content, name, extra, busy, 0)
+def sized(t: Tone, +content: Content, +name: String, +extra: P.UI, +busy: Bool) -> Button: sized_inset(t, content, name, extra, busy, 0)
 def intent_content_in(+i: Intent, f: Form, +lang: Lang) -> Content:
   match f:
     case Form.Text{}: Label{intent_text(i, lang)}
@@ -632,7 +632,7 @@ def intent_content_in(+i: Intent, f: Form, +lang: Lang) -> Content:
     case Form.Icon{}: with_icon(intent_icon(i), intent_text(i, lang), False{})
     case Form.Both{}: with_icon(intent_icon(i), intent_text(i, lang), True{})
 def intent_content(+i: Intent, f: Form) -> Content: intent_content_in(i, f, Lang.Es{})
-def drawn(t: Tone, +i: Intent, f: Form, +extra: P.Tree, +busy: Bool) -> Button: sized(t, intent_content(i, f), intent_label(i), extra, busy)
+def drawn(t: Tone, +i: Intent, f: Form, +extra: P.UI, +busy: Bool) -> Button: sized(t, intent_content(i, f), intent_label(i), extra, busy)
 # Waiting on the server: never takes a tap (disabled), whatever its pose.
 def waiting(t: Tone) -> Button:
   match t:
@@ -666,10 +666,10 @@ def pressing(+kind: ButtonKind, +intent: Intent, +form: Form, +pressed: Press, m
     case Transitioning{+from, +to, started_at}:
       +e = ease_of(started_at, m, press_t())
       sized_inset(tone(kind, Bool.pick(Shade, U32.is_ge(e, 500), shade(to), shade(from))), intent_content(intent, form), intent_label(intent), P.Last{}, False{}, lerp(press_inset(from), press_inset(to), e))
-def button_tree(b: Button) -> P.Tree:
+def button_tree(b: Button) -> P.UI:
   match b:
     case Button{tree}: tree
-def button_trees(xs: List<&2, Button>) -> List<&2, P.Tree>:
+def button_trees(xs: List<&2, Button>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{button_tree(x), button_trees(rest)}
@@ -731,19 +731,19 @@ type FieldMarkup is Data:
 def plain(lines: Lines, placeholder: String, accessories: List<&2, S.Drawing>, state: FieldState) -> FieldMarkup:
   FieldMarkup{lines, placeholder, accessories, state, Settled{}, still()}
 type Field is Data:
-  Field{tree: P.Tree, empty: Bool}
+  Field{tree: P.UI, empty: Bool}
 def is_focused(focus: Focus) -> Bool:
   match focus:
     case Focus.Focused{}: True{}
     case Focus.Blurred{}: False{}
-def caret() -> P.Tree:
+def caret() -> P.UI:
   P.rounded("Caret", P.Fill.None{}, 2, 20, P.Corner{1}, P.Stroke{T.LineRole.Accent{}, T.State.Rest{}, "1"}, P.Middle{})
-def field_lines(xs: List<&2, String>, +color: T.TextRole, +focused: Bool) -> List<&2, P.Tree>:
+def field_lines(xs: List<&2, String>, +color: T.TextRole, +focused: Bool) -> List<&2, P.UI>:
   match xs:
-    case Nil{}: Bool.pick(List<&2, P.Tree>, focused, [caret()], [])
-    case Con{+x, Nil{}}: [Bool.pick(P.Tree, focused, P.layout("Last line", P.Horizontal{}, 1, 0, 0, 0, P.Leading{}, [words("Line", x, body(), color, P.Middle{}), caret()]), words("Line", x, body(), color, P.Leading{}))]
+    case Nil{}: Bool.pick(List<&2, P.UI>, focused, [caret()], [])
+    case Con{+x, Nil{}}: [Bool.pick(P.UI, focused, P.layout("Last line", P.Horizontal{}, 1, 0, 0, 0, P.Leading{}, [words("Line", x, body(), color, P.Middle{}), caret()]), words("Line", x, body(), color, P.Leading{}))]
     case Con{x, rest}: Con{words("Line", x, body(), color, P.Leading{}), field_lines(rest, color, focused)}
-def accessory_trees(xs: List<&2, S.Drawing>) -> List<&2, P.Tree>:
+def accessory_trees(xs: List<&2, S.Drawing>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{aligned(glyph(x, 20), P.Trailing{}), accessory_trees(rest)}
@@ -796,9 +796,9 @@ def field_motion_blur(+lines: Lines, grow: Transit<&2, U32>, m: Moment, +n: U32)
     case Transitioning{+from, +to, started_at}: lerp(shadow_blur(lines, from), shadow_blur(lines, to), ease_of(started_at, m, cap_t()))
 # A textbox's whole text, as a 0 x 0 leaf first inside it ("value · <text>"): what the shown lines
 # truncate or wrap, for a renderer that edits it (the browser's input).
-def value_leaf(+draft: String) -> P.Tree:
+def value_leaf(+draft: String) -> P.UI:
   P.leaf("value · " ++ draft, P.Shape{P.Rounded{0, 0, P.Corner{0}}, P.Fill.None{}, P.NoStroke{}, []}, 0, 0, P.Leading{})
-def field_box(placeholder: String, +draft: String, +width: U32, +focused: Bool, +empty: Bool, text: P.Tree, +accessories: List<&2, S.Drawing>, +h: U32, +blur: U32) -> Field:
+def field_box(placeholder: String, +draft: String, +width: U32, +focused: Bool, +empty: Bool, text: P.UI, +accessories: List<&2, S.Drawing>, +h: U32, +blur: U32) -> Field:
   Field{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, width, h, P.Leading{}, [value_leaf(draft),
     P.leaf("Container", P.Shape{P.Rounded{width, h, P.Corner{22}}, P.Solid{T.SurfaceRole.Surface{}, T.State.Rest{}}, P.Stroke{Bool.pick(T.LineRole, focused, T.LineRole.Accent{}, hairline()), T.State.Rest{}, Bool.pick(String, focused, "1.5", "1")}, shadow_of(blur)}, width, h, P.Middle{}),
     P.layout("Content", P.Horizontal{}, 10, 0, U32.sub(width, 32), 0, P.Middle{}, Con{text, accessory_trees(accessories)})]), empty}
@@ -814,7 +814,7 @@ def field(markup: FieldMarkup, +width: U32) -> Field:
       +text = P.layout("Field text", P.Vertical{}, 0, 0, tw, 0, P.Middle{}, field_lines(visible, Bool.pick(T.TextRole, empty, hint(), ink()), focused))
       +settled_h = field_height(count(visible))
       field_box(placeholder, draft, width, focused, empty, text, accessories, field_motion_h(lines, grow, m, settled_h), field_motion_blur(lines, grow, m, n))
-def field_tree(f: Field) -> P.Tree:
+def field_tree(f: Field) -> P.UI:
   match f:
     case Field{tree, empty}: tree
 def field_empty(f: Field) -> Bool:
@@ -864,14 +864,14 @@ def BubbleSlice(role: Role) -> Data:
 def bubble_slice() -> List<&2, Part>:
   [Part{"delivery", "Sending | Sent | Failed", Source.Server{}, Persistence.Persistent{}, "only when Mine"}]
 type Bubble is Data:
-  Bubble{tree: P.Tree}
+  Bubble{tree: P.UI}
 def bubble_max(+box: U32) -> U32: U32.div(U32.mul(box, 3), 4)
 def text_max(+box: U32) -> U32: U32.sub(bubble_max(box), 32)
-def pill(+align: P.Align, fill: T.SurfaceRole, +text: P.Tree, stroke: P.Stroke) -> P.Tree:
+def pill(+align: P.Align, fill: T.SurfaceRole, +text: P.UI, stroke: P.Stroke) -> P.UI:
   +w = U32.add(width(text), 32)
   +h = U32.add(height(text), 28)
   P.layout("Bubble", P.Depth{}, 0, 0, w, h, align, [filled("Container", fill, w, h, P.Corner{22}, stroke), text])
-def message(text: String, +box: U32) -> P.Tree:
+def message(text: String, +box: U32) -> P.UI:
   paragraph("Text", text, body(), ink(), text_max(box), P.Middle{})
 # A photo: as wide as 75% of the box allows (at most 220), in its aspect.
 def photo_width(+p: Picture, +box: U32) -> U32:
@@ -880,7 +880,7 @@ def photo_width(+p: Picture, +box: U32) -> U32:
 def photo_height(+p: Picture, +box: U32) -> U32:
   match p:
     case Picture{asset, w, +h, label}: U32.div(U32.mul(photo_width(p, box), h), U32.max(1, w))
-def photo_pill(+p: Picture, +align: P.Align, stroke: P.Stroke, +box: U32) -> P.Tree:
+def photo_pill(+p: Picture, +align: P.Align, stroke: P.Stroke, +box: U32) -> P.UI:
   match p:
     case Picture{+asset, +w, +h, +label}:
       +pw = photo_width(Picture{asset, w, h, label}, box)
@@ -890,15 +890,15 @@ def said_label(s: Said) -> String:
   match s:
     case Said.Words{text}: text
     case Said.Photo{Picture{asset, w, h, label}}: label
-def said_tree(+s: Said, +align: P.Align, fill: T.SurfaceRole, stroke: P.Stroke, +box: U32) -> P.Tree:
+def said_tree(+s: Said, +align: P.Align, fill: T.SurfaceRole, stroke: P.Stroke, +box: U32) -> P.UI:
   match s:
     case Said.Words{text}: pill(align, fill, message(text, box), stroke)
     case Said.Photo{p}: photo_pill(p, align, stroke, box)
-def mine(+said: Said, stroke: P.Stroke, +box: U32) -> P.Tree:
+def mine(+said: Said, stroke: P.Stroke, +box: U32) -> P.UI:
   renamed(said_tree(said, P.Trailing{}, T.SurfaceRole.Mine{}, stroke, box), named(A11yRole.Listitem{}, "Tú: " ++ said_label(said)))
-def with_line(+name: String, bubble: P.Tree, line: P.Tree) -> P.Tree:
+def with_line(+name: String, bubble: P.UI, line: P.UI) -> P.UI:
   P.layout(name, P.Vertical{}, 6, 0, 0, 0, P.Trailing{}, [aligned(bubble, P.Trailing{}), aligned(line, P.Trailing{})])
-def shown_bubble(role: Role, slice: BubbleSlice(role), +content: Said, +box: U32) -> P.Tree:
+def shown_bubble(role: Role, slice: BubbleSlice(role), +content: Said, +box: U32) -> P.UI:
   match role:
     case Role.Mine{}:
       match slice:
@@ -907,13 +907,13 @@ def shown_bubble(role: Role, slice: BubbleSlice(role), +content: Said, +box: U32
         case Delivery.Failed{}: with_line(named(A11yRole.Button{}, intent_label(Intent.RetrySend{})), mine(content, edge(hairline()), box), retry_line("No se envió", P.Trailing{}))
     case Role.Near{}: renamed(said_tree(content, P.Leading{}, T.SurfaceRole.Surface{}, P.NoStroke{}, box), named(A11yRole.Listitem{}, "Near: " ++ said_label(content)))
 # Reserved: the same box, empty.
-def hollow(+t: P.Tree) -> P.Tree:
+def hollow(+t: P.UI) -> P.UI:
   spacer("Reserved", width(t), height(t), align_of(t))
 def bubble(role: Role, slice: BubbleSlice(role), content: Said, presence: Presence, box: U32) -> Bubble:
   match presence:
     case Presence.Shown{}: Bubble{shown_bubble(role, slice, content, box)}
     case Presence.Reserved{}: Bubble{hollow(shown_bubble(role, slice, content, box))}
-def bubble_tree(b: Bubble) -> P.Tree:
+def bubble_tree(b: Bubble) -> P.UI:
   match b:
     case Bubble{tree}: tree
 # The pill of a bubble with this text: its size (the flight lands on it).
@@ -930,13 +930,13 @@ def bubble_range(+text: String, +box: U32) -> Range:
 # The "Near" label under the pet is Badge("Near"). A Glass pill over Content
 # (it overlaps the thread): its text is Ink.
 type Badge is Data:
-  Badge{tree: P.Tree}
+  Badge{tree: P.UI}
 def badge_max() -> U32: U32.div(U32.mul(column(), 5), 8)
 def badge(+text: String) -> Badge:
   +shown = M.truncate(text, badge_max(), name_type())
   +w = U32.max(32, U32.add(M.width(shown, name_type()), 30))
   Badge{P.layout(named(A11yRole.Text{}, text), P.Depth{}, 0, 0, w, 32, P.Middle{}, [glassy("Container", w, 32, P.Full{}, T.Backdrop.Content{}), words("Text", shown, name_type(), ink(), P.Middle{})])}
-def badge_tree(b: Badge) -> P.Tree:
+def badge_tree(b: Badge) -> P.UI:
   match b:
     case Badge{tree}: tree
 def badge_range(+text: String) -> Range:
@@ -956,8 +956,8 @@ def IdentitySlice(motion: Motion) -> Data:
 def identity_slice() -> List<&2, Part>:
   [Part{"clock", "Clock{ms}", Source.Local{}, Persistence.Ephemeral{}, "only when Motion is Full"}]
 type NearIdentity is Data:
-  NearIdentity{tree: P.Tree, compact: P.Tree}
-def pet(+frame: N.Frame) -> P.Tree:
+  NearIdentity{tree: P.UI, compact: P.UI}
+def pet(+frame: N.Frame) -> P.UI:
   match frame:
     case N.Frame{pet_id, asset, animation, +time_ms, reduced_motion, row, col, x, y, w, h, sw, sh}:
       P.leaf("Near", P.Shape{P.Rounded{56, 61, P.Corner{0}}, P.Image{P.Bitmap.Atlas{frame}, time_ms}, P.NoStroke{}, []}, 56, 61, P.Middle{})
@@ -969,10 +969,10 @@ def near_identity(animation: N.Animation, motion: Motion, slice: IdentitySlice(m
       match slice:
         case Clock{ms}: identity(N.sample(animation, ms, False{}))
     case Motion.Reduced{}: identity(N.sample(animation, 0, True{}))
-def identity_tree(n: NearIdentity) -> P.Tree:
+def identity_tree(n: NearIdentity) -> P.UI:
   match n:
     case NearIdentity{tree, compact}: tree
-def identity_compact(n: NearIdentity) -> P.Tree:
+def identity_compact(n: NearIdentity) -> P.UI:
   match n:
     case NearIdentity{tree, compact}: compact
 def identity_range() -> Range: Range{72, 72, 93, 93}
@@ -990,23 +990,23 @@ def visible_scale(v: Visibility) -> U32:
     case Visibility.Hidden{}: 0
     case Visibility.Visible{}: 1000
 type TypingIndicator is Data:
-  TypingIndicator{tree: P.Tree}
+  TypingIndicator{tree: P.UI}
 def scale(+n: U32, +s: U32) -> U32: U32.div(U32.mul(n, s), 1000)
 # Dot i rises 0..4pt and falls during the first half of its cycle.
 def bounce(+ph: U32) -> U32:
   Bool.pick(U32, U32.is_lt(ph, 250), U32.div(U32.mul(ph, 4), 250), Bool.pick(U32, U32.is_lt(ph, 500), U32.div(U32.mul(U32.sub(500, ph), 4), 250), 0))
-def bouncing_dot(+s: U32, +lift: U32) -> P.Tree:
+def bouncing_dot(+s: U32, +lift: U32) -> P.UI:
   P.layout("Dot column", P.Vertical{}, 0, 0, U32.max(1, scale(8, s)), U32.max(1, scale(12, s)), P.Middle{}, [spacer("Lift", 1, U32.sub(scale(4, s), scale(lift, s)), P.Middle{}), dot(T.LineRole.Muted{}, scale(8, s))])
 def indicator_at(+s: U32, +ph: U32) -> TypingIndicator:
   TypingIndicator{P.layout(named(A11yRole.Status{}, "Near está escribiendo"), P.Depth{}, 0, 0, U32.max(1, scale(64, s)), U32.max(1, scale(36, s)), P.Leading{}, [
     filled("Container", T.SurfaceRole.Surface{}, U32.max(1, scale(64, s)), U32.max(1, scale(36, s)), P.Full{}, P.NoStroke{}),
-    P.layout("Dots", P.Horizontal{}, scale(5, s), 0, 0, 0, P.Middle{}, Bool.pick(List<&2, P.Tree>, U32.is_lt(s, 250), [], [bouncing_dot(s, bounce(ph)), bouncing_dot(s, bounce(U32.mod(U32.add(ph, 850), 1000))), bouncing_dot(s, bounce(U32.mod(U32.add(ph, 700), 1000)))]))])}
+    P.layout("Dots", P.Horizontal{}, scale(5, s), 0, 0, 0, P.Middle{}, Bool.pick(List<&2, P.UI>, U32.is_lt(s, 250), [], [bouncing_dot(s, bounce(ph)), bouncing_dot(s, bounce(U32.mod(U32.add(ph, 850), 1000))), bouncing_dot(s, bounce(U32.mod(U32.add(ph, 700), 1000)))]))])}
 def typing_indicator(appear: Transit<&2, Visibility>, +m: Moment) -> TypingIndicator:
   match appear:
     case Settled{}: indicator_at(1000, phase(m, Duration.Loop{}))
     case Transitioning{from, to, started_at}: indicator_at(lerp(visible_scale(from), visible_scale(to), ease_of(started_at, m, appear_t())), phase(m, Duration.Loop{}))
 def still_indicator() -> TypingIndicator: typing_indicator(Settled{}, still())
-def indicator_tree(t: TypingIndicator) -> P.Tree:
+def indicator_tree(t: TypingIndicator) -> P.UI:
   match t:
     case TypingIndicator{tree}: tree
 
@@ -1020,17 +1020,17 @@ type HeaderSize is Data:
   HeaderSize.Full{}
   HeaderSize.Collapsed{}
 type Header is Data:
-  Header{tree: P.Tree}
+  Header{tree: P.UI}
 def header_min(+side: U32, +center: U32) -> U32: U32.add(U32.mul(2, U32.add(side, 16)), center)
 def header_size(+box: U32, +side: U32, +full: U32) -> HeaderSize:
   Bool.pick(HeaderSize, U32.is_ge(box, header_min(side, full)), HeaderSize.Full{}, HeaderSize.Collapsed{})
-def header_center(size: HeaderSize, +n: NearIdentity) -> P.Tree:
+def header_center(size: HeaderSize, +n: NearIdentity) -> P.UI:
   match size:
     case HeaderSize.Full{}: identity_tree(n)
     case HeaderSize.Collapsed{}: identity_compact(n)
 # The thread scrolls under the header: a backdrop (Gradient from Background
 # to Clear, with a Blur) keeps it readable.
-def backdrop(+box: U32, +h: U32) -> P.Tree:
+def backdrop(+box: U32, +h: U32) -> P.UI:
   P.leaf("Fade + blur", P.Shape{P.Rounded{box, h, P.Corner{0}}, P.Gradient{T.Stop.Of{T.SurfaceRole.Background{}}, T.Stop.Clear{}, 50}, P.NoStroke{}, [P.Blur{10}]}, box, h, P.Leading{})
 # The fade reaches past the header, so the thread fades out before it
 # meets the buttons and the badge (as in the reference).
@@ -1044,7 +1044,7 @@ def header(left: Button, +center: NearIdentity, right: Button, +box: U32) -> Hea
     aligned(l, P.Leading{}),
     aligned(c, P.Middle{}),
     P.layout("Right", P.Vertical{}, 0, 0, box, 0, P.Leading{}, [aligned(r, P.Trailing{})])])}
-def header_tree(h: Header) -> P.Tree:
+def header_tree(h: Header) -> P.UI:
   match h:
     case Header{tree}: tree
 def header_ranges(+side: U32, +n: NearIdentity) -> List<&2, CaseRange>:
@@ -1081,7 +1081,7 @@ type ComposerSize is Data:
 # from the draft (the Field markup), the attach menu is the Conversation's.
 def composer_slice() -> List<&2, Part>: []
 type Composer is Data:
-  Composer{tree: P.Tree}
+  Composer{tree: P.UI}
 def plus_button() -> Button: act(ButtonKind.Plain{}, Intent.Attach{}, Form.Icon{})
 # The mic: a Plain 44pt press region with an 18pt glyph (the reference's
 # proportion inside the pill).
@@ -1100,11 +1100,11 @@ def is_compact(s: ComposerSize) -> Bool:
     case ComposerSize.Regular{}: False{}
 # Send shows unless the pill is Compact and Empty.
 def shows_send(+size: ComposerSize, +empty: Bool) -> Bool: Bool.not(Bool.and(is_compact(size), empty))
-def bottom(xs: List<&2, P.Tree>) -> List<&2, P.Tree>:
+def bottom(xs: List<&2, P.UI>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{aligned(x, P.Trailing{}), bottom(rest)}
-def trees_width(xs: List<&2, P.Tree>, +gap: U32) -> U32:
+def trees_width(xs: List<&2, P.UI>, +gap: U32) -> U32:
   match xs:
     case Nil{}: 0
     case Con{x, rest}: U32.add(U32.add(width(x), gap), trees_width(rest, gap))
@@ -1118,10 +1118,10 @@ def pill_effects(+size: ComposerSize, +blur: U32) -> List<&2, P.Effect>:
   Bool.pick(List<&2, P.Effect>, is_compact(size), Con{P.glass(T.Backdrop.Base{}), shadow_of(blur)}, shadow_of(blur))
 def pill_stroke(+size: ComposerSize, +focused: Bool) -> P.Stroke:
   Bool.pick(P.Stroke, focused, P.Stroke{T.LineRole.Accent{}, T.State.Rest{}, "1.5"}, Bool.pick(P.Stroke, is_compact(size), P.NoStroke{}, P.Stroke{T.LineRole.Edge{}, T.State.Rest{}, "0.5"}))
-def pill_container(+size: ComposerSize, +focused: Bool, +box: U32, +h: U32, +blur: U32) -> P.Tree:
+def pill_container(+size: ComposerSize, +focused: Bool, +box: U32, +h: U32, +blur: U32) -> P.UI:
   P.leaf("Container", P.Shape{P.Rounded{box, h, P.Corner{22}}, P.Solid{Bool.pick(T.SurfaceRole, is_compact(size), T.SurfaceRole.Glass{}, T.SurfaceRole.Field{}), T.State.Rest{}}, pill_stroke(size, focused), pill_effects(size, blur)}, box, h, P.Middle{})
-def send_slot(+send: Bool, +empty: Bool, +align: P.Align) -> List<&2, P.Tree>:
-  Bool.pick(List<&2, P.Tree>, send, [aligned(button_tree(send_button(empty)), align)], [])
+def send_slot(+send: Bool, +empty: Bool, +align: P.Align) -> List<&2, P.UI>:
+  Bool.pick(List<&2, P.UI>, send, [aligned(button_tree(send_button(empty)), align)], [])
 def composer(markup: FieldMarkup, +size: ComposerSize, +box: U32) -> Composer:
   match markup:
     case FieldMarkup{+lines, +placeholder, accessories, FieldState{+draft, focus}, +grow, +m}:
@@ -1141,7 +1141,7 @@ def composer(markup: FieldMarkup, +size: ComposerSize, +box: U32) -> Composer:
           Con{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, tw, h, P.Middle{}, [value_leaf(draft), aligned(text, P.Middle{})]),
           Con{aligned(button_tree(mic_button()), button_align), send_slot(send, empty, button_align)}}})])
       Composer{P.layout(named(A11yRole.Group{}, "Escribir mensaje"), P.Vertical{}, 0, 0, box, 0, P.Leading{}, [pill])}
-def composer_tree(c: Composer) -> P.Tree:
+def composer_tree(c: Composer) -> P.UI:
   match c:
     case Composer{tree}: tree
 # Capped: the draft passes the cap (the App opens the Editor sheet then).
@@ -1156,7 +1156,7 @@ def composer_range(+lines: Lines, +text: String) -> Range:
 # badge (Surface) and its label, the intent's copy in the given language.
 def attach_type() -> P.TextType: P.TextType{"Attach", 22, 400}
 def attach_w() -> U32: 278
-def attach_row(+intent: Intent, +lang: Lang, +w: U32) -> P.Tree:
+def attach_row(+intent: Intent, +lang: Lang, +w: U32) -> P.UI:
   +label = intent_text(intent, lang)
   P.layout(named(A11yRole.Button{}, label), P.Depth{}, 0, 0, w, 56, P.Leading{}, [
     P.rounded("Container", P.Fill.None{}, w, 56, P.Corner{20}, P.NoStroke{}, P.Middle{}),
@@ -1164,11 +1164,11 @@ def attach_row(+intent: Intent, +lang: Lang, +w: U32) -> P.Tree:
       P.layout("Badge", P.Depth{}, 0, 0, 48, 48, P.Middle{}, [P.circle("Circle", P.Solid{T.SurfaceRole.Surface{}, T.State.Rest{}}, P.NoStroke{}, 48, P.Middle{}), glyph(icon_or(intent_icon(intent)), 24)]),
       words("Label", label, attach_type(), ink(), P.Middle{})])])
 def attach_intents() -> List<&2, Intent>: [Intent.Camera{}, Intent.Photo{}, Intent.Files{}]
-def attach_rows(xs: List<&2, Intent>, +lang: Lang, +w: U32) -> List<&2, P.Tree>:
+def attach_rows(xs: List<&2, Intent>, +lang: Lang, +w: U32) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{+x, rest}: Con{attach_row(x, lang, w), attach_rows(rest, lang, w)}
-def attach_panel(+lang: Lang) -> P.Tree:
+def attach_panel(+lang: Lang) -> P.UI:
   +items = P.layout("Items", P.Vertical{}, 12, 22, attach_w(), 0, P.Leading{}, attach_rows(attach_intents(), lang, U32.sub(attach_w(), 44)))
   P.layout(named(A11yRole.Group{}, intent_text(Intent.Attach{}, lang)), P.Depth{}, 0, 0, attach_w(), height(items), P.Leading{}, [glassy("Panel", attach_w(), height(items), P.Corner{40}, T.Backdrop.Content{}), items])
 
@@ -1176,16 +1176,16 @@ def attach_panel(+lang: Lang) -> P.Tree:
 # -------------------------------------------------
 
 def inner_width() -> U32: U32.sub(column(), 40)
-def card(+label: String, fill: T.SurfaceRole, stroke: T.LineRole, children: List<&2, P.Tree>) -> P.Tree:
+def card(+label: String, fill: T.SurfaceRole, stroke: T.LineRole, children: List<&2, P.UI>) -> P.UI:
   +inner = P.layout("Content", P.Vertical{}, 14, 0, inner_width(), 0, P.Middle{}, children)
   +h = U32.add(height(inner), 40)
   P.layout(named(A11yRole.Group{}, label), P.Depth{}, 0, 0, column(), h, P.Leading{}, [filled("Card", fill, column(), h, P.Corner{24}, edge(stroke)), inner])
 # Card titles wrap.
-def title(+text: String) -> P.Tree:
+def title(+text: String) -> P.UI:
   renamed(paragraph("Title", text, title_type(), ink(), inner_width(), P.Leading{}), named(A11yRole.Heading{}, text))
-def actions(buttons: List<&2, Button>) -> P.Tree:
+def actions(buttons: List<&2, Button>) -> P.UI:
   P.layout("Buttons", P.Horizontal{}, 10, 0, 0, 0, P.Leading{}, button_trees(buttons))
-def with_status(xs: List<&2, P.Tree>, status: Maybe<&2, P.Tree>) -> List<&2, P.Tree>:
+def with_status(xs: List<&2, P.UI>, status: Maybe<&2, P.UI>) -> List<&2, P.UI>:
   match status:
     case None{}: xs
     case Some{line}: append_trees(xs, [line])
@@ -1201,13 +1201,13 @@ def invite_slice() -> List<&2, Part>:
    Part{"focus", "Blurred | Focused", Source.Local{}, Persistence.Persistent{}, ""},
    Part{"submit", "Remote<name>", Source.Server{}, Persistence.Persistent{}, "once sent"}]
 type Invitacion is Data:
-  Invitacion{tree: P.Tree}
+  Invitacion{tree: P.UI}
 def in_flight(submit: Maybe<&2, Remote<&2, String>>) -> Bool:
   match submit:
     case Some{Loading{}}: True{}
     case Some{Pending{name}}: True{}
     case _: False{}
-def submit_line(submit: Maybe<&2, Remote<&2, String>>) -> Maybe<&2, P.Tree>:
+def submit_line(submit: Maybe<&2, Remote<&2, String>>) -> Maybe<&2, P.UI>:
   match submit:
     case None{}: None{}
     case Some{Loading{}}: Some{busy_line("Creando acceso…")}
@@ -1238,14 +1238,14 @@ type Invite is Data:
 def share_slice() -> List<&2, Part>:
   [Part{"invite", "Remote<Active{revoke} | Expired | Revoked>", Source.Server{}, Persistence.Persistent{}, ""}]
 type Compartir is Data:
-  Compartir{tree: P.Tree}
-def invite_line(invite: Invite) -> P.Tree:
+  Compartir{tree: P.UI}
+def invite_line(invite: Invite) -> P.UI:
   match invite:
     case Invite.Active{Revoke.Idle{}}: status_line(accent_dot(), "Activa")
     case Invite.Active{Revoke.InFlight{}}: busy_line("Revocando…")
     case Invite.Expired{}: status_line(muted_dot(), "Expirada")
     case Invite.Revoked{}: status_line(danger_dot(8), "Revocada")
-def share_line(invite: Remote<&2, Invite>) -> P.Tree:
+def share_line(invite: Remote<&2, Invite>) -> P.UI:
   match invite:
     case Loading{}: busy_line("Cargando estado…")
     case Ready{i}: invite_line(i)
@@ -1291,31 +1291,31 @@ def thread_slice() -> List<&2, Part>:
    Part{"keyboard", "U32 inset", Source.Local{}, Persistence.Ephemeral{}, ""},
    Part{"motion", "Transit<Pose>", Source.Local{}, Persistence.Ephemeral{}, ""}]
 type Thread is Data:
-  Thread{tree: P.Tree}
+  Thread{tree: P.UI}
 # Timestamps and receipts: the day word (or "Leído") bold, the time regular.
 def stamp_type() -> P.TextType: P.TextType{"Stamp", 13, 400}
 def stamp_bold() -> P.TextType: P.TextType{"Stamp day", 13, 600}
-def card_tree(c: Card) -> P.Tree:
+def card_tree(c: Card) -> P.UI:
   match c:
     case InvitationCard{Invitacion{tree}}: tree
     case SharingCard{Compartir{tree}}: tree
-def item_tree(i: Item) -> P.Tree:
+def item_tree(i: Item) -> P.UI:
   match i:
     case Said{b}: bubble_tree(b)
     case Receipt{+label, +time}: P.layout(named(A11yRole.Text{}, label ++ " " ++ time), P.Horizontal{}, 4, 0, 0, 0, P.Trailing{}, [words("Word", label, stamp_bold(), muted(), P.Middle{}), words("Time", time, stamp_type(), muted(), P.Middle{})])
     case Stamp{+day, +time}: P.layout(named(A11yRole.Text{}, day ++ " " ++ time), P.Horizontal{}, 4, 0, 0, 0, P.Middle{}, [words("Day", day, stamp_bold(), muted(), P.Middle{}), words("Time", time, stamp_type(), muted(), P.Middle{})])
     case Waiting{t}: indicator_tree(t)
     case Attached{c}: card_tree(c)
-def item_trees(xs: List<&2, Item>, tail: List<&2, P.Tree>) -> List<&2, P.Tree>:
+def item_trees(xs: List<&2, Item>, tail: List<&2, P.UI>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: tail
     case Con{x, rest}: Con{item_tree(x), item_trees(rest, tail)}
-def skeleton(+w: U32, align: P.Align) -> P.Tree:
+def skeleton(+w: U32, align: P.Align) -> P.UI:
   P.rounded("Placeholder", P.Solid{T.SurfaceRole.Surface{}, T.State.Rest{}}, w, 44, P.Full{}, P.NoStroke{}, align)
-def empty_state(+box: U32) -> P.Tree:
+def empty_state(+box: U32) -> P.UI:
   P.layout("Empty", P.Depth{}, 0, 0, box, 96, P.Leading{}, [words("Empty", "Aún no hay mensajes", note_type(), muted(), P.Middle{})])
 # The load failure is the retry button (a 44pt press region).
-def banner(+box: U32) -> P.Tree:
+def banner(+box: U32) -> P.UI:
   P.layout(named(A11yRole.Button{}, intent_label(Intent.Reload{})), P.Depth{}, 0, 0, box, 44, P.Leading{}, [
     filled("Container", T.SurfaceRole.Danger{}, box, 44, P.Corner{14}, edge(hairline())),
     aligned(retry_line("No se pudo cargar", P.Middle{}), P.Middle{})])
@@ -1325,44 +1325,44 @@ def is_empty(xs: List<&2, Item>) -> Bool:
     case _: False{}
 # A growing slot: the item's box, its height scaled by `e`; at full size it
 # is the item itself (a Reserved bubble still draws nothing).
-def slot(+t: P.Tree, +e: U32) -> P.Tree:
-  Bool.pick(P.Tree, U32.is_ge(e, 1000), t, spacer("Slot", width(t), U32.div(U32.mul(height(t), e), 1000), align_of(t)))
+def slot(+t: P.UI, +e: U32) -> P.UI:
+  Bool.pick(P.UI, U32.is_ge(e, 1000), t, spacer("Slot", width(t), U32.div(U32.mul(height(t), e), 1000), align_of(t)))
 # Near's reply growing out of the typing indicator: until it is full size the
 # box morphs (dots first, then empty); at full size it is the bubble.
-def morph(+t: P.Tree, +e: U32, +m: Moment) -> P.Tree:
+def morph(+t: P.UI, +e: U32, +m: Moment) -> P.UI:
   +w = lerp(64, width(t), e)
   +h = lerp(36, height(t), e)
-  Bool.pick(P.Tree, U32.is_ge(e, 1000), t, P.layout("Reply", P.Depth{}, 0, 0, w, h, P.Leading{}, Con{
+  Bool.pick(P.UI, U32.is_ge(e, 1000), t, P.layout("Reply", P.Depth{}, 0, 0, w, h, P.Leading{}, Con{
     filled("Container", T.SurfaceRole.Surface{}, w, h, P.Corner{lerp(18, 22, e)}, P.NoStroke{}),
-    Bool.pick(List<&2, P.Tree>, U32.is_lt(e, 400), [aligned(indicator_tree(typing_indicator(Settled{}, m)), P.Middle{})], [])}))
-def moving_items(xs: List<&2, Item>, +index: U32, +from: U32, +grows: Bool, +reply: Bool, +e: U32, +m: Moment, tail: List<&2, P.Tree>) -> List<&2, P.Tree>:
+    Bool.pick(List<&2, P.UI>, U32.is_lt(e, 400), [aligned(indicator_tree(typing_indicator(Settled{}, m)), P.Middle{})], [])}))
+def moving_items(xs: List<&2, Item>, +index: U32, +from: U32, +grows: Bool, +reply: Bool, +e: U32, +m: Moment, tail: List<&2, P.UI>) -> List<&2, P.UI>:
   match xs:
     case Nil{}: tail
     case Con{+x, rest}:
-      +own = Bool.pick(P.Tree, Bool.and(grows, U32.is_eq(index, from)), Bool.pick(P.Tree, reply, morph(item_tree(x), e, m), slot(item_tree(x), e)), item_tree(x))
+      +own = Bool.pick(P.UI, Bool.and(grows, U32.is_eq(index, from)), Bool.pick(P.UI, reply, morph(item_tree(x), e, m), slot(item_tree(x), e)), item_tree(x))
       Con{own, moving_items(rest, U32.add(index, 1), from, grows, reply, e, m, tail)}
 def is_shown(t: Typing) -> Bool:
   match t:
     case Typing.Shown{}: True{}
     case Typing.Hidden{}: False{}
-def typing_tail(+typing: Typing, +appear: Bool, +started_at: U32, +m: Moment) -> List<&2, P.Tree>:
-  Bool.pick(List<&2, P.Tree>, is_shown(typing), [indicator_tree(typing_indicator(Bool.pick(Transit<&2, Visibility>, appear, Transitioning{Visibility.Hidden{}, Visibility.Visible{}, started_at}, Settled{}), m))], [])
-def ready_trees(+xs: List<&2, Item>, +tail: List<&2, P.Tree>, +box: U32) -> List<&2, P.Tree>:
-  Bool.pick(List<&2, P.Tree>, is_empty(xs), Con{empty_state(box), tail}, item_trees(xs, tail))
-def static_trees(messages: Remote<&2, List<&2, Item>>, +tail: List<&2, P.Tree>, +box: U32) -> List<&2, P.Tree>:
+def typing_tail(+typing: Typing, +appear: Bool, +started_at: U32, +m: Moment) -> List<&2, P.UI>:
+  Bool.pick(List<&2, P.UI>, is_shown(typing), [indicator_tree(typing_indicator(Bool.pick(Transit<&2, Visibility>, appear, Transitioning{Visibility.Hidden{}, Visibility.Visible{}, started_at}, Settled{}), m))], [])
+def ready_trees(+xs: List<&2, Item>, +tail: List<&2, P.UI>, +box: U32) -> List<&2, P.UI>:
+  Bool.pick(List<&2, P.UI>, is_empty(xs), Con{empty_state(box), tail}, item_trees(xs, tail))
+def static_trees(messages: Remote<&2, List<&2, Item>>, +tail: List<&2, P.UI>, +box: U32) -> List<&2, P.UI>:
   match messages:
     case Loading{}: Con{skeleton(180, P.Leading{}), Con{skeleton(140, P.Trailing{}), Con{skeleton(220, P.Leading{}), tail}}}
     case Ready{xs}: ready_trees(xs, tail, box)
     case Pending{xs}: item_trees(xs, Con{busy_line("Sincronizando…"), tail})
     case Failed{Some{xs}}: Con{banner(box), item_trees(xs, tail)}
     case Failed{None{}}: Con{banner(box), tail}
-def moving_trees(messages: Remote<&2, List<&2, Item>>, +from: U32, +grows: Bool, +reply: Bool, +e: U32, +m: Moment, +tail: List<&2, P.Tree>, +box: U32) -> List<&2, P.Tree>:
+def moving_trees(messages: Remote<&2, List<&2, Item>>, +from: U32, +grows: Bool, +reply: Bool, +e: U32, +m: Moment, +tail: List<&2, P.UI>, +box: U32) -> List<&2, P.UI>:
   match messages:
     case Ready{xs}: moving_items(xs, 0, from, grows, reply, e, m, tail)
     case Pending{xs}: moving_items(xs, 0, from, grows, reply, e, m, tail)
     case other: static_trees(other, tail, box)
 def content_width(+box: U32) -> U32: U32.min(box, readable())
-def thread_frame(+box: U32, items: List<&2, P.Tree>, +inset: U32) -> Thread:
+def thread_frame(+box: U32, items: List<&2, P.UI>, +inset: U32) -> Thread:
   Thread{P.layout(named(A11yRole.List{}, "Conversación"), P.Vertical{}, 0, 0, box, 0, P.Leading{}, [
     aligned(P.layout("Items", P.Vertical{}, 12, 0, content_width(box), 0, P.Leading{}, items), P.Middle{}),
     spacer("Keyboard inset", box, inset, P.Leading{})])}
@@ -1385,13 +1385,13 @@ def thread(slice: ThreadState, +box: U32) -> Thread:
           +grows = U32.is_ge(pose_items(to), U32.add(pose_items(from), 1))
           +reply = Bool.and(grows, Bool.and(is_shown(pose_typing(from)), Bool.not(is_shown(pose_typing(to)))))
           thread_frame(box, moving_trees(messages, pose_items(from), grows, reply, e, m, typing_tail(pose_typing(to), Bool.not(is_shown(pose_typing(from))), started_at, m), box), lerp(pose_keyboard(from), pose_keyboard(to), e))
-def thread_tree(t: Thread) -> P.Tree:
+def thread_tree(t: Thread) -> P.UI:
   match t:
     case Thread{tree}: tree
-def invitacion_tree(c: Invitacion) -> P.Tree:
+def invitacion_tree(c: Invitacion) -> P.UI:
   match c:
     case Invitacion{tree}: tree
-def compartir_tree(c: Compartir) -> P.Tree:
+def compartir_tree(c: Compartir) -> P.UI:
   match c:
     case Compartir{tree}: tree
 def thread_range() -> Range: Range{column(), 0, 0, 0}
@@ -1399,9 +1399,9 @@ def thread_range() -> Range: Range{column(), 0, 0, 0}
 # over the item, Accent, its stroke thinning from 3pt to nothing (Slow,
 # feedback). Same box as the item: the layout never moves.
 def tenths(+n: U32) -> String: U32.show(U32.div(n, 10)) ++ "." ++ U32.show(U32.mod(n, 10))
-def ringed(+t: P.Tree, +e: U32) -> P.Tree:
+def ringed(+t: P.UI, +e: U32) -> P.UI:
   +sw = lerp(30, 0, e)
-  Bool.pick(P.Tree, U32.is_zero(sw), t, P.layout("Highlighted", P.Depth{}, 0, 0, width(t), height(t), align_of(t), [aligned(t, P.Middle{}), P.rounded("Highlight ring", P.Fill.None{}, width(t), height(t), P.Corner{22}, P.Stroke{T.LineRole.Accent{}, T.State.Rest{}, tenths(sw)}, P.Middle{})]))
+  Bool.pick(P.UI, U32.is_zero(sw), t, P.layout("Highlighted", P.Depth{}, 0, 0, width(t), height(t), align_of(t), [aligned(t, P.Middle{}), P.rounded("Highlight ring", P.Fill.None{}, width(t), height(t), P.Corner{22}, P.Stroke{T.LineRole.Accent{}, T.State.Rest{}, tenths(sw)}, P.Middle{})]))
 def marked(i: Item, +e: U32) -> Item:
   match i:
     case Said{Bubble{+t}}: Said{Bubble{ringed(t, e)}}
@@ -1440,7 +1440,7 @@ def conversation_slice() -> List<&2, Part>:
    Part{"attach menu", "Closed | Open", Source.Local{}, Persistence.Ephemeral{}, "only when Settled"},
    Part{"text, now", "String, U32", Source.Local{}, Persistence.Ephemeral{}, "only while Sending"}]
 type Conversation is Data:
-  Conversation{tree: P.Tree}
+  Conversation{tree: P.UI}
 def margin() -> U32: 24
 def regular_min() -> U32: U32.add(readable(), U32.mul(2, margin()))
 def conversation_size(+box: U32) -> ConversationSize:
@@ -1455,7 +1455,7 @@ def composer_w(+box: U32) -> U32: Bool.pick(U32, U32.is_ge(box, regular_min()), 
 # The attach panel, when the menu is Open: a layer over the thread and the
 # composer, the panel left-aligned (10pt outside the composer, as in the
 # reference) and level with its bottom, over an empty scrim (a tap outside closes it).
-def attach_layer(menu: AttachMenu, +box: U32, +box_h: U32) -> List<&2, P.Tree>:
+def attach_layer(menu: AttachMenu, +box: U32, +box_h: U32) -> List<&2, P.UI>:
   match menu:
     case AttachMenu.Closed{}: []
     case AttachMenu.Open{}:
@@ -1463,7 +1463,7 @@ def attach_layer(menu: AttachMenu, +box: U32, +box_h: U32) -> List<&2, P.Tree>:
       [P.layout("Attach layer", P.Depth{}, 0, 0, box, box_h, P.Leading{}, [P.rounded("Menu scrim", P.Fill.None{}, box, box_h, P.Corner{0}, P.NoStroke{}, P.Leading{}), placed_at("Placement", U32.sub(U32.div(U32.sub(box, composer_w(box)), 2), U32.min(10, U32.div(U32.sub(box, composer_w(box)), 2))), U32.sub(box_h, U32.min(box_h, height(panel))), panel)])]
 # The Thread and the Composer, without the flight.
 # The box height goes to the composer first; the thread area takes the rest.
-def body_tree(+placeholder: String, +box: U32, +box_h: U32, messages: Remote<&2, List<&2, Item>>, motion: Transit<&2, Pose>, +m: Moment, draft: String, focus: Focus, menu: AttachMenu) -> P.Tree:
+def body_tree(+placeholder: String, +box: U32, +box_h: U32, messages: Remote<&2, List<&2, Item>>, motion: Transit<&2, Pose>, +m: Moment, draft: String, focus: Focus, menu: AttachMenu) -> P.UI:
   +inner = inner_of(box)
   +c = composer_tree(composer(FieldMarkup{Lines.Growing{4}, placeholder, [], FieldState{draft, focus}, Settled{}, m}, composer_size(box), composer_w(box)))
   P.layout("Layers", P.Depth{}, 0, 0, box, box_h, P.Leading{}, Con{P.layout("Body", P.Vertical{}, 12, 0, box, box_h, P.Leading{}, [
@@ -1486,7 +1486,7 @@ def find_area(boxes: List<&2, P.Box>, +name: String) -> Area:
   match boxes:
     case Nil{}: Area{0, 0, 0, 0}
     case Con{P.Box{+n, mark, +x, +y, +w, +h, level, layer}, rest}: Bool.pick(Area, String.eq(n, name), Area{x, y, w, h}, find_area(rest, name))
-def placed(+t: P.Tree) -> List<&2, P.Box>:
+def placed(+t: P.UI) -> List<&2, P.Box>:
   P.place(t, P.Depth{}, 0, 0, 0, width(t), height(t), 0, 0, 0)
 def area_x(a: Area) -> U32:
   match a:
@@ -1512,7 +1512,7 @@ def start_send(+placeholder: String, +box: U32, +box_h: U32, +messages: List<&2,
 # The flying copy at the interpolated box.
 def lerp_area(+a: Area, +b: Area, +e: U32) -> Area:
   Area{lerp(area_x(a), area_x(b), e), lerp(area_y(a), area_y(b), e), lerp(area_w(a), area_w(b), e), lerp(area_h(a), area_h(b), e)}
-def flight(+text: String, +at: Area, +box: U32) -> P.Tree:
+def flight(+text: String, +at: Area, +box: U32) -> P.UI:
   P.layout("Flight layer", P.Vertical{}, 0, 0, 0, 0, P.Leading{}, [
     spacer("Offset", 0, area_y(at), P.Leading{}),
     P.layout("Row", P.Horizontal{}, 0, 0, 0, 0, P.Leading{}, [spacer("Offset", area_x(at), 0, P.Leading{}),
@@ -1532,7 +1532,7 @@ def conversation(+placeholder: String, +box: U32, +box_h: U32, flight_case: Tran
           Conversation{P.layout(named(A11yRole.Group{}, "Conversación con Near"), P.Depth{}, 0, 0, box, 0, P.Leading{}, [
             body_tree(placeholder, box, box_h, Ready{append_items(messages, [mine_new(text, Presence.Reserved{}, inner)])}, sending_motion(item_count(messages), started_at), m, "", Focus.Blurred{}, AttachMenu.Closed{}),
             flight(text, lerp_area(from, to, ease_of(started_at, m, send_t())), inner)])}
-def conversation_tree(c: Conversation) -> P.Tree:
+def conversation_tree(c: Conversation) -> P.UI:
   match c:
     case Conversation{tree}: tree
 def conversation_ranges() -> List<&2, CaseRange>:
@@ -1703,7 +1703,7 @@ def hero_slice() -> List<&2, Part>:
   [Part{"redeem", "Maybe<Remote<name>>", Source.Server{}, Persistence.Persistent{}, "only with a Link; None until tapped"},
    Part{"sky", "Transit<Resting | Leaving>", Source.Local{}, Persistence.Ephemeral{}, ""}]
 type WelcomeHero is Data:
-  WelcomeHero{tree: P.Tree}
+  WelcomeHero{tree: P.UI}
 type HeroSize is Data:
   HeroSize.Stacked{}
   HeroSize.Beside{}
@@ -1714,31 +1714,31 @@ def hero_beside_min() -> U32: U32.add(U32.add(width(identity_tree(hero_identity(
 def hero_size(+box: U32) -> HeroSize:
   Bool.pick(HeroSize, U32.is_ge(box, hero_beside_min()), HeroSize.Beside{}, HeroSize.Stacked{})
 def hero_column(+box: U32) -> U32: U32.min(hero_text(), U32.sub(U32.max(box, U32.add(120, U32.mul(2, margin()))), U32.mul(2, margin())))
-def entering(+content: Intent, redeem: Maybe<&2, Remote<&2, String>>, +col: U32) -> List<&2, P.Tree>:
+def entering(+content: Intent, redeem: Maybe<&2, Remote<&2, String>>, +col: U32) -> List<&2, P.UI>:
   match redeem:
     case None{}: [button_tree(act(ButtonKind.Primary{}, content, Form.Text{}))]
     case Some{Loading{}}: [button_tree(button(ButtonKind.Primary{}, Served{Form.Text{}}, ServedState.Disabled{Loading{}})), busy_line("Entrando a Near…")]
     case Some{Pending{name}}: [button_tree(act_off(ButtonKind.Primary{}, content, Form.Text{})), busy_line(M.truncate("Entrando como " ++ name ++ "…", U32.sub(col, 22), small_type()))]
     case Some{Ready{name}}: [status_line(accent_dot(), M.truncate("Hola, " ++ name ++ ". Ya entraste.", U32.sub(col, 16), small_type()))]
     case Some{Failed{last}}: [button_tree(button(ButtonKind.Primary{}, Served{Form.Text{}}, ServedState.Enabled{Press.Up{}, Failed{Some{content}}})), status_line(alert(), "No se pudo entrar. Inténtalo otra vez.")]
-def arrival_lines(arrival: Arrival, slice: HeroSlice(arrival), +content: Intent, +col: U32) -> List<&2, P.Tree>:
+def arrival_lines(arrival: Arrival, slice: HeroSlice(arrival), +content: Intent, +col: U32) -> List<&2, P.UI>:
   match arrival:
     case Arrival.Link{token}:
       match slice:
         case HeroState{redeem}: entering(content, redeem, col)
     case Arrival.NoLink{}: [status_line(muted_dot(), "Abre tu enlace de invitación.")]
     case Arrival.Expired{}: [status_line(alert(), "Tu sesión expiró. Abre un enlace nuevo.")]
-def hero_copy(+title: String, +text: String, lines: List<&2, P.Tree>, +col: U32) -> P.Tree:
+def hero_copy(+title: String, +text: String, lines: List<&2, P.UI>, +col: U32) -> P.UI:
   P.layout("Copy", P.Vertical{}, 16, 0, col, 0, P.Middle{}, Con{renamed(paragraph("Title", title, display_type(), ink(), col, P.Leading{}), named(A11yRole.Heading{}, title)), Con{paragraph("Text", text, body(), muted(), col, P.Leading{}), lines}})
-def hero_body(size: HeroSize, ident: P.Tree, copy: P.Tree) -> P.Tree:
+def hero_body(size: HeroSize, ident: P.UI, copy: P.UI) -> P.UI:
   match size:
     case HeroSize.Stacked{}: P.layout("Stacked", P.Vertical{}, 24, 0, 0, 0, P.Middle{}, [aligned(ident, P.Middle{}), copy])
     case HeroSize.Beside{}: P.layout("Beside", P.Horizontal{}, 32, 0, 0, 0, P.Middle{}, [aligned(ident, P.Middle{}), copy])
 # Gradient clouds: Rounded (Full) shapes filled Accent or Raised to Clear,
 # in the top of the box, so they never sit behind the text.
-def cloud(+w: U32, +h: U32, from: T.SurfaceRole) -> P.Tree:
+def cloud(+w: U32, +h: U32, from: T.SurfaceRole) -> P.UI:
   P.leaf("Cloud", P.Shape{P.Rounded{w, h, P.Full{}}, P.Gradient{T.Stop.Of{from}, T.Stop.Clear{}, 0}, P.NoStroke{}, []}, w, h, P.Leading{})
-def clouds(+box: U32, +box_h: U32) -> List<&2, P.Tree>:
+def clouds(+box: U32, +box_h: U32) -> List<&2, P.UI>:
   [placed_at("Cloud 1", U32.div(box, 12), U32.div(box_h, 14), cloud(U32.div(U32.mul(box, 7), 10), U32.div(box_h, 6), T.SurfaceRole.Accent{})),
    placed_at("Cloud 2", U32.div(box, 2), U32.div(box_h, 10), cloud(U32.div(box, 2), U32.div(box_h, 7), T.SurfaceRole.Raised{})),
    placed_at("Cloud 3", 0, U32.div(box_h, 6), cloud(U32.div(U32.mul(box, 2), 5), U32.div(box_h, 10), T.SurfaceRole.Accent{}))]
@@ -1759,7 +1759,7 @@ def welcome_hero(+title: String, +text: String, +content: Intent, arrival: Arriv
 def hero_height(+title: String, +text: String, +content: Intent, arrival: Arrival, slice: HeroSlice(arrival), +box: U32) -> U32:
   +col = hero_column(box)
   height(hero_body(hero_size(box), identity_tree(hero_identity()), hero_copy(title, text, arrival_lines(arrival, slice, content, col), col)))
-def hero_tree(h: WelcomeHero) -> P.Tree:
+def hero_tree(h: WelcomeHero) -> P.UI:
   match h:
     case WelcomeHero{tree}: tree
 def hero_sizes() -> List<&2, CaseRange>:
@@ -1785,33 +1785,33 @@ def search_slice() -> List<&2, Part>:
   [Part{"query", "String", Source.Local{}, Persistence.Ephemeral{}, ""},
    Part{"results", "Recent | Matches | Nothing", Source.Local{}, Persistence.Ephemeral{}, "derived from the messages"}]
 type Search is Data:
-  Search{tree: P.Tree}
+  Search{tree: P.UI}
 # The match: Ink on an Accent highlight (a Rounded behind the text).
-def highlight_text(+text: String) -> P.Tree:
+def highlight_text(+text: String) -> P.UI:
   +w = U32.add(M.width(text, body()), 4)
   P.layout("Match", P.Depth{}, 0, 0, w, line_height(body()), P.Middle{}, [P.rounded("Highlight", P.Solid{T.SurfaceRole.Accent{}, T.State.Rest{}}, w, line_height(body()), P.Corner{4}, P.NoStroke{}, P.Middle{}), words("Text", text, body(), ink(), P.Middle{})])
 # The snippet: a little context before the match, the match, and what
 # fits after it (Truncate).
-def snippet(+f: Found, +w: U32) -> P.Tree:
+def snippet(+f: Found, +w: U32) -> P.UI:
   match f:
     case Found{id, label, +before, +hit, +after}:
       +b = M.truncate(before, U32.div(w, 3), body())
-      +m = Bool.pick(List<&2, P.Tree>, String.is_empty(hit), [], [highlight_text(hit)])
+      +m = Bool.pick(List<&2, P.UI>, String.is_empty(hit), [], [highlight_text(hit)])
       +room = U32.sub(w, U32.min(w, U32.add(M.width(b, body()), Bool.pick(U32, String.is_empty(hit), 0, U32.add(M.width(hit, body()), 4)))))
       P.layout("Snippet", P.Horizontal{}, 0, 0, 0, 0, P.Leading{}, Con{words("Before", b, body(), muted(), P.Middle{}), append_trees(m, [words("After", M.truncate(after, room, body()), body(), Bool.pick(T.TextRole, String.is_empty(hit), ink(), muted()), P.Middle{})])})
 def result_label(f: Found) -> String:
   match f:
     case Found{+id, +label, before, hit, after}: intent_label(Intent.Open{id, label})
-def result_row(+f: Found, +w: U32) -> P.Tree:
+def result_row(+f: Found, +w: U32) -> P.UI:
   match f:
     case Found{id, +label, before, hit, after}:
       +inner = P.layout("Result", P.Vertical{}, 4, 10, w, 0, P.Leading{}, [words("Who", label, small_type(), muted(), P.Leading{}), snippet(f, U32.sub(w, 20))])
       P.layout(named(A11yRole.Button{}, result_label(f)), P.Depth{}, 0, 0, w, height(inner), P.Leading{}, [filled("Container", T.SurfaceRole.Surface{}, w, height(inner), P.Corner{14}, P.NoStroke{}), inner])
-def result_rows(xs: List<&2, Found>, +w: U32) -> List<&2, P.Tree>:
+def result_rows(xs: List<&2, Found>, +w: U32) -> List<&2, P.UI>:
   match xs:
     case Nil{}: []
     case Con{x, rest}: Con{result_row(x, w), result_rows(rest, w)}
-def results_trees(r: Results, +w: U32) -> List<&2, P.Tree>:
+def results_trees(r: Results, +w: U32) -> List<&2, P.UI>:
   match r:
     case Results.Recent{xs}: Con{words("Heading", "Recientes", small_type(), muted(), P.Leading{}), result_rows(xs, w)}
     case Results.Matches{xs}: Con{words("Heading", "Resultados", small_type(), muted(), P.Leading{}), result_rows(xs, w)}
@@ -1819,7 +1819,7 @@ def results_trees(r: Results, +w: U32) -> List<&2, P.Tree>:
 def search_icon_drawing() -> S.Drawing: S.drawing(S.Search{})
 def search(+placeholder: String, state: FieldState, results: Results, +w: U32) -> Search:
   Search{P.layout(named(A11yRole.Group{}, "Buscar"), P.Vertical{}, 12, 0, w, 0, P.Leading{}, Con{field_tree(field(plain(Lines.Single{}, placeholder, [search_icon_drawing()], state), w)), results_trees(results, w)})}
-def search_tree(s: Search) -> P.Tree:
+def search_tree(s: Search) -> P.UI:
   match s:
     case Search{tree}: tree
 
@@ -1850,7 +1850,7 @@ type SheetSize is Data:
 def sheet_slice() -> List<&2, Part>:
   [Part{"motion", "Transit<Closed | Open>", Source.Local{}, Persistence.Ephemeral{}, ""}]
 type Sheet is Data:
-  Sheet{tree: P.Tree}
+  Sheet{tree: P.UI}
 def sheet_w() -> U32: 400
 def side_min() -> U32: U32.add(regular_min(), U32.add(24, sheet_w()))
 def sheet_size(+box: U32) -> SheetSize:
@@ -1861,12 +1861,12 @@ def is_side(s: SheetSize) -> Bool:
     case SheetSize.Bottom{}: False{}
 def close_button() -> Button: act(ButtonKind.Quiet{}, Intent.Close{}, Form.Icon{})
 def back_button() -> Button: act(ButtonKind.Quiet{}, Intent.Back{}, Form.Icon{})
-def sheet_top(+title: String, +w: U32) -> P.Tree:
+def sheet_top(+title: String, +w: U32) -> P.UI:
   +t = renamed(words("Title", M.truncate(title, U32.sub(w, 56), title_type()), title_type(), ink(), P.Middle{}), named(A11yRole.Heading{}, title))
   P.layout("Top", P.Horizontal{}, 0, 0, w, 0, P.Leading{}, [t, spacer("Room", U32.sub(w, U32.add(width(t), 44)), 1, P.Middle{}), aligned(button_tree(close_button()), P.Middle{})])
-def grabber(+side: Bool) -> List<&2, P.Tree>:
-  Bool.pick(List<&2, P.Tree>, side, [], [P.rounded("Grabber", P.Solid{T.SurfaceRole.Background{}, T.State.Rest{}}, 36, 6, P.Full{}, P.Stroke{T.LineRole.Muted{}, T.State.Rest{}, "1"}, P.Middle{})])
-def sheet_content(body: SheetBody, +w: U32) -> List<&2, P.Tree>:
+def grabber(+side: Bool) -> List<&2, P.UI>:
+  Bool.pick(List<&2, P.UI>, side, [], [P.rounded("Grabber", P.Solid{T.SurfaceRole.Background{}, T.State.Rest{}}, 36, 6, P.Full{}, P.Stroke{T.LineRole.Muted{}, T.State.Rest{}, "1"}, P.Middle{})])
+def sheet_content(body: SheetBody, +w: U32) -> List<&2, P.UI>:
   match body:
     case SheetBody.Editor{markup}:
       +f = field(markup, w)
@@ -1875,7 +1875,7 @@ def sheet_content(body: SheetBody, +w: U32) -> List<&2, P.Tree>:
     case SheetBody.Menu{xs}: attach_rows(xs, Lang.Es{}, w)
     case SheetBody.Detail{said, +status, buttons}:
       [P.layout("Lane", P.Vertical{}, 0, 0, w, 0, P.Leading{}, [bubble_tree(said)]), status_line(muted_dot(), status), actions(buttons)]
-def sheet_panel(+side: Bool, +title: String, body: SheetBody, +w: U32, +box_h: U32) -> P.Tree:
+def sheet_panel(+side: Bool, +title: String, body: SheetBody, +w: U32, +box_h: U32) -> P.UI:
   +inner = P.layout("Content", P.Vertical{}, 16, 20, w, 0, P.Leading{}, append_trees(grabber(side), Con{sheet_top(title, U32.sub(w, 40)), sheet_content(body, U32.sub(w, 40))}))
   +h = Bool.pick(U32, side, box_h, U32.min(height(inner), box_h))
   P.layout("Panel", P.Depth{}, 0, 0, w, h, P.Leading{}, [filled("Container", T.SurfaceRole.Raised{}, w, h, P.Corner{24}, edge(hairline())), aligned(inner, P.Leading{})])
@@ -1888,7 +1888,7 @@ def sheet_offset(motion: Transit<&2, Openness>, m: Moment, +extent: U32) -> U32:
     case Settled{}: 0
     case Transitioning{from, to, +started_at}: lerp(open_off(from, extent), open_off(to, extent), ease_of(started_at, m, sheet_t()))
 # The scrim: Background under the Disabled rule (50% opacity).
-def scrim(+box: U32, +box_h: U32) -> P.Tree:
+def scrim(+box: U32, +box_h: U32) -> P.UI:
   P.rounded("Scrim", P.Solid{T.SurfaceRole.Background{}, T.State.Disabled{}}, box, box_h, P.Corner{0}, P.NoStroke{}, P.Leading{})
 def sheet(+title: String, body: SheetBody, motion: Transit<&2, Openness>, +m: Moment, +box: U32, +box_h: U32) -> Sheet:
   +side = is_side(sheet_size(box))
@@ -1897,8 +1897,8 @@ def sheet(+title: String, body: SheetBody, motion: Transit<&2, Openness>, +m: Mo
   +off = sheet_offset(motion, m, Bool.pick(U32, side, pw, height(p)))
   +x = Bool.pick(U32, side, U32.add(U32.sub(box, pw), off), 0)
   +y = Bool.pick(U32, side, 0, U32.add(U32.sub(box_h, height(p)), off))
-  Sheet{P.layout(named(A11yRole.Dialog{}, title), P.Depth{}, 0, 0, box, box_h, P.Leading{}, append_trees(Bool.pick(List<&2, P.Tree>, side, [], [scrim(box, box_h)]), [placed_at("Placement", x, y, p)]))}
-def sheet_tree(s: Sheet) -> P.Tree:
+  Sheet{P.layout(named(A11yRole.Dialog{}, title), P.Depth{}, 0, 0, box, box_h, P.Leading{}, append_trees(Bool.pick(List<&2, P.UI>, side, [], [scrim(box, box_h)]), [placed_at("Placement", x, y, p)]))}
+def sheet_tree(s: Sheet) -> P.UI:
   match s:
     case Sheet{tree}: tree
 def sheet_sizes() -> List<&2, CaseRange>:
@@ -1944,8 +1944,8 @@ def call_slice() -> List<&2, Part>:
    Part{"mic, speaker", "Live | Muted, Off | On", Source.Local{}, Persistence.Ephemeral{}, "only when Granted"},
    Part{"now", "Moment", Source.Local{}, Persistence.Ephemeral{}, "only when Granted (the timer)"}]
 type CallControls is Data:
-  CallControls{tree: P.Tree}
-def control(+label: String, b: Button) -> P.Tree:
+  CallControls{tree: P.UI}
+def control(+label: String, b: Button) -> P.UI:
   P.layout("Control", P.Vertical{}, 6, 0, 76, 0, P.Middle{}, [aligned(button_tree(b), P.Middle{}), words("Caption", label, small_type(), muted(), P.Middle{})])
 def toggle(+on: Bool, +when_on: Intent, +when_off: Intent) -> Button:
   act(Bool.pick(ButtonKind, on, ButtonKind.Primary{}, ButtonKind.Quiet{}), Bool.pick(Intent, on, when_on, when_off), Form.Icon{})
@@ -1958,7 +1958,7 @@ def is_on(s: Speaker) -> Bool:
     case Speaker.On{}: True{}
     case Speaker.Off{}: False{}
 def hang_up() -> Button: act(ButtonKind.Danger{}, Intent.HangUp{}, Form.Icon{})
-def live_controls(+muted: Bool, +loud: Bool) -> P.Tree:
+def live_controls(+muted: Bool, +loud: Bool) -> P.UI:
   P.layout("Controls", P.Horizontal{}, 12, 0, 0, 0, P.Middle{}, [
     control(Bool.pick(String, muted, "Silenciado", "Silenciar"), toggle(muted, Intent.Unmute{}, Intent.Mute{})),
     control("Altavoz", toggle(loud, Intent.SpeakerOff{}, Intent.SpeakerOn{})),
@@ -1970,15 +1970,15 @@ def clock_text(+ms: U32) -> String:
 def elapsed(+since: U32, m: Moment) -> U32:
   match m:
     case Moment{+now, pref}: Bool.pick(U32, U32.is_lt(now, since), 0, U32.sub(now, since))
-def call_status(+text: String) -> P.Tree:
+def call_status(+text: String) -> P.UI:
   renamed(paragraph("Status", text, body(), ink(), column(), P.Middle{}), named(A11yRole.Status{}, text))
-def centered(buttons: List<&2, Button>) -> P.Tree: aligned(actions(buttons), P.Middle{})
-def phase_trees(phase: Phase, +muted: Bool, +loud: Bool, m: Moment) -> List<&2, P.Tree>:
+def centered(buttons: List<&2, Button>) -> P.UI: aligned(actions(buttons), P.Middle{})
+def phase_trees(phase: Phase, +muted: Bool, +loud: Bool, m: Moment) -> List<&2, P.UI>:
   match phase:
     case Phase.Ringing{since}: [call_status("Llamando a Near…"), live_controls(muted, loud)]
     case Phase.Connected{+since}: [call_status("En llamada · " ++ clock_text(elapsed(since, m))), live_controls(muted, loud)]
     case Phase.Ended{at}: [call_status("Llamada terminada"), centered([act(ButtonKind.Primary{}, Intent.Back{}, Form.Text{})])]
-def call_trees(permission: Permission, slice: CallSlice(permission)) -> List<&2, P.Tree>:
+def call_trees(permission: Permission, slice: CallSlice(permission)) -> List<&2, P.UI>:
   match permission:
     case Permission.Unknown{}:
       match slice:
@@ -1990,7 +1990,7 @@ def call_trees(permission: Permission, slice: CallSlice(permission)) -> List<&2,
     case Permission.Denied{}: [call_status("El micrófono está bloqueado. Actívalo en los ajustes del navegador."), centered([act(ButtonKind.Quiet{}, Intent.Retry{}, Form.Text{}), act(ButtonKind.Primary{}, Intent.Back{}, Form.Text{})])]
 def call_controls(permission: Permission, slice: CallSlice(permission)) -> CallControls:
   CallControls{P.layout(named(A11yRole.Group{}, "Llamada"), P.Vertical{}, 20, 0, column(), 0, P.Middle{}, call_trees(permission, slice))}
-def call_controls_tree(c: CallControls) -> P.Tree:
+def call_controls_tree(c: CallControls) -> P.UI:
   match c:
     case CallControls{tree}: tree
 
@@ -1998,27 +1998,27 @@ def call_controls_tree(c: CallControls) -> P.Tree:
 # ----------
 
 # One call each, sized to the column: an app's view needs no widths or slices.
-def caption(+text: String) -> P.Tree:
+def caption(+text: String) -> P.UI:
   paragraph("Caption", text, body(), hint(), column(), P.Leading{})
-def input(+placeholder: String, value: String) -> P.Tree:
+def input(+placeholder: String, value: String) -> P.UI:
   field_tree(field(plain(Lines.Single{}, placeholder, [], FieldState{value, Focus.Blurred{}}), column()))
-def action(+kind: ButtonKind, +label: String, enabled: Bool) -> P.Tree:
+def action(+kind: ButtonKind, +label: String, enabled: Bool) -> P.UI:
   button_tree(Bool.pick(Button, enabled, say(kind, label), say_off(kind, label)))
 # A line of a conversation: who said it and what.
 type Line is Data:
   Line{role: Role, text: String}
-def said(line: Line) -> P.Tree:
+def said(line: Line) -> P.UI:
   match line:
     case Line{role, text}:
       match role:
         case Role.Mine{}: bubble_tree(bubble(Role.Mine{}, Delivery.Sent{}, Said.Words{text}, Presence.Shown{}, column()))
         case Role.Near{}: bubble_tree(bubble(Role.Near{}, Unit{}, Said.Words{text}, Presence.Shown{}, column()))
-def lines(xs: List<&2, Line>) -> List<&2, P.Tree>:
+def lines(xs: List<&2, Line>) -> List<&2, P.UI>:
   match xs:
     case []: []
     case x <> rest: said(x) <> lines(rest)
 # A whole screen (the column plus its margins), and a stack inside it.
-def screen(+name: String, children: List<&2, P.Tree>) -> P.Tree:
+def screen(+name: String, children: List<&2, P.UI>) -> P.UI:
   P.layout(name, P.Vertical{}, 16, 24, U32.add(column(), 48), 0, P.Middle{}, children)
-def stack(+name: String, children: List<&2, P.Tree>) -> P.Tree:
+def stack(+name: String, children: List<&2, P.UI>) -> P.UI:
   P.layout(name, P.Vertical{}, 10, 0, column(), 0, P.Leading{}, children)
