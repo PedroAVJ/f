@@ -1,5 +1,5 @@
 import Base
-import ../f/bend2/std/F/ui/kit.bend as K
+import F
 
 # Which agent answers: the user's own subscription.
 type Backend is Data:
@@ -11,4 +11,4 @@ type Url is Data:
   Conversation{id: String}
 
 type State is Data:
-  State{lang: K.Lang, url: Url, backend: Backend, draft: String, lines: List<&2, K.Line>, busy: Bool}
+  State{lang: Lang, url: Url, backend: Backend, draft: String, history: List<&2, Line>, busy: Bool}
