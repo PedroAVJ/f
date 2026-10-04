@@ -6,7 +6,10 @@ and interaction. AppKit supplies the window and text input; CoreGraphics and
 CoreText paint the existing conversation components. No browser is required.
 
 The app uses the accepted dark conversation UI: glass header controls,
-chat bubbles and the pill composer. The earlier standalone connection and
+chat bubbles and the pill composer. It opens in a 1000 × 760 desktop window
+and redraws the layout when resized, with a centered conversation column,
+a compact header and centered dialogs. The minimum content size is 640 × 560.
+The earlier standalone connection and
 stacked-input screens have been removed. `ui.bend` owns state;
 `components/conversation.bend` composes the fork's Header, Conversation,
 Bubble, Composer, and sheet components.
@@ -41,7 +44,8 @@ stamp, installs it as `~/Applications/Dot.app`, and opens it. No web target
 or Tailscale service is launched by this declaration. Releases remain an
 explicit separate action.
 
-Run the state/geometry regression with:
+Run the state/geometry regression, including draft retention and control
+bounds at narrow and wide window sizes, with:
 
 ```sh
 bun ../f/bend2/main.ts tests state
