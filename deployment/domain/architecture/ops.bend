@@ -152,48 +152,30 @@ def with_env(sys: R.Rose<A.Element>, +cs: List<&2, Ct.Container>, env: En.Enviro
 
 def to_compound(a: A.Architecture) -> C.Compound<A.Element>:
   match a:
-    case A.Architecture{s, +cs, env}:
-      match s:
-        case S.System{k, n, d, _, _}:
-          with_env(R.Rose{k, A.Element{n, d, "", A.SystemLevel{}}, container_roses(cs)}, cs, env)
+    case A.Architecture{k, n, d, _, +cs, _, env}:
+      with_env(R.Rose{k, A.Element{n, d, "", A.SystemLevel{}}, container_roses(cs)}, cs, env)
 
 # ---- looking things up ----
 def system(a: A.Architecture) -> S.System:
   match a:
-    case A.Architecture{s, _, _}:
+    case A.Architecture{_, _, _, s, _, _, _}:
       s
 
 def system_key(a: A.Architecture) -> String:
   match a:
-    case A.Architecture{s, _, _}:
-      match s:
-        case S.System{k, _, _, _, _}:
-          k
+    case A.Architecture{k, _, _, _, _, _, _}:
+      k
 
 def containers(a: A.Architecture) -> List<&2, Ct.Container>:
   match a:
-    case A.Architecture{_, cs, _}:
+    case A.Architecture{_, _, _, _, cs, _, _}:
       cs
 
-def deployments(a: A.Architecture) -> List<&2, D.Deployment>:
-  match a:
-    case A.Architecture{s, _, _}:
-      match s:
-        case S.System{_, _, _, _, ds}:
-          ds
-
-def deployment_nodes(ds: List<&2, D.Deployment>) -> List<&2, D.Node>:
-  match ds:
-    case []:
-      []
-    case d <> rest:
-      match d:
-        case D.Deployment{_, _, _, ns}:
-          List.append(&2, D.Node, ns, deployment_nodes(rest))
-
-# The machines, nested, of every deployment.
+# The machines the system runs on, nested.
 def nodes(a: A.Architecture) -> List<&2, D.Node>:
-  deployment_nodes(deployments(a))
+  match a:
+    case A.Architecture{_, _, _, _, _, ns, _}:
+      ns
 
 def keys(a: A.Architecture) -> List<&2, String>:
   CO.keys(A.Element, to_compound(a))
@@ -238,7 +220,7 @@ def components_of(+k: String, cs: List<&2, Ct.Container>) -> List<&2, String>:
 
 def environment_keys(a: A.Architecture) -> List<&2, String>:
   match a:
-    case A.Architecture{_, _, env}:
+    case A.Architecture{_, _, _, _, _, _, env}:
       match env:
         case En.Environment{ps, xs, _, _, _}:
           RO.keys(A.Element, List.append(&2, R.Rose<A.Element>, parties_roses(ps), external_roses(xs)))
@@ -342,9 +324,9 @@ def open_source_required(ks: List<&2, K.Constraint>) -> Bool:
 
 def open_source(a: A.Architecture) -> Bool:
   match a:
-    case A.Architecture{s, _, env}:
+    case A.Architecture{_, _, _, s, _, _, env}:
       match s env:
-        case S.System{_, _, _, r, _} En.Environment{_, _, ks, _, _}:
+        case S.System{r, _} En.Environment{_, _, ks, _, _}:
           Bool.not(open_source_required(ks)) || RlO.open_source(r)
 
 # ---- where each key runs: the containers on server nodes and on device nodes ----
@@ -505,7 +487,7 @@ def external_providers(+want: K2.Capability, xs: List<&2, X.External>) -> List<&
 
 def externals(a: A.Architecture) -> List<&2, X.External>:
   match a:
-    case A.Architecture{_, _, env}:
+    case A.Architecture{_, _, _, _, _, _, env}:
       match env:
         case En.Environment{_, xs, _, _, _}:
           xs
@@ -592,14 +574,14 @@ def observed(+a: A.Architecture) -> Bool:
 # ---- the environment's inventory and agreement ----
 def inventory(a: A.Architecture) -> I.Inventory:
   match a:
-    case A.Architecture{_, _, env}:
+    case A.Architecture{_, _, _, _, _, _, env}:
       match env:
         case En.Environment{_, _, _, inv, _}:
           inv
 
 def agreement(a: A.Architecture) -> G.Agreement:
   match a:
-    case A.Architecture{_, _, env}:
+    case A.Architecture{_, _, _, _, _, _, env}:
       match env:
         case En.Environment{_, _, _, _, ag}:
           ag

@@ -26,7 +26,27 @@ type Break is Data:
   AddressChanged{}
   StoreRemoved{name: String}
 
-# Where the system runs: the address it is reached at, the data stores that must survive a deploy, the
-# breaks accepted for the next deploy, and the nodes.
+# Where the system runs, lowered: the address it is reached at, the data stores that must survive a deploy,
+# the breaks accepted for the next deploy, and the nodes.
+type Topology is Data:
+  Topology{address: String, stores: List<&2, String>, accepted: List<&2, Break>, nodes: List<&2, Node>}
+
+# How a Mac's apps are reached: at an HTTPS port Tailscale serves to the tailnet.
+type Exposure is Data:
+  Tailscale{port: U32}
+
+# One app V builds and runs: a web app, its page the run of a Bend file (entry, ".bend" optional), served
+# as dist/<its last path segment>/index.html.
+type Application is Data:
+  Web{entry: String}
+
+# Where the system runs, as intent: on this Mac, these apps, reached this way. V lowers it to a Topology.
 type Deployment is Data:
-  Deployment{address: String, stores: List<&2, String>, accepted: List<&2, Break>, nodes: List<&2, Node>}
+  Mac{exposure: Exposure, apps: List<&2, Application>}
+
+# What lowering a Mac deployment reads from the Mac: the owner's short name for launchd labels (the first
+# word of the account's full name, lowercased), the repository's folder name, the tailnet name ("" when
+# Tailscale is down), `tailscale serve status` one line each, and a local port nothing listens on or is
+# served from (0 when there is none).
+type Here is Data:
+  Here{user: String, repo: String, name: String, served: List<&2, String>, free: U32}

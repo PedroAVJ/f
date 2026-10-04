@@ -1,20 +1,24 @@
 import Base
 import ./type.bend as D
+import ./host/type.bend as H
+import ./launchd/type.bend as L
+import ./launchd/ops.bend as LO
+import ./nix_darwin/type.bend as ND
 
 # ---- what a deploy breaks: compared with what was deployed before (its address and stores) ----
-def address(d: D.Deployment) -> String:
+def address(d: D.Topology) -> String:
   match d:
-    case D.Deployment{a, _, _, _}:
+    case D.Topology{a, _, _, _}:
       a
 
-def stores(d: D.Deployment) -> List<&2, String>:
+def stores(d: D.Topology) -> List<&2, String>:
   match d:
-    case D.Deployment{_, ss, _, _}:
+    case D.Topology{_, ss, _, _}:
       ss
 
-def accepted(d: D.Deployment) -> List<&2, D.Break>:
+def accepted(d: D.Topology) -> List<&2, D.Break>:
   match d:
-    case D.Deployment{_, _, acc, _}:
+    case D.Topology{_, _, acc, _}:
       acc
 
 def keep_break(present: Bool, +o: String, rest: List<&2, D.Break>) -> List<&2, D.Break>:
@@ -32,7 +36,7 @@ def removed(olds: List<&2, String>, +news: List<&2, String>) -> List<&2, D.Break
       keep_break(List.contains(~String, ~String.eq, news, o), o, removed(rest, news))
 
 # The address changing, then each store the new deployment drops. A first deploy (no address before) breaks nothing.
-def breaks(+before: String, olds: List<&2, String>, +d: D.Deployment) -> List<&2, D.Break>:
+def breaks(+before: String, olds: List<&2, String>, +d: D.Topology) -> List<&2, D.Break>:
   List.append(&2, D.Break,
     Bool.pick(List<&2, D.Break>, String.is_empty(before) || String.eq(before, address(d)), [], [D.AddressChanged{}]),
     removed(olds, stores(d)))
@@ -82,7 +86,7 @@ def store_lines(ss: List<&2, String>) -> String:
       "store " ++ s ++ "\n" ++ store_lines(rest)
 
 # What a deploy records as deployed: the address, then one store per line.
-def record(+d: D.Deployment) -> String:
+def record(+d: D.Topology) -> String:
   "address " ++ address(d) ++ "\n" ++ store_lines(stores(d))
 
 def keep_rest(c: Bool, +prefix: String, l: String, rest: List<&2, String>) -> List<&2, String>:
@@ -106,3 +110,87 @@ def recorded_address(+text: String) -> String:
 
 def recorded_stores(+text: String) -> List<&2, String>:
   after("store ", String.lines(text))
+
+# ---- lowering a Mac deployment to its topology: what V derives from the intent and the Mac ----
+
+# A web app's entry as a file, and its name: the entry's last path segment, without ".bend".
+def entry_file(+e: String) -> String:
+  Bool.pick(String, String.ends_with(e, ".bend"), e, e ++ ".bend")
+
+def app_name(+e: String) -> String:
+  +b = Maybe.default(&2, String, List.last(&2, String, String.split(e, '/')), e)
+  Bool.pick(String, String.ends_with(b, ".bend"), String.take(b, Nat.sub(String.length(b), 5n)), b)
+
+def digits(+s: String) -> U32:
+  +p = Maybe.default(&2, U32, U32.read(s), 0)
+  Bool.pick(U32, String.eq(U32.show(p), s), p, 0)
+
+# The local port a `tailscale serve status` line proxies "/" to (0 for any other line).
+def proxied(m: Maybe<&2, String>) -> U32:
+  match m:
+    case None{}:
+      0
+    case Some{l}:
+      +t = String.trim(l)
+      +pre : String = "|-- / proxy http://127.0.0.1:"
+      Bool.pick(U32, String.starts_with(t, pre), digits(String.drop(t, String.length(pre))), 0)
+
+# The local port behind a tailnet HTTPS port: the one Tailscale already serves it from, which records an
+# earlier deploy's choice, else the Mac's free one.
+def local_port(+https: U32, h: D.Here) -> U32:
+  match h:
+    case D.Here{_, _, _, served, free}:
+      +p = proxied(LO.under(served, ":" ++ U32.show(https) ++ " ("))
+      Bool.pick(U32, U32.is_eq(p, 0), free, p)
+
+def tailnet_address(+name: String, +https: U32) -> String:
+  "https://" ++ name ++ Bool.pick(String, U32.is_eq(https, 443), "", ":" ++ U32.show(https))
+
+# A web app on this Mac: its page built to dist/<app>/index.html, a launch agent com.<user>.<repo>.<app>
+# serving that folder on 127.0.0.1 at the local port (python3's http.server), and the tailnet HTTPS port
+# proxied to it.
+def web_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Application) -> D.Node:
+  match app:
+    case D.Web{+e}:
+      +a = app_name(e)
+      +dir = "dist/" ++ a
+      D.Node{"mac", "this Mac", "launchd", D.Server{}, H.Owned{"this Mac"},
+        D.Launchd{L.Launchd{
+          [L.Program{dir ++ "/index.html", L.Bend{entry_file(e)}}],
+          [L.Agent{a, "com." ++ user ++ "." ++ repo ++ "." ++ a, "/usr/bin/python3",
+            ["-m", "http.server", U32.show(port), "--bind", "127.0.0.1", "--directory", dir], [], repo ++ "-" ++ a, port}],
+          [ND.Serve{a, https, port, "/"}]}},
+        [], [a]}
+
+def web_nodes(+user: String, +repo: String, +https: U32, +port: U32, apps: List<&2, D.Application>) -> List<&2, D.Node>:
+  match apps:
+    case []:
+      []
+    case app <> rest:
+      web_node(user, repo, https, port, app) <> web_nodes(user, repo, https, port, rest)
+
+def https_of(x: D.Exposure) -> U32:
+  match x:
+    case D.Tailscale{p}:
+      p
+
+# The tailnet HTTPS port a deployment is reached at, its apps, and the local port its app listens on.
+def https(d: D.Deployment) -> U32:
+  match d:
+    case D.Mac{x, _}:
+      https_of(x)
+
+def apps(d: D.Deployment) -> List<&2, D.Application>:
+  match d:
+    case D.Mac{_, xs}:
+      xs
+
+def port(+d: D.Deployment, h: D.Here) -> U32:
+  local_port(https(d), h)
+
+# A Mac deployment lowered: reached at https://<tailnet name>:<port>, one launchd node per app.
+def lower(+d: D.Deployment, +h: D.Here) -> D.Topology:
+  match h:
+    case D.Here{+user, +repo, +name, _, _}:
+      +x = https(d)
+      D.Topology{tailnet_address(name, x), [], [], web_nodes(user, repo, x, port(d, h), apps(d))}

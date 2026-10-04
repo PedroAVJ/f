@@ -7,7 +7,7 @@ import ../ops.bend as O
 
 def releases(s: S.System) -> List<&2, Rl.Release>:
   match s:
-    case S.System{_, _, _, rs, _}:
+    case S.System{rs, _}:
       rs
 
 # Everything the system is made of (its containers) ships in a declared package or plugin: what is not
