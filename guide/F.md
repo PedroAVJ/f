@@ -105,6 +105,17 @@ hook chooses whether the native shell restores textbox values; it runs once
 before the first paint. Without these optional functions the existing
 rendering and input behavior remains. The Web target does not use them.
 
+For a resizable desktop layout, import
+`../f/bend2/std/F/browser/input.bend as Native` and define
+`def window() -> Native.WindowConfig` returning
+`Native.WindowConfig{1000, 760, 640, 560}`. The four dimensions are initial
+width and height, then minimum width and height, in content points. V
+configures the window before painting. The reducer receives
+`Native.Resized{width, height}` with the actual content viewport, including
+changes from resizing or full screen. Store those dimensions in State and
+use them to lay out the next tree. Apps without this hook retain the
+original frame-sized window behavior.
+
 Names enter the importing file's scope. For example, `UI`, `layout`,
 `Session.initial`, `StreamState.reduce`, `Release` and `plan` require no UI/V
 prefix. Constructors with different meanings stay under their type: use

@@ -12,7 +12,7 @@ def main() -> IO(Unit):
 #|import UI
 #|import ../ui as Ui
 #|
-#|def step(+s: Ui.State, i: Input) -> Ui.State:
+#|def step(+s: Ui.State, +i: Input) -> Ui.State:
 #|  match i:
 #|    case Navigated{a}:
 #|      Ui.State.with_page(s, Ui.Page.at(a))
@@ -26,6 +26,8 @@ def main() -> IO(Unit):
 #|      Ui.update(s, Blurred{l})
 #|    case Ignored{}:
 #|      Ui.update(s, Ignored{})
+#|    case _:
+#|      Ui.update(s, i)
 #|
 #|def loop(fuel: Nat, +s: Ui.State, +k: List<&2, Held>) -> IO(Unit):
 #|  match fuel:

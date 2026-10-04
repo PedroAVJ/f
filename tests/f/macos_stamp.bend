@@ -12,7 +12,8 @@ def fixture() -> String:
   "BEND=\"$2/../fork/bend2/main.ts\"\n"
 
 def args(+dir: String, id: String) -> List<&2, String>:
-  ["page", dir ++ "/build", "native", id, dir ++ "/ui", "dark", "persist", "both"]
+  ["page", dir ++ "/build", "native", id, dir ++ "/ui", "dark", "persist", "both",
+   "window", "dark-window", "persist-window", "both-window"]
 
 # Keep the compiler fixture separate from the built folder: the native
 # stamp hashes the fork's sources independently from the app's bytes.
@@ -43,6 +44,18 @@ def main() -> IO(Unit):
     IO.print(seen(old_theme))
     restamp : Verbs.Ran <- Verbs.sh("BEND=\"$2/../fork/bend2/main.ts\"\n" ++ Verbs.app_script() ++
       "printf '%s\\n%s\\n101\\nFixtureApp\\n' \"$(k \"$1\" \"$e\" \"$4\")\" \"$(o \"$2\")\" > \"$2.stamp\"", args(dir, "com.bend.fixture"), "")
+    windowed : Verbs.Ran <- Verbs.sh("printf '%s' 'def window() -> Native.WindowConfig:' > \"$1/ui.bend\"", [dir], "")
+    window_change : Verbs.Ran <- stamp(dir, "com.bend.fixture")
+    IO.print(seen(window_change))
+    rewindow : Verbs.Ran <- Verbs.sh("BEND=\"$2/../fork/bend2/main.ts\"\n" ++ Verbs.app_script() ++
+      "printf '%s\\n%s\\n101\\nFixtureApp\\n' \"$(k \"$1\" \"$e\" \"$4\")\" \"$(o \"$2\")\" > \"$2.stamp\"", args(dir, "com.bend.fixture"), "")
+    window_fresh : Verbs.Ran <- stamp(dir, "com.bend.fixture")
+    IO.print(seen(window_fresh))
+    unwindow : Verbs.Ran <- Verbs.sh("rm -f \"$1/ui.bend\"", [dir], "")
+    old_window : Verbs.Ran <- stamp(dir, "com.bend.fixture")
+    IO.print(seen(old_window))
+    after_window : Verbs.Ran <- Verbs.sh("BEND=\"$2/../fork/bend2/main.ts\"\n" ++ Verbs.app_script() ++
+      "printf '%s\\n%s\\n101\\nFixtureApp\\n' \"$(k \"$1\" \"$e\" \"$4\")\" \"$(o \"$2\")\" > \"$2.stamp\"", args(dir, "com.bend.fixture"), "")
     identity : Verbs.Ran <- stamp(dir, "com.bend.different")
     IO.print(seen(identity))
     changed : Verbs.Ran <- Verbs.sh("printf '%s' second > \"$1/fork/bend2/std/F/apple/fixture.c\"", [dir], "")
@@ -55,6 +68,9 @@ def main() -> IO(Unit):
     return Unit{}
 #|True
 #|fresh
+#|stale
+#|fresh
+#|stale
 #|stale
 #|fresh
 #|stale

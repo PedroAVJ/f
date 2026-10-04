@@ -35,6 +35,10 @@
 //         disables it, including when the app requests persistence.
 //   8     explicit Canvas appearance: "dark" or "light", including native
 //         window chrome and the page outside the Canvas frame.
+//   9     opt into a responsive window: JSON width, height, min_width and
+//         min_height in content points. Events then include JSON action
+//         "resize" with the actual viewport width and height. AppKit retains
+//         the person's window size; Bend lays out a new Canvas for it.
 //   1, 5  (HTML, GPU compute) answer an error: a native app paints canvas.
 //
 // The window is titled with the bundle's name, takes the first frame's
@@ -428,6 +432,7 @@ static BendShell* shell;
 - (void)focused:(BendField*)field;
 - (void)blurred:(BendField*)field;
 - (void)scheme:(BOOL)dark;
+- (void)configureWindow:(NSDictionary*)config;
 @end
 
 static NSColor* shell_ink(void) {
@@ -731,6 +736,9 @@ static void shell_snap(NSArray* cmds, long n) {
   BOOL                                        sizing;
   BOOL                                        sized;
   BOOL                                        shown;
+  BOOL                                        responsive;
+  BOOL                                        resizeQueued;
+  NSSize                                      sentViewport;
 }
 
 // Launch
@@ -820,6 +828,9 @@ static void shell_snap(NSArray* cmds, long n) {
   [m addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:)
     keyEquivalent:@"m"];
   [m addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+  [[m addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:)
+    keyEquivalent:@"f"] setKeyEquivalentModifierMask:
+      NSEventModifierFlagCommand | NSEventModifierFlagControl];
   [m addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
   item.submenu    = m;
   NSApp.windowsMenu = m;
@@ -888,7 +899,7 @@ static void* shell_run(void* arg) {
 // The window takes the frame's size (within the screen) at the first paint,
 // and later ones', its top left kept, until a person sizes it.
 - (void)fit:(NSSize)canvas {
-  if (paints == 1 || !sized) {
+  if (!responsive && (paints == 1 || !sized)) {
     NSRect  vis  = (window.screen ?: NSScreen.mainScreen).visibleFrame;
     NSRect  want = [window frameRectForContentRect:NSMakeRect(0, 0,
       MAX(canvas.width, 120), MAX(canvas.height, 80))];
@@ -924,6 +935,60 @@ static void* shell_run(void* arg) {
 
 - (void)clipped:(NSNotification*)n {
   [self document];
+  [self viewport];
+}
+
+// Keep only the latest consecutive resize while Bend is painting; typed and
+// clicked events keep their order. The clip's bounds are exactly the Canvas
+// viewport, including the space AppKit reserves for a non-overlay scroller.
+- (void)viewport {
+  if (!responsive || sizing || resizeQueued) {
+    return;
+  }
+  resizeQueued = YES;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    self->resizeQueued = NO;
+    NSSize size = self->scroll.contentView.bounds.size;
+    size.width  = MAX(1, floor(size.width));
+    size.height = MAX(1, floor(size.height));
+    if (NSEqualSizes(size, self->sentViewport)) {
+      return;
+    }
+    self->sentViewport = size;
+    NSString* text = [NSString stringWithFormat:
+      @"{\"action\":\"resize\",\"width\":%.0f,\"height\":%.0f}",
+      size.width, size.height];
+    pthread_mutex_lock(&shell_lock);
+    NSArray* last = shell_events.lastObject;
+    if (last != nil && [last[0] hasPrefix:@"{\"action\":\"resize\","]) {
+      shell_events[shell_events.count - 1] = @[text, @"", @0];
+    } else if (shell_events.count < SHELL_EVENTS) {
+      [shell_events addObject:@[text, @"", @0]];
+    }
+    pthread_cond_signal(&shell_bell);
+    pthread_mutex_unlock(&shell_lock);
+  });
+}
+
+- (void)configureWindow:(NSDictionary*)config {
+  responsive = YES;
+  sizing = YES;
+  window.contentMinSize = NSMakeSize([config[@"min_width"] doubleValue],
+    [config[@"min_height"] doubleValue]);
+  NSRect vis = (window.screen ?: NSScreen.mainScreen).visibleFrame;
+  NSSize initial = NSMakeSize(MAX([config[@"width"] doubleValue],
+      window.contentMinSize.width), MAX([config[@"height"] doubleValue],
+      window.contentMinSize.height));
+  NSRect frame = [window frameRectForContentRect:NSMakeRect(0, 0,
+    initial.width, initial.height)];
+  frame.size.width = MIN(frame.size.width, vis.size.width);
+  frame.size.height = MIN(frame.size.height, vis.size.height);
+  frame.origin = NSMakePoint(NSMidX(vis) - frame.size.width / 2,
+    NSMidY(vis) - frame.size.height / 2);
+  [window setFrame:frame display:YES];
+  sizing = NO;
+  [self document];
+  [self viewport];
 }
 
 - (void)loaded:(NSNotification*)n {
@@ -946,6 +1011,7 @@ static void* shell_run(void* arg) {
     sized = YES;
   }
   [self document];
+  [self viewport];
 }
 
 // Paint
@@ -1273,6 +1339,27 @@ char* bend_native_request(unsigned op, const char* data, unsigned len,
       });
       *status = 1;
       reply = shell_dup(@"");
+    } else if (op == 9) {
+      id config = [NSJSONSerialization JSONObjectWithData:
+        [NSData dataWithBytesNoCopy:(void*)data length:len freeWhenDone:NO]
+        options:0 error:NULL];
+      BOOL valid = [config isKindOfClass:NSDictionary.class];
+      for (NSString* key in @[@"width", @"height", @"min_width", @"min_height"]) {
+        id value = valid ? config[key] : nil;
+        double number = [value isKindOfClass:NSNumber.class]
+          ? [value doubleValue] : 0;
+        valid = valid && shell_is_num(value) && number >= 1
+          && number <= 100000 && floor(number) == number;
+      }
+      if (valid) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+          [shell configureWindow:config];
+        });
+        *status = 1;
+        reply = shell_dup(@"");
+      } else {
+        reply = shell_dup(@"window dimensions must be positive integer content points");
+      }
     } else {
       reply = shell_dup([NSString stringWithFormat:
         @"unsupported native operation %u", op]);

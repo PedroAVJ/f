@@ -27,6 +27,8 @@ def shown(i: Input) -> String:
       "went to " ++ a
     case Ignored{}:
       "ignored"
+    case In.Resized{w, h}:
+      "resized " ++ U32.show(w) ++ "x" ++ U32.show(h)
 
 def kept() -> List<&2, Held>:
   Input.keep(Input.keep(Input.keep([], Typed{"Write to Dot", "ho"}), Focused{"Write to Dot"}), Typed{"Write to Dot", "hola"})
@@ -45,6 +47,11 @@ def main() -> IO(Unit):
     IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"blur\",\"name\":\"textbox · Write to Dot\"}"})))
     IO.print(shown(In.of(Host.Reply{1, "address · /conversation/7"})))
     IO.print(shown(In.of(Host.Reply{2, "browser host unavailable"})))
+    IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"resize\",\"width\":1000,\"height\":760}"})))
+    IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"resize\",\"width\":0,\"height\":760}"})))
+    IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"resize\",\"width\":1000.5,\"height\":760}"})))
+    IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"resize\",\"width\":\"1000\",\"height\":760}"})))
+    IO.print(shown(In.of(Host.Reply{1, "{\"action\":\"resize\",\"width\":4294967296,\"height\":760}"})))
 #|True
 #|True
 #|True
@@ -53,4 +60,9 @@ def main() -> IO(Unit):
 #|focused Write to Dot
 #|left Write to Dot
 #|went to /conversation/7
+#|ignored
+#|resized 1000x760
+#|ignored
+#|ignored
+#|ignored
 #|ignored
