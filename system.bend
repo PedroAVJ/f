@@ -1,9 +1,6 @@
 import Base
 import V
 
-def release() -> Release:
-  Release{Repository{"open-dot", True{}}, [], []}
-
 def system() -> System:
   System{"open-dot", "Open Dot", "Dot, on your own Codex or Claude subscription.",
     [
@@ -18,15 +15,13 @@ def system() -> System:
       Container{"claude", "Claude", "The user's Claude subscription.",
         Category.ModelApi{}, Ownership.Theirs{}, Exposure.Public{}, [], "", ["Anthropic"], [], [], [], [], [], []}
     ],
-    Deployment{"https://dot.example.com", ["sessions"], [], [
-      Node{"mac", "Pedro's Mac", "launchd", NodeRole.Server{}, Host.Owned{"MacBook"}, Platform.Unmanaged{}, [], ["web", "server"]}
+    Deployment{"https://pedros-mac-mini.tail90fb4c.ts.net:9453", ["sessions"], [], [
+      Node{"mac", "Pedro's Mac mini", "launchd", NodeRole.Server{}, Host.Owned{"Mac mini"},
+        Platform.Launchd{Launchd{
+          [Program{"dist/web/index.html", Build.Bend{"apps/web.bend"}}],
+          [Agent{"web", "com.pedro.open-dot.web", "/usr/bin/python3",
+            ["-m", "http.server", "4640", "--bind", "127.0.0.1", "--directory", "dist/web"], [], "open-dot-web", 4640}],
+          [Serve{"web", 9453, 4640, "/"}]}},
+        [], ["web"]}
     ]},
-    release()}
-
-# What the world looks like now. Hardcoded: nothing in V observes it yet.
-def observed() -> Observed:
-  Observed{["ui.bend", "state.bend", "copy.bend"], ["ui.bend", "state.bend", "copy.bend"], [],
-    RepositoryStatus{"https://github.com/PedroAVJ/open-dot", "public", True{}, True{}}, []}
-
-def main() -> IO(Unit):
-  IO.print(show_all(plan(release(), observed())))
+    Release{Repository{"open-dot", True{}}, [], []}}
