@@ -115,7 +115,7 @@ def built(r: Ran) -> P.Built:
       Bool.pick(P.Built, U32.is_eq(code, 0), P.Built{line(ls, 0n), String.eq(line(ls, 1n), "same"), ""},
         P.Built{"", False{}, "does not build: " ++ String.trim(e)})
 
-def build(p: L.Program, +dir: String) -> IO(P.Built):
+def build_program(p: L.Program, +dir: String) -> IO(P.Built):
   match p:
     case L.Program{+path, b}:
       match b:
@@ -130,7 +130,7 @@ def builds(ps: List<&2, L.Program>, +dir: String) -> IO(List<&2, P.Built>):
       IO.pure(List<&2, P.Built>, [])
     case p <> rest:
       do IO<List<&2, P.Built>>:
-        b : P.Built <- build(p, dir)
+        b : P.Built <- build_program(p, dir)
         bs : List<&2, P.Built> <- builds(rest, dir)
         return b <> bs
 
@@ -194,17 +194,24 @@ def node_plans(ns: List<&2, D.Node>, +address: String) -> IO(List<&2, P.Step>):
         b : List<&2, P.Step> <- node_plans(rest, address)
         return List.append(&2, P.Step, a, b)
 
-def address(+s: S.System) -> String:
-  match s:
-    case S.System{_, _, _, _, D.Deployment{a, _, _, _}, _}:
-      a
+def deployment_plans(ds: List<&2, D.Deployment>) -> IO(List<&2, P.Step>):
+  match ds:
+    case []:
+      IO.pure(List<&2, P.Step>, [])
+    case d <> rest:
+      match d:
+        case D.Deployment{+a, _, _, ns}:
+          do IO<List<&2, P.Step>>:
+            x : List<&2, P.Step> <- node_plans(ns, a)
+            y : List<&2, P.Step> <- deployment_plans(rest)
+            return List.append(&2, P.Step, x, y)
 
 def planned(s: S.System) -> IO(List<&2, P.Step>):
   match s:
-    case S.System{_, _, _, _, D.Deployment{+a, _, _, ns}, +rs}:
+    case S.System{_, _, _, +rs, ds}:
       do IO<List<&2, P.Step>>:
         o : P.Observed <- observe_release(rs)
-        n : List<&2, P.Step> <- node_plans(ns, a)
+        n : List<&2, P.Step> <- deployment_plans(ds)
         return List.append(&2, P.Step, PO.plan(rs, o), n)
 
 # ---- running a step: stop at the first that fails, with what it said ----
@@ -237,12 +244,46 @@ def run(+s: P.Step) -> IO(Unit):
     case _:
       IO.die(Unit, 1, "failed   " ++ PO.show(s) ++ ": not a step this deploy runs yet")
 
-def run_all(ss: List<&2, P.Step>) -> IO(Unit):
+# What a step is for: 1 builds an artifact, 2 releases (push, publish), 3 deploys (launch, serve, rebuild); 0
+# changes nothing.
+def kind(s: P.Step) -> U32:
+  match s:
+    case P.Install{_, _}:
+      1
+    case P.BuildNext{_, _, _}:
+      1
+    case P.BuildNode{_, _, _}:
+      1
+    case P.Push{_}:
+      2
+    case P.Publish{_, _, _}:
+      2
+    case P.ReleasePlugin{_, _, _, _}:
+      2
+    case P.Launch{_, _, _, _}:
+      3
+    case P.ServePort{_, _, _}:
+      3
+    case P.Rebuild{_, _, _}:
+      3
+    case _:
+      0
+
+# Run the steps of one kind, in order.
+def run_kind(+k: U32, +ss: List<&2, P.Step>) -> IO(Unit):
   match ss:
     case []:
       IO.pure(Unit, Unit{})
-    case s <> rest:
-      IO.bind(Unit, Unit, run(s), u => run_all(rest))
+    case +s <> +rest:
+      Bool.pick(IO(Unit), U32.is_eq(kind(s), k), IO.bind(Unit, Unit, run(s), u => run_kind(k, rest)), run_kind(k, rest))
+
+# Run the steps of each kind, kind by kind.
+def run_kinds(ks: List<&2, U32>, +ss: List<&2, P.Step>) -> IO(Unit):
+  match ks:
+    case []:
+      IO.pure(Unit, Unit{})
+    case k <> rest:
+      IO.bind(Unit, Unit, run_kind(k, ss), u => run_kinds(rest, ss))
 
 # The deployed address answers (Tailscale needs a moment for a new serve's certificate).
 def live(+a: String) -> IO(Unit):
@@ -250,20 +291,78 @@ def live(+a: String) -> IO(Unit):
     sh("i=0; until curl -fsS -o /dev/null --max-time 10 \"$1\" 2>/dev/null; do i=$((i+1)); [ $i -ge 30 ] && exit 1; sleep 1; done", [a], ""),
     r => done(r, "live     " ++ a))
 
+def lives(ds: List<&2, D.Deployment>) -> IO(Unit):
+  match ds:
+    case []:
+      IO.pure(Unit, Unit{})
+    case d <> rest:
+      match d:
+        case D.Deployment{a, _, _, _}:
+          IO.bind(Unit, Unit, live(a), u => lives(rest))
+
+def deployments(s: S.System) -> List<&2, D.Deployment>:
+  match s:
+    case S.System{_, _, _, _, ds}:
+      ds
+
 def shown(+ss: List<&2, P.Step>) -> IO(Bool):
   IO.bind(Unit, Bool, IO.write(PO.show_all(ss)), u => IO.pure(Bool, PO.any_blocked(ss)))
 
-# Print the plan; exit 1 when a step is blocked.
+# Observe, print the plan, and stop (exit 1) if a step is blocked; else run the steps of the given kinds, then,
+# when it deploys, confirm each deployment's address answers.
+def go(+s: S.System, ks: List<&2, U32>, deploys: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +ss : List<&2, P.Step> <- planned(s)
+    b : Bool <- shown(ss)
+    Bool.pick(IO(Unit), b, IO.die(Unit, 1, "blocked: nothing done"),
+      IO.bind(Unit, Unit, run_kinds(ks, ss), u => Bool.pick(IO(Unit), deploys, lives(deployments(s)), IO.pure(Unit, Unit{}))))
+
+# check: observe and print the plan; change nothing (exit 1 when a step is blocked).
 def check(s: S.System) -> IO(Unit):
   do IO<Unit>:
     ss : List<&2, P.Step> <- planned(s)
     b : Bool <- shown(ss)
-    Bool.pick(IO(Unit), b, IO.die(Unit, 1, "blocked: nothing deployed"), IO.print("ready: `deploy` runs the steps above"))
+    Bool.pick(IO(Unit), b, IO.die(Unit, 1, "blocked"), IO.print("ready"))
 
-# Print the plan, then run it unless a step is blocked, then confirm the address answers.
+# build: build every artifact.
+def build(+s: S.System) -> IO(Unit):
+  go(s, [1], False{})
+
+# release: build, then push the code and publish the packages and plugins.
+def release(+s: S.System) -> IO(Unit):
+  go(s, [1, 2], False{})
+
+# deploy: build, then launch and serve, and confirm the address answers.
 def deploy(+s: S.System) -> IO(Unit):
-  do IO<Unit>:
-    +ss : List<&2, P.Step> <- planned(s)
-    b : Bool <- shown(ss)
-    Bool.pick(IO(Unit), b, IO.die(Unit, 1, "blocked: nothing deployed"),
-      IO.bind(Unit, Unit, run_all(ss), u => live(address(s))))
+  go(s, [1, 3], True{})
+
+# ship: build, release, deploy.
+def ship(+s: S.System) -> IO(Unit):
+  go(s, [1, 2, 3], True{})
+
+def verb(+v: String, +s: S.System) -> IO(Unit):
+  Bool.pick(IO(Unit), String.eq(v, "check"), check(s),
+    Bool.pick(IO(Unit), String.eq(v, "build"), build(s),
+      Bool.pick(IO(Unit), String.eq(v, "release"), release(s),
+        Bool.pick(IO(Unit), String.eq(v, "deploy"), deploy(s),
+          Bool.pick(IO(Unit), String.eq(v, "ship"), ship(s),
+            IO.die(Unit, 1, "unknown verb " ++ v ++ ": use check, build, release, deploy or ship"))))))
+
+def chosen(args: List<String>, +s: S.System) -> IO(Unit):
+  match args:
+    case _ <> rest:
+      match rest:
+        case []:
+          check(s)
+        case v <> more:
+          match more:
+            case []:
+              verb(v, s)
+            case _:
+              IO.die(Unit, 1, "one verb: check, build, release, deploy or ship")
+    case []:
+      check(s)
+
+# The command line of a system.bend: `bend system <verb>`, check when there is none.
+def cli(+s: S.System) -> IO(Unit):
+  IO.bind(List<String>, Unit, IO.args(), args => chosen(args, s))
