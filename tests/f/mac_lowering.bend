@@ -1,6 +1,6 @@
 # A Mac deployment lowers to its topology: the tailnet address, the web
-# app's page built to dist/<app>/index.html, a launch agent
-# com.<user>.<repo>.<app> serving it on 127.0.0.1, and the HTTPS port served
+# app's page (its UI module's) built to dist/web/index.html, a launch agent
+# com.<user>.<repo>.web serving it on 127.0.0.1, and the HTTPS port served
 # from there; the local port is the one Tailscale already serves the port
 # from, else the Mac's free one
 import V
@@ -26,8 +26,8 @@ def shown_program(p: L.Program) -> String:
   match p:
     case L.Program{path, b}:
       match b:
-        case L.Bend{e}:
-          e ++ " -> " ++ path
+        case L.Page{u}:
+          u ++ " -> " ++ path
         case _:
           path
 
@@ -67,7 +67,7 @@ def shown(t: D.Topology) -> String:
       a ++ "\n" ++ shown_nodes(ns)
 
 def mac() -> Deployment:
-  Mac{Tailscale{9453}, [Web{"apps/web"}]}
+  Mac{Tailscale{9453}, [Web{"ui"}]}
 
 def served() -> List<&2, String>:
   ["https://m.ts.net:9452 (tailnet only)", "|-- / proxy http://127.0.0.1:4630", "",
@@ -78,10 +78,10 @@ def main() -> IO(Unit):
     IO.write(shown(DO.lower(mac(), D.Here{"pedro", "open-dot", "m.ts.net", served(), 4600})))
     IO.write(shown(DO.lower(mac(), D.Here{"ana", "shop", "m.ts.net", [], 4600})))
 #|https://m.ts.net:9453
-#|apps/web.bend -> dist/web/index.html
+#|ui -> dist/web/index.html
 #|com.pedro.open-dot.web /usr/bin/python3 -m http.server 4640 --bind 127.0.0.1 --directory dist/web > open-dot-web
 #|http://127.0.0.1:4640
 #|https://m.ts.net:9453
-#|apps/web.bend -> dist/web/index.html
+#|ui -> dist/web/index.html
 #|com.ana.shop.web /usr/bin/python3 -m http.server 4600 --bind 127.0.0.1 --directory dist/web > shop-web
 #|http://127.0.0.1:4600

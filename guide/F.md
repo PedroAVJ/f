@@ -10,30 +10,35 @@ import V
 
 F supplies component functions, Shape/Layout trees and function transitions.
 State supplies component data, AI stream/request data and Dot session records.
-V supplies release/deployment declarations and plan/check functions, and
-the verbs over a `System{releases, deployments}`. A release is one thing
-released: `Code{GitHub{owner, name, OpenSource{license}}}` (or
-`Proprietary{}`), `Package{..}` on the Bend hub or `Plugin{..}`. A deployment
-is intent: `Mac{Tailscale{9453}, [Web{"apps/web"}]}` runs, on this Mac, a web
-app built from apps/web.bend, served on the tailnet at HTTPS port 9453. V
-derives the rest: the page at dist/web/index.html, a launch agent
+V supplies release/deployment declarations and plan functions, and the verbs
+over a `System{releases, deployments}`. A release is one thing released:
+`Code{GitHub{owner, name, OpenSource{license}}}` (or `Proprietary{}`),
+`Package{..}` on the Bend hub or `Plugin{..}`. A deployment is intent:
+`Mac{Tailscale{9453}, [Web{"ui"}]}` runs, on this Mac, the web app whose UI is
+ui.bend's `f`, served on the tailnet at HTTPS port 9453. V derives the rest:
+the page, `f(initial())` (state.bend's `initial`) from an entry it writes to
+dist/web.bend, built to dist/web/index.html; a launch agent
 com.<user>.<repo>.web (the first word of the account's full name, the
-repository's folder) serving it with python3's http.server on 127.0.0.1, its
+repository's folder) serving it with python3's http.server on 127.0.0.1; its
 local port (the one Tailscale already proxies 9453 to, else the first free of
-4600, 4610, .. 4990), the `tailscale serve` and the address,
+4600, 4610, .. 4990); the `tailscale serve`; and the address,
 https://<tailnet name>:9453. One app per Tailscale port so far. An app's
 `system.bend` imports V, defines `system()` and ends with
 `def main() -> IO(Unit): cli(system())`, so `bend system <verb>`, run in the
 app's folder, runs it with the verb as its argument (bend runs the longest
-`./a/b.bend` its words name and passes it the rest): `check`, also run with no
-verb, observes the repository and this Mac and prints the plan, changing
-nothing (exit 1 when a step is blocked); `release` builds, then pushes the code
-and publishes packages and plugins; `deploy` builds, then (re)loads the launch
-agents, `tailscale serve`s them and waits for each address; `ship` builds,
-releases and deploys. Each verb but `check` prints the plan first and does
-nothing if a step is blocked. A code release is blocked unless origin is
-github.com/<owner>/<name>, the tree is clean, and GitHub's visibility is public
-for open source, private for proprietary.
+`./a/b.bend` its words name and passes it the rest): `diff`, also run with no
+verb, compares the system with the repository and this Mac and prints the
+steps that would make them agree, changing nothing (exit 1 when one is
+blocked); `build` builds every app into dist/, recording beside each the hash
+of its inputs (the entry, the fork's commit, the repository's Bend files);
+`release` pushes the code and publishes packages and plugins; `deploy` ships
+what dist/ holds, (re)loads the launch agents, `tailscale serve`s them and
+waits for each address. Neither builds: a deploy is blocked ("build first")
+while an app's build is missing or its inputs changed since. Each verb but
+`diff` prints its steps first and does nothing if one is blocked. A code
+release is blocked unless origin is github.com/<owner>/<name>, the tree is
+clean, and GitHub's visibility is public for open source, private for
+proprietary.
 
 Names enter the importing file's scope. For example, `UI`, `layout`,
 `Session.initial`, `StreamState.reduce`, `Release` and `plan` require no F/State/V
