@@ -230,43 +230,50 @@ def bitmap_json(b: P.Bitmap) -> String:
     case P.Bitmap.Photo{asset,width,height}: "[\"photo\"," ++ J.quote(asset) ++ "," ++ U32.show(width) ++ "," ++ U32.show(height) ++ "]"
     case P.Bitmap.Atlas{N.Frame{id,asset,animation,time,reduced,row,column,x,y,width,height,sheet_width,sheet_height}}:
       "[\"atlas\"," ++ J.quote(asset) ++ "," ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(width) ++ "," ++ U32.show(height) ++ "," ++ U32.show(sheet_width) ++ "," ++ U32.show(sheet_height) ++ "]"
-def fill_json(f: P.Fill) -> String:
+def fill_json_in(f: P.Fill, +scheme: T.Scheme) -> String:
   match f:
     case P.Fill.None{}: "[\"none\"]"
-    case P.Solid{role,state}: "[\"solid\"," ++ J.quote(T.surface(role,state,T.Scheme.Light{})) ++ "]"
-    case P.Gradient{from,to,hold}: "[\"gradient\"," ++ J.quote(T.stop(from,T.Scheme.Light{})) ++ "," ++ J.quote(T.stop(to,T.Scheme.Light{})) ++ "," ++ U32.show(hold) ++ "]"
+    case P.Solid{role,state}: "[\"solid\"," ++ J.quote(T.surface(role,state,scheme)) ++ "]"
+    case P.Gradient{from,to,hold}: "[\"gradient\"," ++ J.quote(T.stop(from,scheme)) ++ "," ++ J.quote(T.stop(to,scheme)) ++ "," ++ U32.show(hold) ++ "]"
     case P.Image{bitmap,time}: bitmap_json(bitmap)
-def stroke_json(s: P.Stroke) -> String:
+def fill_json(f: P.Fill) -> String: fill_json_in(f,T.Scheme.Light{})
+def stroke_json_in(s: P.Stroke, scheme: T.Scheme) -> String:
   match s:
     case P.NoStroke{}: "[\"none\"]"
-    case P.Stroke{role,state,width}: "[\"stroke\"," ++ J.quote(T.line(role,state,T.Scheme.Light{})) ++ "," ++ J.quote(width) ++ "]"
-def effect_json(e: P.Effect) -> String:
+    case P.Stroke{role,state,width}: "[\"stroke\"," ++ J.quote(T.line(role,state,scheme)) ++ "," ++ J.quote(width) ++ "]"
+def stroke_json(s: P.Stroke) -> String: stroke_json_in(s,T.Scheme.Light{})
+def effect_json_in(e: P.Effect, scheme: T.Scheme) -> String:
   match e:
     case P.Blur{r}: "[\"blur\"," ++ U32.show(r) ++ "]"
     case P.Shadow{y,blur}: "[\"shadow\"," ++ U32.show(y) ++ "," ++ U32.show(blur) ++ "," ++ J.quote(T.shadow()) ++ "]"
     case P.Glass{blur,saturation,refraction,highlight,tint,edge,over}:
-      "[\"glass\"," ++ U32.show(blur) ++ "," ++ U32.show(saturation) ++ "," ++ U32.show(refraction) ++ "," ++ U32.show(highlight) ++ "," ++ U32.show(tint) ++ "," ++ J.quote(T.line(edge,T.State.Rest{},T.Scheme.Light{})) ++ "]"
-def effect_commands(xs: List<&2, P.Effect>) -> String:
+      "[\"glass\"," ++ U32.show(blur) ++ "," ++ U32.show(saturation) ++ "," ++ U32.show(refraction) ++ "," ++ U32.show(highlight) ++ "," ++ U32.show(tint) ++ "," ++ J.quote(T.line(edge,T.State.Rest{},scheme)) ++ "]"
+def effect_json(e: P.Effect) -> String: effect_json_in(e,T.Scheme.Light{})
+def effect_commands_in(xs: List<&2, P.Effect>, +scheme: T.Scheme) -> String:
   match xs:
     case Nil{}: ""
-    case Con{x,tail}: join(effect_json(x),effect_commands(tail))
-def paint(s: P.Shape, head: String) -> String:
+    case Con{x,tail}: join(effect_json_in(x,scheme),effect_commands_in(tail,scheme))
+def effect_commands(xs: List<&2, P.Effect>) -> String: effect_commands_in(xs,T.Scheme.Light{})
+def paint_in(s: P.Shape, head: String, +scheme: T.Scheme) -> String:
   match s:
     case P.Shape{P.Text{text,P.TextType{name,size,weight}},P.TextFill.Solid{role,state},stroke,effects}:
-      head ++ "[\"text\"," ++ J.quote(text) ++ "," ++ U32.show(size) ++ "," ++ U32.show(weight) ++ "],[\"solid\"," ++ J.quote(T.text(role,state,T.Scheme.Light{})) ++ "]," ++ stroke_json(stroke) ++ ",[" ++ effect_commands(effects) ++ "]]"
+      head ++ "[\"text\"," ++ J.quote(text) ++ "," ++ U32.show(size) ++ "," ++ U32.show(weight) ++ "],[\"solid\"," ++ J.quote(T.text(role,state,scheme)) ++ "]," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
     case P.Shape{P.Rounded{+w,+h,r},f,stroke,effects}:
-      head ++ "[\"rounded\"," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ radius(r,w,h) ++ "]," ++ fill_json(f) ++ "," ++ stroke_json(stroke) ++ ",[" ++ effect_commands(effects) ++ "]]"
+      head ++ "[\"rounded\"," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ radius(r,w,h) ++ "]," ++ fill_json_in(f,scheme) ++ "," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
     case P.Shape{P.Path{d},f,stroke,effects}:
-      head ++ drawing_json(d) ++ "," ++ fill_json(f) ++ "," ++ stroke_json(stroke) ++ ",[" ++ effect_commands(effects) ++ "]]"
-def command(b: P.Box) -> String:
+      head ++ drawing_json(d) ++ "," ++ fill_json_in(f,scheme) ++ "," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
+def paint(s: P.Shape, head: String) -> String: paint_in(s,head,T.Scheme.Light{})
+def command_in(b: P.Box, scheme: T.Scheme) -> String:
   match b:
     case P.Box{name,P.Draw{s},x,y,width,height,level,layer}:
-      paint(s,"[\"shape\"," ++ J.quote(name) ++ "," ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(width) ++ "," ++ U32.show(height) ++ ",")
+      paint_in(s,"[\"shape\"," ++ J.quote(name) ++ "," ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(width) ++ "," ++ U32.show(height) ++ ",",scheme)
     case _: ""
-def commands(xs: List<&2, P.Box>) -> String:
+def command(b: P.Box) -> String: command_in(b,T.Scheme.Light{})
+def commands_in(xs: List<&2, P.Box>, +scheme: T.Scheme) -> String:
   match xs:
     case Nil{}: ""
-    case Con{x,tail}: join(command(x),commands(tail))
+    case Con{x,tail}: join(command_in(x,scheme),commands_in(tail,scheme))
+def commands(xs: List<&2, P.Box>) -> String: commands_in(xs,T.Scheme.Light{})
 def region_json(b: P.Box) -> String:
   match b:
     case P.Box{+name,mark,x,y,w,h,level,layer}:
@@ -275,9 +282,22 @@ def region_commands(xs: List<&2,P.Box>) -> String:
   match xs:
     case Nil{}: ""
     case Con{box,tail}: join(region_json(box),region_commands(tail))
-def canvas_commands(+placed: List<&2,P.Box>) -> String:
-  join("[\"clear\"]",join(commands(placed),region_commands(placed)))
-def canvas_frame(size: P.Size, placed: List<&2,P.Box>) -> String:
+def canvas_commands_under(+placed: List<&2,P.Box>, background: String, scheme: T.Scheme) -> String:
+  join("[\"clear\"]",join(background,join(commands_in(placed,scheme),region_commands(placed))))
+def canvas_commands_in(placed: List<&2,P.Box>, scheme: T.Scheme) -> String:
+  canvas_commands_under(placed,"",scheme)
+def canvas_commands(placed: List<&2,P.Box>) -> String: canvas_commands_in(placed,T.Scheme.Light{})
+# Dark Canvas needs its own opaque background after clear, including empty
+# layout space. Light keeps the original transparent packet byte for byte.
+def canvas_background(+width: U32, +height: U32, scheme: T.Scheme) -> String:
+  match scheme:
+    case T.Scheme.Light{}: ""
+    case T.Scheme.Dark{}:
+      "[\"shape\",\"Canvas background\",0,0," ++ U32.show(width) ++ "," ++ U32.show(height) ++ ",[\"rounded\"," ++ U32.show(width) ++ "," ++ U32.show(height) ++ ",0],[\"solid\"," ++ J.quote(T.surface(T.SurfaceRole.Background{},T.State.Rest{},T.Scheme.Dark{})) ++ "],[\"none\"],[]]"
+def canvas_frame_in(size: P.Size, placed: List<&2,P.Box>, +scheme: T.Scheme) -> String:
   match size:
-    case P.Size{width,height,count}: "[" ++ join("[\"frame\"," ++ U32.show(width) ++ "," ++ U32.show(height) ++ "]",canvas_commands(placed)) ++ "]"
-def canvas(+tree: P.UI) -> String: canvas_frame(P.size(tree),placed(P.size(tree),tree))
+    case P.Size{+width,+height,count}: "[" ++ join("[\"frame\"," ++ U32.show(width) ++ "," ++ U32.show(height) ++ "]",canvas_commands_under(placed,canvas_background(width,height,scheme),scheme)) ++ "]"
+def canvas_frame(size: P.Size, placed: List<&2,P.Box>) -> String: canvas_frame_in(size,placed,T.Scheme.Light{})
+# Scheme selection is explicit; the existing canvas remains the Light packet.
+def canvas_in(+tree: P.UI, scheme: T.Scheme) -> String: canvas_frame_in(P.size(tree),placed(P.size(tree),tree),scheme)
+def canvas(tree: P.UI) -> String: canvas_in(tree,T.Scheme.Light{})

@@ -148,6 +148,11 @@ def show(s: P.Step) -> String:
       "launch   " ++ l
     case P.BuildPage{u, p}:
       "build    " ++ u ++ " -> " ++ p
+    case P.BuildApp{u, d, i}:
+      "build    " ++ u ++ " -> " ++ d ++ " (Mac app " ++ i ++ ")"
+    case P.Install{+n, +i, _, +v}:
+      Bool.pick(String, String.is_empty(n), "install  " ++ i ++ " -> ~/Applications, and open it (once built)",
+        "install  " ++ n ++ ".app (" ++ i ++ ", build " ++ v ++ ") -> ~/Applications, and open it")
     case P.BuildNext{f, +tree, d}:
       "build    " ++ f ++ " @ " ++ String.take(tree, 7n) ++ " (Next.js) into " ++ d
     case P.BuildNode{f, +tree, d}:

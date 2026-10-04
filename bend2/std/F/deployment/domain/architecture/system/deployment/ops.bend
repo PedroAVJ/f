@@ -4,6 +4,7 @@ import ./host/type.bend as H
 import ./launchd/type.bend as L
 import ./launchd/ops.bend as LO
 import ./nix_darwin/type.bend as ND
+import ./bundle/type.bend as Bu
 
 # ---- what a deploy breaks: compared with what was deployed before (its address and stores) ----
 def address(d: D.Topology) -> String:
@@ -149,25 +150,61 @@ def app_server() -> String:
   "        return super().send_head()\n" ++
   "s.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(H, directory=sys.argv[2])).serve_forever()\n"
 
-def web_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Application) -> D.Node:
+def web_node(+user: String, +repo: String, +https: U32, +port: U32, ui: String) -> D.Node:
+  +a : String = "web"
+  +dir = "dist/" ++ a
+  D.Node{"mac", "this Mac", "launchd", D.Server{}, H.Owned{"this Mac"},
+    D.Launchd{L.Launchd{
+      [L.Program{dir ++ "/index.html", L.Page{ui}}],
+      [L.Agent{a, "com." ++ user ++ "." ++ repo ++ "." ++ a, "/usr/bin/python3",
+        ["-c", app_server(), U32.show(port), dir], [], repo ++ "-" ++ a, port}],
+      [ND.Serve{a, https, port, "/"}]}},
+    [], [a]}
+
+# A Mac app on this Mac, named mac: built to dist/mac.macos, bundle identifier com.<user>.<repo>.mac,
+# installed in ~/Applications.
+def mac_node(+user: String, +repo: String, ui: String) -> D.Node:
+  +a : String = "mac"
+  D.Node{"mac", "this Mac", "AppKit", D.Device{}, H.Owned{"this Mac"},
+    D.Bundle{Bu.MacApp{ui, "com." ++ user ++ "." ++ repo ++ "." ++ a, "dist/" ++ a ++ ".macos"}}, [], [a]}
+
+def app_node(+user: String, +repo: String, +https: U32, +port: U32, app: D.Application) -> D.Node:
   match app:
     case D.Web{ui}:
-      +a : String = "web"
-      +dir = "dist/" ++ a
-      D.Node{"mac", "this Mac", "launchd", D.Server{}, H.Owned{"this Mac"},
-        D.Launchd{L.Launchd{
-          [L.Program{dir ++ "/index.html", L.Page{ui}}],
-          [L.Agent{a, "com." ++ user ++ "." ++ repo ++ "." ++ a, "/usr/bin/python3",
-            ["-c", app_server(), U32.show(port), dir], [], repo ++ "-" ++ a, port}],
-          [ND.Serve{a, https, port, "/"}]}},
-        [], [a]}
+      web_node(user, repo, https, port, ui)
+    case D.MacOS{ui}:
+      mac_node(user, repo, ui)
 
-def web_nodes(+user: String, +repo: String, +https: U32, +port: U32, apps: List<&2, D.Application>) -> List<&2, D.Node>:
+def app_nodes(+user: String, +repo: String, +https: U32, +port: U32, apps: List<&2, D.Application>) -> List<&2, D.Node>:
   match apps:
     case []:
       []
     case app <> rest:
-      web_node(user, repo, https, port, app) <> web_nodes(user, repo, https, port, rest)
+      app_node(user, repo, https, port, app) <> app_nodes(user, repo, https, port, rest)
+
+# How many of the apps are web apps (the ones Tailscale serves).
+def webs(apps: List<&2, D.Application>) -> Nat:
+  match apps:
+    case []:
+      0n
+    case app <> rest:
+      match app:
+        case D.Web{_}:
+          Nat.add(1n, webs(rest))
+        case _:
+          webs(rest)
+
+# Mac apps currently share one native output folder and bundle identifier per deployment.
+def native_apps(apps: List<&2, D.Application>) -> Nat:
+  match apps:
+    case []:
+      0n
+    case app <> rest:
+      match app:
+        case D.MacOS{_}:
+          Nat.add(1n, native_apps(rest))
+        case _:
+          native_apps(rest)
 
 def https_of(x: D.Exposure) -> U32:
   match x:
@@ -188,9 +225,11 @@ def apps(d: D.Deployment) -> List<&2, D.Application>:
 def port(+d: D.Deployment, h: D.Here) -> U32:
   local_port(https(d), h)
 
-# A Mac deployment lowered: reached at https://<tailnet name>:<port>, one launchd node per app.
+# A Mac deployment lowered: reached at https://<tailnet name>:<port> ("" when it has no web app), one node
+# per app (launchd for a web app, a bundle for a Mac app).
 def lower(+d: D.Deployment, +h: D.Here) -> D.Topology:
   match h:
     case D.Here{+user, +repo, +name, _, _}:
       +x = https(d)
-      D.Topology{tailnet_address(name, x), [], [], web_nodes(user, repo, x, port(d, h), apps(d))}
+      D.Topology{Bool.pick(String, Nat.is_eq(webs(apps(d)), 0n), "", tailnet_address(name, x)), [], [],
+        app_nodes(user, repo, x, port(d, h), apps(d))}

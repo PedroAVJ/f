@@ -23,11 +23,14 @@ type Tag is Data:
 type Observed is Data:
   Observed{files: List<&2, String>, reached: List<&2, String>, hubs: List<&2, Hub>, remotes: List<&2, Remote>, tags: List<&2, Tag>}
 
-# One step of a plan. BuildPage, Publish, Push, ReleasePlugin, Rebuild, ServePort and Launch change the world; Current and Change do not
-# (a Change is what a Rebuild would change, shown by a dry run); Blocked stops the deploy.
+# One step of a plan. BuildPage, BuildApp, Publish, Push, ReleasePlugin, Rebuild, ServePort, Launch and Install change the
+# world; Current and Change do not (a Change is what a Rebuild would change, shown by a dry run); Blocked stops the deploy.
 # Rebuild: write a nix-darwin node's flake and darwin-rebuild switch it. ServePort: serve a tailnet
 # HTTPS port from a local target, with the given Tailscale command. Launch: write a launch agent's plist and
 # (re)load it in the user's launchd domain. BuildPage: render a UI module's page to its path in dist/.
+# BuildApp: build a UI module's Mac app (bundle identifier id) into its folder in dist/. Install: put the built
+# app (dist/<app>.macos/<name>.app, CFBundleVersion version) in ~/Applications in place of the copy there,
+# quitting it if it runs, and open it; name is "" while it is not built.
 type Step is Data:
   Current{what: String}
   Publish{name: String, version: String, entry: String}
@@ -37,6 +40,8 @@ type Step is Data:
   ServePort{https: U32, target: String, tailscale: String}
   Launch{label: String, path: String, plist: String, domain: String}
   BuildPage{ui: String, page: String}
+  BuildApp{ui: String, dir: String, id: String}
+  Install{name: String, id: String, app: String, version: String}
   BuildNext{folder: String, tree: String, dir: String}
   BuildNode{folder: String, tree: String, dir: String}
   Change{what: String, now: String, want: String}
@@ -60,3 +65,11 @@ type Running is Data:
 # name ("" when Tailscale is down) and `tailscale serve status`, one line each.
 type Seen is Data:
   Seen{home: String, domain: String, dir: String, built: List<&2, Built>, running: List<&2, Running>, tailscale: String, name: String, served: List<&2, String>}
+
+# What a Mac app looks like now: its build (Fresh while its folder holds what the current inputs build), the
+# built app's name and CFBundleVersion as its build stamped them ("" when it is not built), the
+# CFBundleVersion of our app in ~/Applications under that name ("" when there is none), and another app
+# already in ~/Applications or /Applications under that name, as "<path> (<its bundle identifier>)" ("" when
+# there is none).
+type Bundled is Data:
+  Bundled{built: Built, name: String, version: String, installed: String, other: String}

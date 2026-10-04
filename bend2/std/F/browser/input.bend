@@ -1,6 +1,7 @@
 import Base
 import ../ui/primitives.bend as P
 import ../ui/kit.bend as K
+import ../ui/tokens.bend as T
 import ../ai/wire_json.bend as J
 import ./host.bend as Host
 import ./scene.bend as Scene
@@ -77,3 +78,22 @@ def show(u: K.UI, r: K.Rendering) -> IO(Unit):
 def show_at(u: K.UI, r: K.Rendering, address: String) -> IO(Unit):
   IO.bind(Host.Reply, Unit, Host.render(Scene.html(K.draw(u, r)) ++ "<span hidden data-bend-address=\"" ++ Scene.escape(address) ++ "\"></span>"),
     x => IO.pure(Unit, Unit{}))
+
+# Show a UI as Canvas commands (what a native shell paints, or the browser's canvas renderer), its buttons and
+# textboxes live regions, in the app's language with its inputs' states.
+def show_canvas(u: K.UI, r: K.Rendering) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.canvas(Scene.canvas(K.draw(u, r))), x => IO.pure(Unit, Unit{}))
+
+# Choose the Canvas tokens explicitly; HTML and show_canvas keep their defaults.
+def scheme_name(s: T.Scheme) -> String:
+  match s:
+    case T.Scheme.Dark{}: "dark"
+    case T.Scheme.Light{}: "light"
+def show_canvas_in(u: K.UI, r: K.Rendering, +scheme: T.Scheme) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.request(8, scheme_name(scheme)), configured =>
+    IO.bind(Host.Reply, Unit, Host.canvas(Scene.canvas_in(K.draw(u, r), scheme)), x => IO.pure(Unit, Unit{})))
+
+# A native app may let its State own draft persistence. Configure this before
+# its first paint; the browser keeps its existing input-storage behavior.
+def configure_input_persistence(enabled: Bool) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.request(7, Bool.pick(String, enabled, "1", "0")), x => IO.pure(Unit, Unit{}))

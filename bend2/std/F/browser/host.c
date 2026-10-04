@@ -13,6 +13,41 @@ EM_ASYNC_JS(uintptr_t, browser_request, (unsigned op, const char* data, unsigned
   HEAPU8.set(bytes, p + 8);
   return p;
 });
+#elif BEND_NATIVE
+// A native app (tool.ts -o <dir>.macos, -DBEND_NATIVE=1) links a shell
+// that answers each request as the browser's shell.js does, with the same
+// reply text: bend_native_request blocks until it has the reply (on an IO
+// helper thread, so the event loop and other effects go on) and returns it
+// as malloc'd UTF-8, which the caller frees.
+extern char* bend_native_request(unsigned op, const char* data, unsigned len,
+  unsigned* status);
+
+static void browser_call(IoWork* w) {
+  unsigned status = 2;
+  char*    reply  = bend_native_request(w->word, w->text, (unsigned)w->size,
+    &status);
+  u64      n      = reply != NULL ? strlen(reply) : 0;
+  const char* why = reply == NULL || status < 1 || status > 3
+    ? "invalid host reply" : n > 1048576 ? "reply exceeds 1 MiB" : NULL;
+  free(w->text);
+  w->text = NULL;
+  if (why != NULL) {
+    free(reply);
+    reply  = io_mem(strdup(why));
+    n      = strlen(why);
+    status = 2;
+  }
+  w->data = reply;
+  w->size = n;
+  w->made = (intptr_t)status;
+}
+
+static Term browser_pack(Env e, IoWork* w) {
+  Term data = io_str(e, w->data, w->size);
+  free(w->data);
+  w->data = NULL;
+  return io_node(e, CID(Reply), (u32)w->made, data);
+}
 #endif
 
 static Term browser_run(Env e, Term* f, IoWork* w) {
@@ -29,6 +64,14 @@ static Term browser_run(Env e, Term* f, IoWork* w) {
     data = io_str(e, (char*)(packet + 2), packet[1]);
     free(packet);
   }
+#elif BEND_NATIVE
+  if (len <= 1048576) {
+    w->word = (u32)f[0];
+    w->text = text;
+    w->size = len;
+    return io_work(w, browser_call, browser_pack);
+  }
+  data = io_str(e, "request exceeds 1 MiB", 21);
 #else
   data = io_str(e, "browser host unavailable", 24);
 #endif

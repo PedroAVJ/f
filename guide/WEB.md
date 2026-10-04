@@ -17,6 +17,11 @@ rebuilds preserve caller-owned assets. The default uses one Wasm worker.
 `?workers=4` selects up to eight when COOP/COEP headers enable shared memory;
 otherwise the loader selects the sequential build.
 
+V also supports `Application.MacOS{"ui"}` for the same Bend UI module.
+That target compiles C into a native AppKit bundle with a CoreGraphics
+Canvas painter. Its build, installation and optional native theme/input
+hooks are described in `F.md`; Web output and defaults remain the same.
+
 ## Presentation
 
 The internal scene bridge projects Primitives/Kit trees into HTML/CSS and Canvas.
