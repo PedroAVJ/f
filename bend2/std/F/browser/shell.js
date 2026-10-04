@@ -116,6 +116,11 @@ export function startBend(root, options = {}) {
     else if (events.length < 256) events.push(entry);
   };
   const renderer = createCanvasRenderer(root, deliver);
+  // A textbox's text outlives the page: each edit is kept in localStorage by the textbox's name, and a
+  // textbox that appears empty gets its kept text back as an edit, so Bend keeps it in the input's state.
+  const store = (() => { try { return localStorage; } catch { return null; } })();
+  const kept = field => 'bend-input:' + field.dataset.bendField, restored = new WeakSet();
+  let painting = false;
   const event = e => {
     const target = e.target.closest('[data-bend-event]');
     if (!target || !root.contains(target) || stopped) return;
@@ -129,8 +134,25 @@ export function startBend(root, options = {}) {
       const version = (edits.get(field)?.version || 0) + 1;
       edits.set(field,{version,delivered:Infinity});
       deliver(JSON.stringify({action:'field',name:field.dataset.bendField,value:field.value}),field,version);
+      try { field.value ? store?.setItem(kept(field),field.value) : store?.removeItem(kept(field)); } catch {}
     }
   };
+  const restore = () => {
+    for (const field of root.querySelectorAll('input[data-bend-field]')) {
+      if (restored.has(field)) continue;
+      restored.add(field);
+      let text = null;
+      try { text = store?.getItem(kept(field)); } catch {}
+      if (text && !field.value) { field.value = text; input({target:field}); }
+    }
+  };
+  // Focus is the textbox's own state too: Bend draws it from these events (a repaint's own moves send none).
+  const focus = e => {
+    const field = e.target.closest?.('[data-bend-field]');
+    if (field && root.contains(field) && !painting && !stopped)
+      deliver(JSON.stringify({action:e.type === 'focusin' ? 'focus' : 'blur',name:field.dataset.bendField}));
+  };
+  root.addEventListener('focusin',focus); root.addEventListener('focusout',focus);
   const upload = async e => {
     const field = e.target.closest('[data-bend-upload]'), file = field?.files?.[0];
     if (!file || !root.contains(field) || stopped) return;
@@ -194,13 +216,17 @@ export function startBend(root, options = {}) {
       const focused = root.contains(document.activeElement) ? document.activeElement : null;
       const selection = focused && typeof focused.selectionStart === 'number'
         ? [focused.selectionStart,focused.selectionEnd,focused.selectionDirection] : null;
-      reconcile(root,view.content,edits,composing,requestId);
-      if (focused && root.contains(focused)) {
-        if (document.activeElement !== focused) focused.focus({preventScroll:true});
-        if (selection && !composing.has(focused) &&
-          (focused.selectionStart !== selection[0] || focused.selectionEnd !== selection[1] || focused.selectionDirection !== selection[2]))
-          focused.setSelectionRange(...selection);
-      }
+      painting = true;
+      try {
+        reconcile(root,view.content,edits,composing,requestId);
+        if (focused && root.contains(focused)) {
+          if (document.activeElement !== focused) focused.focus({preventScroll:true});
+          if (selection && !composing.has(focused) &&
+            (focused.selectionStart !== selection[0] || focused.selectionEnd !== selection[1] || focused.selectionDirection !== selection[2]))
+            focused.setSelectionRange(...selection);
+        }
+      } finally { painting = false; }
+      restore();
       return '';
     }
     if (operation === 2) {
@@ -241,6 +267,7 @@ export function startBend(root, options = {}) {
     cancelPending() { for (const abort of active.values()) abort.abort(Error('cancelled')); },
     stop() {
       stopped = true; root.removeEventListener('click', event); root.removeEventListener('input',input);root.removeEventListener('change',upload);
+      root.removeEventListener('focusin',focus);root.removeEventListener('focusout',focus);
       root.removeEventListener('compositionstart',composition);root.removeEventListener('compositionend',composition);
       compute.close(); renderer.close();
       for (const abort of active.values()) abort.abort(Error('stopped'));

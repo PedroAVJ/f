@@ -4,8 +4,8 @@ import ../nix_darwin/type.bend as ND
 # A Mac where V installs only its own programs, launch agents and Tailscale serves, beside whatever else
 # configures the machine (nix-darwin, another system's deploy): nothing it does not declare is touched.
 
-# How a program comes to be at its path: installed by something else; a static page, a UI module's f
-# (ui, a path in the repository without ".bend") at state.bend's initial(), rendered to HTML; a Next.js app built from a folder of the repository (standalone), its build at the path; or
+# How a program comes to be at its path: installed by something else; a web app, a UI module's s, update
+# and f (ui, a path in the repository without ".bend"), its first screen rendered to HTML; a Next.js app built from a folder of the repository (standalone), its build at the path; or
 # a Node program: a folder of the repository copied to the path with its dependencies installed.
 type Build is Data:
   Installed{}

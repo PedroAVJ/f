@@ -1997,13 +1997,74 @@ def call_controls_tree(c: CallControls) -> P.UI:
 # App blocks
 # ----------
 
-# One call each, sized to the column: an app's view needs no widths or slices.
-def caption(+text: String) -> P.UI:
-  paragraph("Caption", text, body(), hint(), column(), P.Leading{})
-def input(+placeholder: String, value: String) -> P.UI:
-  field_tree(field(plain(Lines.Single{}, placeholder, [], FieldState{value, Focus.Blurred{}}), column()))
-def action(+kind: ButtonKind, +label: String, enabled: Bool) -> P.UI:
+# Text a person reads, in each language an app speaks.
+type Text is Data:
+  Text{en: String, es: String}
+def text_in(+lang: Lang, t: Text) -> String:
+  match t:
+    case Text{en, es}: es_en(lang, es, en)
+# What an input owns, which the runtime keeps for it: its text and whether it has focus.
+type InputState is Data:
+  InputState{text: String, focus: Focus}
+# An input's state as the runtime holds it, by the input's label.
+type Held is Data:
+  Held{label: String, state: InputState}
+# What the runtime supplies when it shows a UI: the app's language and its inputs' states.
+type Rendering is Data:
+  Rendering{lang: Lang, inputs: List<&2, Held>}
+# An app's UI, drawn when the runtime shows it: Drawn in the app's language, or an input Owned, waiting for
+# the state the runtime keeps for it (by its label) to be drawn.
+type UI is Type:
+  UI.Drawn{draw: Rendering -> P.UI}
+  UI.Owned{label: Text, view: InputState -> UI}
+def lang_of(r: Rendering) -> Lang:
+  match r:
+    case Rendering{lang, inputs}: lang
+def held(xs: List<&2, Held>, +label: String) -> InputState:
+  match xs:
+    case []: InputState{"", Focus.Blurred{}}
+    case Held{l, s} <> rest: Bool.pick(InputState, String.eq(l, label), s, held(rest, label))
+def state_in(r: Rendering, label: Text) -> InputState:
+  match r:
+    case Rendering{+lang, inputs}: held(inputs, text_in(lang, label))
+# A UI's tree; an Owned inside an Owned's view draws nothing.
+def flat(u: UI, r: Rendering) -> P.UI:
+  match u:
+    case UI.Drawn{d}: d(r)
+    case UI.Owned{l, v}: P.Last{}
+def draw(u: UI, +r: Rendering) -> P.UI:
+  match u:
+    case UI.Drawn{d}: d(r)
+    case UI.Owned{+l, v}: flat(v(state_in(r, l)), r)
+def draws(xs: List<UI>, +r: Rendering) -> List<&2, P.UI>:
+  match xs:
+    case []: []
+    case x <> rest: draw(x, r) <> draws(rest, r)
+# A tree, the same in every language.
+def tree(t: P.UI) -> UI:
+  UI.Drawn{r => t}
+
+# One call each, sized to the column: an app's view needs no widths, slices or languages.
+def app_title(t: Text) -> UI:
+  UI.Drawn{r => title(text_in(lang_of(r), t))}
+def caption(t: Text) -> UI:
+  UI.Drawn{r => paragraph("Caption", text_in(lang_of(r), t), body(), hint(), column(), P.Leading{})}
+# An input is a function of its own state: the parent gives the placeholder, the runtime the state.
+def shown_input(+placeholder: Text, s: InputState) -> UI:
+  match s:
+    case InputState{text, focus}:
+      UI.Drawn{r => field_tree(field(plain(Lines.Single{}, text_in(lang_of(r), placeholder), [], FieldState{text, focus}), column()))}
+def input_of(+placeholder: Text) -> InputState -> UI:
+  s => shown_input(placeholder, s)
+def input(+placeholder: Text) -> UI:
+  UI.Owned{placeholder, input_of(placeholder)}
+def labeled(+kind: ButtonKind, +label: String, enabled: Bool) -> P.UI:
   button_tree(Bool.pick(Button, enabled, say(kind, label), say_off(kind, label)))
+# A primary, enabled button; action_as picks its kind and whether it is enabled.
+def action_as(+kind: ButtonKind, t: Text, enabled: Bool) -> UI:
+  UI.Drawn{r => labeled(kind, text_in(lang_of(r), t), enabled)}
+def action(t: Text) -> UI:
+  action_as(ButtonKind.Primary{}, t, True{})
 # A line of a conversation: who said it and what.
 type Line is Data:
   Line{role: Role, text: String}
@@ -2013,12 +2074,12 @@ def said(line: Line) -> P.UI:
       match role:
         case Role.Mine{}: bubble_tree(bubble(Role.Mine{}, Delivery.Sent{}, Said.Words{text}, Presence.Shown{}, column()))
         case Role.Near{}: bubble_tree(bubble(Role.Near{}, Unit{}, Said.Words{text}, Presence.Shown{}, column()))
-def lines(xs: List<&2, Line>) -> List<&2, P.UI>:
+def lines(xs: List<&2, Line>) -> List<UI>:
   match xs:
     case []: []
-    case x <> rest: said(x) <> lines(rest)
+    case x <> rest: tree(said(x)) <> lines(rest)
 # A whole screen (the column plus its margins), and a stack inside it.
-def screen(+name: String, children: List<&2, P.UI>) -> P.UI:
-  P.layout(name, P.Vertical{}, 16, 24, U32.add(column(), 48), 0, P.Middle{}, children)
-def stack(+name: String, children: List<&2, P.UI>) -> P.UI:
-  P.layout(name, P.Vertical{}, 10, 0, column(), 0, P.Leading{}, children)
+def screen(children: List<UI>) -> UI:
+  UI.Drawn{r => P.layout("Screen", P.Vertical{}, 16, 24, U32.add(column(), 48), 0, P.Middle{}, draws(children, r))}
+def stack(children: List<UI>) -> UI:
+  UI.Drawn{r => P.layout("Stack", P.Vertical{}, 10, 0, column(), 0, P.Leading{}, draws(children, r))}

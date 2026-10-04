@@ -5,7 +5,7 @@ import V
 import ../../bend2/std/F/dot/session.bend as D
 import ../../bend2/std/F/deployment/domain/architecture/system/release/type.bend as R
 
-def ui_identity(u: UI) -> P.UI: u
+def ui_identity(t: Tree) -> P.UI: t
 def session_identity(s: Session) -> D.Session: s
 def release_identity(r: Release) -> R.Release: r
 def main() -> IO(Unit):

@@ -952,7 +952,8 @@ async function book_file(book: Book, file: string, spn?: Span): Promise<string> 
 // A file importing UI that defines `type Page` gets its addresses: Page.url(p) and Page.at(address), from
 // its shape (after the file's last type). A case is its name in kebab case, then its fields: String and U32 as segments, a Data type of
 // the file (last) as its own nested path; anything else, and a missing segment, reads as the first case.
-// A State type of one case with a `page: Page` field gets State.page(s) and State.with_page(s, p).
+// A State type of one case with a `page: Page` field gets State.page(s), State.with_page(s, p) and State.lang(s)
+// (its `lang: Lang` field, else English).
 function page_defs(book: Book, text: string): [string, number] {
   const ts: Record<string, [string, string[][]][]> = {};
   let cut = 0;
@@ -986,6 +987,8 @@ function page_defs(book: Book, text: string): [string, number] {
     const vs = st.map((_, i) => i === at ? "_" : "f" + i), ps = st.map((_, i) => i === at ? "p" : "f" + i);
     out.push("def State.page(s: State) -> Page:\n  match s:\n    case State{" + st.map((_, i) => i === at ? "p" : "_").join(", ") + "}:\n      p",
       "def State.with_page(s: State, p: Page) -> State:\n  match s:\n    case State{" + vs.join(", ") + "}:\n      State{" + ps.join(", ") + "}");
+    const li = st.findIndex(([f, t]) => f === "lang" && t === "Lang");
+    out.push("def State.lang(s: State) -> Lang:\n" + (li < 0 ? "  Lang.En{}" : "  match s:\n    case State{" + st.map((_, i) => i === li ? "l" : "_").join(", ") + "}:\n      l"));
   }
   return [out.join("\n\n") + "\n", cut];
 }
@@ -993,11 +996,10 @@ function page_defs(book: Book, text: string): [string, number] {
 // Explicit framework preludes select bindings; files retain canonical identities.
 const PRELUDES: Record<string, Array<[string, string[]]>> = {
   UI: [
-    ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "UI", "Box", "text", "layout", "leaf", "rounded", "solid"]],
-    ["browser/scene", ["UI.html=html", "UI.canvas=canvas"]],
-    ["browser/input", ["Input", "Clicked", "Typed", "Navigated", "Ignored", "Input.next=next", "UI.show=show", "UI.show_at=show_at"]],
+    ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "Tree=UI", "Box", "text", "layout", "leaf", "rounded", "solid"]],
+    ["browser/input", ["Input", "Clicked", "Typed", "Focused", "Blurred", "Navigated", "Ignored", "Input.next=next", "Input.keep=keep", "UI.html=html", "UI.canvas=canvas", "UI.show=show", "UI.show_at=show_at"]],
     ["browser/address", ["Address.segments=segments", "Address.segment=segment", "Address.number=number", "Address.escape=escape"]],
-    ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree", "Lang", "Lang.pick=es_en", "Role", "Line", "title", "caption", "input", "action", "lines", "screen", "stack"]],
+    ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree", "Lang", "Lang.pick=es_en", "Role", "Line", "Text", "Text.pick=text_in", "InputState", "Held", "Rendering", "UI", "UI.tree=tree", "UI.draw=draw", "title=app_title", "caption", "input", "action", "action_as", "lines", "screen", "stack"]],
     ["dot/session", ["Session", "Permission", "Permissions", "TaskApproval", "Command", "Call", "Message", "MessageRole", "MessageSource", "MessageStatus", "Task", "TaskStatus", "TaskEvent", "Continuity", "Session.initial=initial", "Session.update=update", "Session.phase=phase", "Session.in_call=in_call", "Continuity.initial=history_initial", "Continuity.message=history_message", "Continuity.task=history_task"]],
     ["ai/protocol", ["StreamState", "Frame", "StreamTransition=Transition", "Framing", "StreamState.initial=initial", "StreamState.reduce=reduce", "StreamState.text=text", "StreamState.terminal=terminal", "StreamState.Phase=Phase", "StreamTransition.Event=TextEvent"]],
     ["ui/kit", ["Remote", "Moment", "Motion", "FieldState", "Press", "FixedState", "ServedState", "Moment.still=still"]],
