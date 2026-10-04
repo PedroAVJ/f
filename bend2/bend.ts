@@ -975,6 +975,9 @@ const PRELUDES: Record<string, Array<[string, string[]]>> = {
     ["deployment/domain/architecture/system/deployment/type", ["Deployment", "Break", "Node", "NodeRole=Role", "Platform"]],
     ["deployment/domain/architecture/system/plan/type", ["Observed", "Step", "RepositoryStatus=Remote", "PackageStatus=Hub", "ReleaseTag=Tag"]],
     ["deployment/domain/architecture/system/plan/ops", ["plan", "blocked", "any_blocked", "show_all"]],
+    ["deployment/domain/architecture/system/deployment/launchd/type", ["Launchd", "Program", "Build", "Agent", "Variable"]],
+    ["deployment/domain/architecture/system/deployment/nix_darwin/type", ["Serve"]],
+    ["deployment/domain/architecture/system/deploy/ops", ["check", "deploy"]],
   ],
 };
 

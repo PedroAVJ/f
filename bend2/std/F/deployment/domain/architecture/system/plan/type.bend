@@ -39,3 +39,19 @@ type Step is Data:
   BuildNode{folder: String, tree: String, dir: String}
   Change{what: String, now: String, want: String}
   Blocked{what: String, why: String}
+
+# What one program of a launchd node looks like now: a fresh build of it in a temporary file ("" when it did
+# not build, and why), and whether that build equals what is installed at the program's path.
+type Built is Data:
+  Built{fresh: String, same: Bool, error: String}
+
+# What one launch agent looks like now: its plist on disk ("" when absent), whether the user's launchd domain
+# has it loaded, and the process listening on its port ("" for none).
+type Running is Data:
+  Running{plist: String, loaded: Bool, listener: String}
+
+# What a launchd node (this Mac) looks like now: the home folder, the user's launchd domain (gui/<uid>), the
+# repository's folder, each program and agent in declaration order, Tailscale's command, the node's tailnet
+# name ("" when Tailscale is down) and `tailscale serve status`, one line each.
+type Seen is Data:
+  Seen{home: String, domain: String, dir: String, built: List<&2, Built>, running: List<&2, Running>, tailscale: String, name: String, served: List<&2, String>}

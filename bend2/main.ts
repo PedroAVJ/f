@@ -44,6 +44,7 @@ const USAGE = [
   ["bend <page.html> -o <dir>", "bundle a page that imports .bend files"],
   ["bend base [--types|<name>]", "print Base, its types, or a name and subnames"],
   ["bend update", "install the latest bend (curl | sh, shown first)"],
+  ["bend check | deploy", "plan, or run, ./system.bend's deploy (V)"],
   ["bend version", "print the version"],
   ["bend guide", "print the Bend guide"],
 ];
@@ -147,6 +148,8 @@ async function cli(): Promise<void> {
     cli_guide(args[1] ?? "guide");
   } else if (args[0] === "base" && args.length <= 2) {
     cli_base(args[1]);
+  } else if (args[0] === "check" || args[0] === "deploy") {
+    await cli_system(args[0], args.slice(1));
   } else {
     await cli_file(args);
   }
@@ -314,6 +317,33 @@ async function cli_file(args: string[]): Promise<void> {
       }
       cli_emit(book, out);
     }
+  } catch (e) {
+    cli_say(2, book_err(e) + "\n");
+    process.exitCode = 1;
+  }
+}
+
+// cli_system runs `bend check|deploy`: ./system.bend's own main if it has
+// one, else V's check or deploy of its system().
+async function cli_system(cmd: string, argv: string[]): Promise<void> {
+  const file = path.resolve("system.bend");
+  const V = "std/F/deployment/domain/architecture/system/";
+  if (!fs.existsSync(file)) {
+    cli_fail(cmd + " reads ./system.bend, and there is none here");
+  }
+  try {
+    const book = await book_read(file);
+    const sys = book.tlds["system"];
+    if (book_main(book) === null) {
+      if (sys?.$ !== "Def" || (sys.T as { k?: string }).k !== V + "type:System") {
+        cli_fail("system.bend must define system() -> System (import V)");
+      }
+      const n0 = book.order.length;
+      Bend.parse_book(book, path.dirname(file), "def main() -> IO(Unit):\n  "
+        + cmd + "(system())\n", "", { ["=" + cmd]: V + "deploy/ops:" + cmd });
+      Bend.book_valid(book, n0);
+    }
+    process.exitCode = book_run(book, [file, ...argv]);
   } catch (e) {
     cli_say(2, book_err(e) + "\n");
     process.exitCode = 1;

@@ -11,7 +11,12 @@ import V
 
 F supplies component functions, Shape/Layout trees and function transitions.
 State supplies component data, AI stream/request data and Dot session records.
-V supplies release/deployment declarations and plan/check functions.
+V supplies release/deployment declarations and plan/check functions, and
+`check` and `deploy` over a `System`. `bend check` and `bend deploy`, run in an
+app's folder, apply them to `./system.bend`'s `system()` (its own `main`, if it
+has one, runs instead): observe the repository and this Mac, print the plan, and
+for `deploy` push, build, (re)load the launchd agents and `tailscale serve`
+them. Only `Platform.Launchd` nodes deploy so far.
 
 Names enter the importing file's scope. For example, `UI`, `layout`,
 `Session.initial`, `StreamState.reduce`, `Release` and `plan` require no F/State/V
