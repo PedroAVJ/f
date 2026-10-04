@@ -5,6 +5,7 @@ import ../deployment/launchd/type.bend as L
 import ../deployment/launchd/ops.bend as LO
 import ../plan/type.bend as P
 import ../plan/ops.bend as PO
+import ../release/type.bend as Rl
 
 # A system deployed from the repository it lives in (the current directory): observe the world, plan from
 # the declaration and what was observed, and run the plan. `check` stops at the plan; `deploy` runs it.
@@ -56,11 +57,14 @@ def filled(ls: List<&2, String>) -> List<&2, String>:
       +r = filled(rest)
       Bool.pick(List<&2, String>, String.is_empty(l), r, l <> r)
 
-# ---- observe the repository: its Bend files, then origin, GitHub's visibility, clean, pushed ----
+# ---- observe the repository: its Bend files, then, for each declared GitHub repository ($1, owner/name):
+# origin (as github.com/<owner>/<name> when it is on GitHub), GitHub's visibility (gh's, else the public
+# API's), clean, pushed ----
 
 def remote_script() -> String:
   "o=$(git remote get-url origin 2>/dev/null); p=${o#*github.com[:/]}; p=${p%.git}\n" ++
-  "v=$(curl -fsS --max-time 15 \"https://api.github.com/repos/$p\" 2>/dev/null | sed -n 's/.*\"visibility\": *\"\\([a-z]*\\)\".*/\\1/p' | head -1)\n" ++
+  "case \"$o\" in *github.com[:/]*) o=\"github.com/$p\";; esac\n" ++
+  "v=$(gh api \"repos/$1\" --jq .visibility 2>/dev/null || curl -fsS --max-time 15 \"https://api.github.com/repos/$1\" 2>/dev/null | sed -n 's/.*\"visibility\": *\"\\([a-z]*\\)\".*/\\1/p' | head -1)\n" ++
   "c=$(git status --porcelain | head -1); git fetch --quiet origin 2>/dev/null\n" ++
   "a=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo none)\n" ++
   "printf '%s\\n%s\\n%s\\n%s\\n' \"$o\" \"$v\" \"$c\" \"$a\""
@@ -68,12 +72,26 @@ def remote_script() -> String:
 def remote(+ls: List<&2, String>) -> P.Remote:
   P.Remote{line(ls, 0n), line(ls, 1n), String.is_empty(line(ls, 2n)), String.eq(line(ls, 3n), "0")}
 
-def observe_release() -> IO(P.Observed):
+def remotes(rs: List<&2, Rl.Release>) -> IO(List<&2, P.Remote>):
+  match rs:
+    case []:
+      IO.pure(List<&2, P.Remote>, [])
+    case r <> rest:
+      match r:
+        case Rl.Code{Rl.GitHub{owner, name, _}}:
+          do IO<List<&2, P.Remote>>:
+            rm : Ran <- sh(remote_script(), [owner ++ "/" ++ name], "")
+            ms : List<&2, P.Remote> <- remotes(rest)
+            return remote(lines(rm)) <> ms
+        case _:
+          remotes(rest)
+
+def observe_release(rs: List<&2, Rl.Release>) -> IO(P.Observed):
   do IO<P.Observed>:
     fs : Ran <- sh("git ls-files '*.bend'", [], "")
-    rm : Ran <- sh(remote_script(), [], "")
+    ms : List<&2, P.Remote> <- remotes(rs)
     +files : List<&2, String> = filled(lines(fs))
-    return P.Observed{files, files, [], remote(lines(rm)), []}
+    return P.Observed{files, files, [], ms, []}
 
 # ---- observe a launchd node (this Mac): who and where, each program built afresh, each agent, Tailscale ----
 
@@ -183,11 +201,11 @@ def address(+s: S.System) -> String:
 
 def planned(s: S.System) -> IO(List<&2, P.Step>):
   match s:
-    case S.System{_, _, _, _, D.Deployment{+a, _, _, ns}, r}:
+    case S.System{_, _, _, _, D.Deployment{+a, _, _, ns}, +rs}:
       do IO<List<&2, P.Step>>:
-        o : P.Observed <- observe_release()
+        o : P.Observed <- observe_release(rs)
         n : List<&2, P.Step> <- node_plans(ns, a)
-        return List.append(&2, P.Step, PO.plan(r, o), n)
+        return List.append(&2, P.Step, PO.plan(rs, o), n)
 
 # ---- running a step: stop at the first that fails, with what it said ----
 

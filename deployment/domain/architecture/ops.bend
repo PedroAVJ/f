@@ -326,7 +326,7 @@ def nodes_private(ns: List<&2, D.Node>, +cs: List<&2, Ct.Container>) -> Bool:
 def servers_private(+a: A.Architecture) -> Bool:
   nodes_private(nodes(a), containers(a))
 
-# ---- open source: a system its environment requires to be open source publishes from a public repository ----
+# ---- open source: a system its environment requires to be open source releases its code from open repositories only ----
 def open_source_required(ks: List<&2, K.Constraint>) -> Bool:
   match ks:
     case []:
@@ -343,7 +343,7 @@ def open_source(a: A.Architecture) -> Bool:
     case A.Architecture{s, env}:
       match s env:
         case S.System{_, _, _, _, _, r} En.Environment{_, _, ks, _, _}:
-          Bool.not(open_source_required(ks)) || RlO.is_public(r)
+          Bool.not(open_source_required(ks)) || RlO.open_source(r)
 
 # ---- where each key runs: the containers on server nodes and on device nodes ----
 def is_device(r: D.Role) -> Bool:
