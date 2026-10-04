@@ -1,8 +1,8 @@
-# Preview: prints both screens as HTML. Not the real entry point yet.
+# The web app. For now it prints both screens as HTML; the browser loop comes next.
 import Base
 import F
-import ./state.bend as S
-import ./ui.bend as App
+import ../state.bend as S
+import ../ui.bend as App
 
 def main() -> IO(Unit):
   do IO<Unit>:
