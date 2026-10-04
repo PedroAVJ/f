@@ -21,4 +21,3 @@ def main(): foo$bar
 #|  |        ^
 #|8 |
 #|exit 1
-# no-base

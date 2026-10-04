@@ -23,4 +23,3 @@ def uses(a, b, c):
 
 #|ALL PROOFS CHECK
 #|Use --verdict for mathematical validity.
-# no-base

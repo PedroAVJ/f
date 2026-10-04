@@ -32,4 +32,3 @@ def main():
   f(Bx{}, Sx9{Zx9{}})
 
 #|Sx9{Sx9{Zx9{}}}
-# no-base

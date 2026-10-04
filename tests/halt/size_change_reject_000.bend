@@ -46,4 +46,3 @@ def main(): go(S{Z{}}, S{Z{}})
 #|   |           ^^
 #|25 |     case S{p}:
 #|exit 1
-# no-base

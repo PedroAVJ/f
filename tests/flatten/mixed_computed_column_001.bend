@@ -62,4 +62,3 @@ def main(a, b, c):
   sel(a, flip(b), c)
 
 #|a => b => c => sel(a, flip(b), c)
-# no-base

@@ -11,4 +11,3 @@ law main:
 def main(): Zz4{}
 
 #|Zz4{}
-# no-base

@@ -21,4 +21,3 @@ def main(r):
       Z{}
 
 #|\{Z: S{Z{}}; (r => Z{})}
-# no-base

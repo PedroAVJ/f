@@ -21,4 +21,3 @@ def main(a):
       a
 
 #|\{Cfg: \{On: \{On: (a => a); Off: (a => a)}; Off: (_6 => \{On: _6; Off: _6})}}
-# no-base

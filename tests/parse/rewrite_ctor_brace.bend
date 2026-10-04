@@ -40,4 +40,3 @@ def main(): Uu8{}
 #|   |                       ^
 #|23 |
 #|exit 1
-# no-base

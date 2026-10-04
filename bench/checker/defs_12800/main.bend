@@ -204924,4 +204924,3 @@ def fb12799(xs):
     case Lc{h, t}:
       Lc{fa12798(h), fb12799(t)}
 
-# no-base

@@ -21,4 +21,3 @@ def main():
   nn_len(Ss{Ss{Ss{Zz{}}}})
 
 #|Ss{Ss{Ss{Zz{}}}}
-# no-base

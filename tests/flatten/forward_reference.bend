@@ -41,4 +41,3 @@ type Nt is Data:
 #|   |          ^^^^
 #|16 |       T{}
 #|exit 1
-# no-base

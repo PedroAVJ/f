@@ -27,4 +27,3 @@ def main(a, b):
       main(p, q)
 
 #|\{Z: (b => T{}); S: (p => \{Z: F{}; S: (q => main(p, q))})}
-# no-base

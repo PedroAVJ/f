@@ -46,4 +46,3 @@ def main(): f(Nl1{}, Nl1{}, Nl1{})
 #|   |   ^^^^^^^^^^^^^^
 #|25 |     case Nl1{}, a, Nl1{}:
 #|exit 1
-# no-base

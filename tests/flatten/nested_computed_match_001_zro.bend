@@ -38,4 +38,3 @@ def dec(z):
       K7{}
 
 #|\{Zn: T{}; Sn: (p => F{})}
-# no-base

@@ -42,6 +42,9 @@ lines its run must print, and the gates run on the mini cluster.
                         check and a release, on a localhost hub
     gates/safe.ts       bend2's verdict against BendTT's, per file, on the
                         minis: `tests` or `hub` (a BendHub store, $SAFE_HUB)
+    gates/no_base.txt   the tests and benches with their own Nat, Empty...:
+                        the gates (and gen_pins.ts) run them with
+                        $BEND_NO_BASE, an internal switch; users get Base
     gates/_run.ts       the four gates with --gate
     demos/              one dir per demo
     guide/              GUIDE.md, and the extras `bend guide <name>` prints:

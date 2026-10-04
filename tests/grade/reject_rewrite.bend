@@ -35,4 +35,3 @@ def cheat(e, f):
 #|   |   ^^^^^^^^^^^^
 #|24 |
 #|exit 1
-# no-base

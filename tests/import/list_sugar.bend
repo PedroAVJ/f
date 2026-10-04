@@ -21,4 +21,3 @@ def main():
 #|   |       ^^^^^^
 #|12 |   Zx{}
 #|exit 1
-# no-base

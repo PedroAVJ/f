@@ -18,4 +18,3 @@ def main(): Unit{}
 #|  | ^
 #|5 |
 #|exit 1
-# no-base

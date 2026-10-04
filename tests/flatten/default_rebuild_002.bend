@@ -25,4 +25,3 @@ def main(a):
       C{}
 
 #|\{Cons: \{S: \{S: (a => b => A{a, b}); (_8 => b => B{S{_8}, b})}; (_7 => b => B{_7, b})}; Nil: C{}}
-# no-base

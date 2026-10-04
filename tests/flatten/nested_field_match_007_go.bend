@@ -23,4 +23,3 @@ def main(h, t):
       S{t}
 
 #|\{Z: (t => t); S: (p => t => S{t})}
-# no-base

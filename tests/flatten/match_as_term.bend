@@ -35,4 +35,3 @@ def main(x, b):
 #|   |           ^^^^
 #|21 |       y
 #|exit 1
-# no-base

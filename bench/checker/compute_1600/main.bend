@@ -19515,4 +19515,3 @@ law tv1599:
 def tv1599():
   Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Duo{Z{}, Z{}}}}}}}}}}}}}}
 
-# no-base

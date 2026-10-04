@@ -16,4 +16,3 @@ def s() -> String:
 #|  |   ^^^^^
 #|8 | 
 #|exit 1
-# no-base

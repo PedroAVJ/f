@@ -44,4 +44,3 @@ def sel(a, b):
       K3{}
 
 #|\{WZ: Zn{}; (x => Sn{Zn{}})}
-# no-base

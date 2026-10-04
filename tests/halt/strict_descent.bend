@@ -35,4 +35,3 @@ def main(): Z{}
 #|   |                ^^
 #|17 |     case u:
 #|exit 1
-# no-base

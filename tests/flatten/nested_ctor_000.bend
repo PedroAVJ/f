@@ -21,4 +21,3 @@ def main(a):
       C{a}
 
 #|\{Z: A{}; S: \{Z: B{}; S: (a => C{a})}}
-# no-base

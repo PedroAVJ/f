@@ -13,4 +13,3 @@ type Bad is F(Type):
 #|  |             ^^^^^^^
 #|5 |
 #|exit 1
-# no-base

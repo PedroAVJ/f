@@ -20,4 +20,3 @@ def main(): Kk{}
 #|  |   ^^
 #|7 |
 #|exit 1
-# no-base

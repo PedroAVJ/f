@@ -18,4 +18,3 @@ def main():
 #|  |        ^
 #|5 | law main:
 #|exit 1
-# no-base

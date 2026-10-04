@@ -48,4 +48,3 @@ def ne(): e => t_ne_f(e)
 
 #|ALL PROOFS CHECK
 #|Use --verdict for mathematical validity.
-# no-base

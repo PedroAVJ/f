@@ -22,4 +22,3 @@ def main(a):
           c
 
 #|\{Z: Z{}; S: \{Z: Z{}; S: \{Z: Z{}; S: (c => c)}}}
-# no-base

@@ -24,4 +24,3 @@ def main(): Uu9{}
 #|   |            ^^^
 #|12 |
 #|exit 1
-# no-base

@@ -33,6 +33,12 @@ export const SITE = process.env.SITE_REPO ?? path.join(ROOT, "..", "bend-lang.co
 
 export const BUN = "/usr/local/bun/bin/bun";
 
+// the repo's own tests and benches that define their own Nat, Empty, ...:
+// no Bend program can opt out of Base, so the gates run these (and only
+// these) with $BEND_NO_BASE set, a switch of the loader no user writes
+export const NO_BASE = new Set(fs.readFileSync(path.join(ROOT, "gates",
+  "no_base.txt"), "utf8").split("\n").filter((l) => l !== ""));
+
 const HOC = process.env.BEND_HOC ?? "";
 
 const SLOTS = { dir: "/tmp/bend-cluster-slots", count: 4, size: 48, base: 2 };

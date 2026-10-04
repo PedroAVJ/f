@@ -21,4 +21,3 @@ def main() -> Unit:
 #|  |                            ^
 #|9 |   x
 #|exit 1
-# no-base

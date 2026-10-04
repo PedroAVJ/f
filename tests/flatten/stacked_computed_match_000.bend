@@ -52,4 +52,3 @@ def main(a, b):
   sel(nat(a), nat(b))
 
 #|a => b => sel(nat(a), nat(b))
-# no-base

@@ -15,4 +15,3 @@ def main(x):
   Only{x}
 
 #|x => Only{x}
-# no-base

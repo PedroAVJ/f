@@ -49,4 +49,3 @@ def main(a, b, c):
   sel(not(a), not(b), not(c))
 
 #|a => b => c => sel(not(a), not(b), not(c))
-# no-base

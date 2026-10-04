@@ -23,4 +23,3 @@ def main(a, b, c):
       RN{n}
 
 #|\{Z: (b => c => RA{b, c}); (a => b => c => RN{a})}
-# no-base

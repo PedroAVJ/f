@@ -39,4 +39,3 @@ def false_theorem() -> {False{} == True{} : Bit}:
 #|   |           ^^^^
 #|20 | 
 #|exit 1
-# no-base

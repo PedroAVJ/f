@@ -38,4 +38,3 @@ def main(): f(Oy{}, Ay{})
 #|   |   ^^^^^^^^^^^
 #|21 |     case Oy{}, Ay{}:
 #|exit 1
-# no-base

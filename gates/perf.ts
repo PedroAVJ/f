@@ -277,8 +277,10 @@ async function cell_run(c: Cell, node: number, pack: Buffer): Promise<void> {
 
 // A checker bench is megabytes of source, so each ships in its own pack.
 async function chk_run(c: Chk, node: number): Promise<void> {
+  const own = lib.NO_BASE.has("bench/checker/" + c.bench + "/main.bend");
   const script = `d=$HOME/bend-perf/chk-${c.bench}; rm -rf $d; mkdir -p $d;`
-    + ` cd $d; tar -xzf -; for i in 1 2 3; do t0=$(${CLOCK}); ${lib.BUN}`
+    + ` cd $d; tar -xzf -; for i in 1 2 3; do t0=$(${CLOCK});`
+    + `${own ? " BEND_NO_BASE=1" : ""} ${lib.BUN}`
     + ` bend2/main.ts ${c.bench}/main.bend > out.txt 2>&1; e=$?;`
     + ` t1=$(${CLOCK}); echo "${MARK} check $e $t0 $t1"; cat out.txt; done;`
     + ` cd; rm -rf $d`;

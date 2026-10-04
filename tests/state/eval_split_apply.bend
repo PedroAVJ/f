@@ -55,4 +55,3 @@ def main():
   n => wob_id(n)
 
 #|n => wob_id(n)
-# no-base

@@ -19,4 +19,3 @@ def main():Unit{}
 #|  |        ^
 #|7 | law main:
 #|exit 1
-# no-base

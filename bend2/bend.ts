@@ -1063,8 +1063,8 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
       }
     }
   };
-  // Base loads into every file but itself and one with a "# no-base" line
-  const base = real !== BASE_BEND && !/^# no-base$/m.test(text);
+  // Base loads into every file but itself ($BEND_NO_BASE: the gates' own tests)
+  const base = real !== BASE_BEND && !process.env.BEND_NO_BASE;
   let ui = false;
   for (let i = 0, at = 0; i < lines.length; at += lines[i].length + 1, i++) {
     const line = lines[i].trim();

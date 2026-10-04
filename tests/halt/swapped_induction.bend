@@ -50,4 +50,3 @@ def main(): Z{}
 #|   |       ^^^^^^^
 #|33 |     case S{p}:
 #|exit 1
-# no-base

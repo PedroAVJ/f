@@ -16,4 +16,3 @@ def main(a, b, c):
       b
 
 #|\{Z: (b => c => b); S: (a => b => c => b)}
-# no-base

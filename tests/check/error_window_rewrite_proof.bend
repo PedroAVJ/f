@@ -18,4 +18,3 @@ def bad(e: {Type == Type : Type}) -> Type:
 #|  |          ^
 #|5 |   Type
 #|exit 1
-# no-base

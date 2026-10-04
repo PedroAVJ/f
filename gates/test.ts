@@ -25,6 +25,7 @@ type Test = {
   src: string;
   want: string;
   main: boolean;
+  base: boolean;
   lanes: string[];
 };
 
@@ -54,11 +55,12 @@ function test_read(dir: string, file: string): Test {
   const effs = [...src.matchAll(/^\s*import "\.\/[a-z0-9_]+\.(c|js)"$/gm)]
     .map((m) => m[1]);
   // A program compiles only over Base (its IO runs main): a test without
-  // it (# no-base) checks and interprets alone.
-  const lanes = ["js", "c"].filter((l) => !/^# no-base$/m.test(src)
+  // it (lib.NO_BASE) checks and interprets alone.
+  const base = !lib.NO_BASE.has("tests/" + dir + "/" + file);
+  const lanes = ["js", "c"].filter((l) => base
     && (effs.length === 0 || effs.includes(l)));
   return { name: dir + "_" + path.basename(file, ".bend"), src,
-    want: tidy(want), main: /^(def|law) main(\(|:)/m.test(src), lanes };
+    want: tidy(want), main: /^(def|law) main(\(|:)/m.test(src), base, lanes };
 }
 
 function tidy(text: string): string {
@@ -123,8 +125,10 @@ function shard_split(tests: Test[], count: number): Test[][] {
 function shard_script(shard: Test[], tag: number): string {
   const runs = test_runs(shard);
   const bangs = runs.filter((t) => /!\(/.test(t.src)).map((t) => t.name);
-  const main = shard.map((t) =>
-    "import ./tests/" + test_path(t) + " as " + t.name + "\n").join("");
+  // the base-less tests check apart, under $BEND_NO_BASE
+  const agg = (base: boolean): string => shard.filter((t) => t.base === base)
+    .map((t) => "import ./tests/" + test_path(t) + " as " + t.name + "\n")
+    .join("");
   const build = runs.map((t) => [t.name, "tests/" + test_path(t),
     ...t.lanes.map((l) => "-o " + t.name + (l === "js" ? ".js" : ""))]
     .join(" ") + "\n").join("");
@@ -138,8 +142,10 @@ function shard_script(shard: Test[], tag: number): string {
   return `export BUN_JSC_maxPerThreadStackUsage=33554432;`
     + ` d=$HOME/bend-test/${tag}; rm -rf $d; mkdir -p $d; cd $d; tar -xzf -;`
     + ` ${tmp}\n`
-    + file("main.bend", main) + file("build.txt", build)
+    + file("main.bend", agg(true)) + file("nobase.bend", agg(false))
+    + file("build.txt", build)
     + ` echo "${MARK} checkup"; ${BUN} bend2/main.ts main.bend --checkup 2>&1;`
+    + ` BEND_NO_BASE=1 ${BUN} bend2/main.ts nobase.bend --checkup 2>&1;`
     + ` xargs -P 10 -L 1 sh -c 'm=$1; shift; ${BUN} bend2/main.ts "$@"`
     + ` > $m.left 2>&1 && rm $m.left' -- < build.txt; echo "${MARK} built";`
     + ` for m in ${bangs.join(" ")}; do perl -e 'alarm 60; exec @ARGV' ./$m`

@@ -32,4 +32,3 @@ def main(): f(Se2{Ze2{}})
 #|   |   ^^^^^^^^
 #|17 |     case Se2{a}:
 #|exit 1
-# no-base

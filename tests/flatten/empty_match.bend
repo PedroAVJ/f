@@ -21,4 +21,3 @@ def main(e):
 #|   |    ^^^
 #|11 |
 #|exit 1
-# no-base

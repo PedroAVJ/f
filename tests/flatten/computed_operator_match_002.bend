@@ -41,4 +41,3 @@ def main(x):
   sel(dbl(x))
 
 #|x => sel(dbl(x))
-# no-base

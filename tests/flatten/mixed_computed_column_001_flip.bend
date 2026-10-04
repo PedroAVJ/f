@@ -53,4 +53,3 @@ def sel(a, fb, c):
       K7{}
 
 #|\{O: I{}; I: O{}}
-# no-base

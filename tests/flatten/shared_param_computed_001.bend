@@ -26,4 +26,3 @@ def main(v):
 #|   |   ^
 #|14 |   match x:
 #|exit 1
-# no-base

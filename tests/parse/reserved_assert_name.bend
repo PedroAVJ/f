@@ -13,4 +13,3 @@ law match:
 #|  |     ^^^^^
 #|4 |   Unit
 #|exit 1
-# no-base

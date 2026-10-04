@@ -36,4 +36,3 @@ def main(): worse(Unit5, Empty5, U5{})
 #|   |                             ^
 #|19 |
 #|exit 1
-# no-base

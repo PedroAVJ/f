@@ -22,4 +22,3 @@ def KAny(T): ({K : @U:Type -> Type})(T)
 #|   |                ^
 #|12 |
 #|exit 1
-# no-base

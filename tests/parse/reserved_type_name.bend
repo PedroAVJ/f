@@ -13,4 +13,3 @@ type match:
 #|  |      ^^^^^
 #|4 |   Kk10{}
 #|exit 1
-# no-base

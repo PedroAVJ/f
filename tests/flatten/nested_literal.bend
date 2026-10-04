@@ -35,4 +35,3 @@ def main(a):
       K0{}
 
 #|\{Env: \{Num: \{Z: (backup => K100{}); (_10 => backup => KP{S{_10}})}; Stop: \{Num: (k => KK{k}); Stop: K0{}}}}
-# no-base

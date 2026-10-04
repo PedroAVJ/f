@@ -26,4 +26,3 @@ def main():
   fst_of(Mk{Ss2{Ss2{Zz2{}}}, Zz2{}})
 
 #|Ss2{Ss2{Zz2{}}}
-# no-base

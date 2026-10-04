@@ -17,4 +17,3 @@ def main(a):
       a
 
 #|\{Pair: \{Zer: (a => a); One: (a => a)}}
-# no-base

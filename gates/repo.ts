@@ -85,6 +85,7 @@ allow(/^media\/logo_(bend|hoc)\.png$/);
 allow(/^media\/game_[a-z_]+\.gif$/);
 allow(/^media\/slash_boss_3d\/[a-z_]+\.wav$/);
 allow(/^gates\/(_lib|_run|perf|ping|repo|test|safe|safe_node|safe_diag)\.ts$/);
+allow("gates/no_base.txt");
 allow(/^tests\/[a-z]+\/([a-z0-9-]+\/)?[A-Za-z0-9_]+\.bend$/);
 allow(/^tests\/[a-z]+\/[a-z0-9_]+\.(c|js)$/);
 allow(/^tools\/bend-fmt-lsp\/(\.gitignore|README\.md|package\.json|package-lock\.json|tsconfig\.json)$/);

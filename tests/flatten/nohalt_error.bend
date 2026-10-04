@@ -42,4 +42,3 @@ def main(): Fx4{}
 #|   |       ^^^
 #|27 |     case Fx4{}:
 #|exit 1
-# no-base

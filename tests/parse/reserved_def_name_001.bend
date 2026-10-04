@@ -13,4 +13,3 @@ def match(x):
 #|  |     ^^^^^
 #|4 |   x
 #|exit 1
-# no-base

@@ -25,4 +25,3 @@ def main(a, b):
       D{d,e}
 
 #|\{S: (a => \{S: \{S: (b => A{a, b}); (_11 => B{a, _11})}; Z: C{a}; (b => D{S{a}, b})}); (a => b => D{a, b})}
-# no-base

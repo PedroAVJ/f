@@ -27,4 +27,3 @@ def main(x):
 #|   |               ^
 #|15 |     case Z{}:
 #|exit 1
-# no-base

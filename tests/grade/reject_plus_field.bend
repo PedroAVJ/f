@@ -25,4 +25,3 @@ type Box is Type:
 #|   |             ^^^^^^^^^^
 #|17 |
 #|exit 1
-# no-base

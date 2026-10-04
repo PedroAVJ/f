@@ -30,4 +30,3 @@ def boom() -> Empty:
 #|   |          ^^
 #|17 |       {\{K: q => w => f(q)} : D -> U -> Empty}(K{Zero{Un{}}})
 #|exit 1
-# no-base

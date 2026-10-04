@@ -28,4 +28,3 @@ def main():
 #|   |         ^^
 #|12 |
 #|exit 1
-# no-base

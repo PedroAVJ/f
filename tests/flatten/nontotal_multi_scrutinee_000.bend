@@ -54,4 +54,3 @@ def main(): f(Nl0{}, Nl0{})
 #|   |   ^^^^^^^^^^^
 #|27 |     case Cl0{Sz0{a}, b}, Cl0{Sz0{c}, d}:
 #|exit 1
-# no-base

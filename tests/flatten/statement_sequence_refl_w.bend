@@ -24,4 +24,3 @@ law refl_f:
 def refl_f(): {==}
 
 #|{==}
-# no-base

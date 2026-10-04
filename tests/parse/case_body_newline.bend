@@ -23,4 +23,3 @@ law main:
 def main(): f(Tt{})
 
 #|Ff{}
-# no-base

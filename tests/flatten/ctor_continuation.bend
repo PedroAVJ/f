@@ -25,4 +25,3 @@ def main():
   go(n => Print{n, x => Tick{t => Done{S{x}}}})
 
 #|Print{S{Z{}}, x => Tick{t => Done{S{x}}}}
-# no-base

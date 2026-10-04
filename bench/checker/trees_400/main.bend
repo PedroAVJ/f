@@ -5028,4 +5028,3 @@ law mt399:
 def mt399():
   {==}
 
-# no-base

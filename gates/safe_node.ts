@@ -2,17 +2,20 @@
 // stdin, PAR at a time, each capped at CAP s, and prints one JSON array
 // of { f, code, ms, out }. On a mismatch (bend2 checks, the kernel does
 // not), out gains why: the defs `-o` leaves out of scope, or else the
-// kernel's error on the translation, with the failing call if live
+// kernel's error on the translation, with the failing call if live. A
+// file gates/no_base.txt lists runs with $BEND_NO_BASE, as in _lib.ts.
 import * as child from "node:child_process";
 import * as fs from "node:fs";
 
 const files = fs.readFileSync(0, "utf8").split("\n").filter((l) => l !== "");
+const NO_BASE = new Set(fs.readFileSync("gates/no_base.txt", "utf8").split("\n"));
 const CAP = Number(process.env.CAP ?? 30) * 1000;
 const res: unknown[] = [];
 
 function one(f: string): Promise<void> {
+  const env = NO_BASE.has(f) ? { ...process.env, BEND_NO_BASE: "1" } : process.env;
   return new Promise((done) => {
-    const kid = child.spawn(process.execPath, ["bend2/main.ts", f, "--verdict"], { env: process.env });
+    const kid = child.spawn(process.execPath, ["bend2/main.ts", f, "--verdict"], { env });
     let txt = "";
     kid.stdout.on("data", (d) => { txt += d; });
     kid.stderr.on("data", (d) => { txt += d; });
@@ -22,7 +25,7 @@ function one(f: string): Promise<void> {
       clearTimeout(bomb);
       if (txt.includes("Sorry - ")) {
         const tt = f.replace(/\.bend$/, ".bendtt");
-        const run = (bin: string, args: string[]) => child.spawnSync(bin, args, { encoding: "utf8", timeout: 20000 });
+        const run = (bin: string, args: string[]) => child.spawnSync(bin, args, { encoding: "utf8", timeout: 20000, env });
         const oos = run(process.execPath, ["bend2/main.ts", f, "-o", tt]).stderr.trim();
         let why = oos !== "" ? oos : "BendTT: " + run(process.env.BENDTT ?? "", [tt]).stdout.trim();
         const m = /^In (\S+):\naffine live code/m.exec(why);

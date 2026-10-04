@@ -49,4 +49,3 @@ def contradiction() -> Pick(~F32{WCon{True{}, WCon{False{}, WCon{False{}, WCon{F
 #|   |   ^^^^
 #|41 | 
 #|exit 1
-# no-base

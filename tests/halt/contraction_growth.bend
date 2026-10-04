@@ -56,4 +56,3 @@ def main(): Z{}
 #|   |            ^
 #|29 |       S{append(p, p)}
 #|exit 1
-# no-base

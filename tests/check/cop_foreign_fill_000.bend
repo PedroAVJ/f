@@ -35,4 +35,3 @@ def dup(A, x):
 #|   |   ^^^^^^^^^^
 #|18 | def magic(A, x):
 #|exit 1
-# no-base

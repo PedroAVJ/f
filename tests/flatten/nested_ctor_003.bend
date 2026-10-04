@@ -20,4 +20,3 @@ def main(a):
       b
 
 #|\{Triple: \{Red: (a => b => a); Green: (a => b => b); Blue: (a => b => b)}}
-# no-base

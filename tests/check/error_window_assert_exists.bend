@@ -14,4 +14,3 @@ law bad:
 #|  |       ^
 #|5 |   Type
 #|exit 1
-# no-base

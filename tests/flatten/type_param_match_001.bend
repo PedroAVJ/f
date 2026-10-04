@@ -21,4 +21,3 @@ def main(A, b, c, d):
       G{x,n,z}
 
 #|A => b => \{Z: (d => F{b, d}); S: (n => d => G{b, n, d})}
-# no-base

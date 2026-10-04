@@ -24,4 +24,3 @@ law main:
 def main(): total(Mq{Sq{Zq{}}, Zq{}, Zq{}, Zq{}, Zq{}, Zq{}, Zq{}, {==}})
 
 #|Sq{Zq{}}
-# no-base

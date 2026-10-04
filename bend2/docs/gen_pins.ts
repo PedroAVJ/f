@@ -23,6 +23,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { NO_BASE } from "../../gates/_lib.ts";
 import { BUILD, CC, FLAGS, MEMORY, MODES } from "../../gates/perf.ts";
 
 // Constants
@@ -58,11 +59,11 @@ const POOL = ((): number => {
 type Ran = { secs: number; out: string; over: boolean; rss: number };
 
 function exec_run(cmd: string[], cwd: string, timeout: number,
-  quiet = false): Promise<Ran> {
+  quiet = false, env = process.env): Promise<Ran> {
   return new Promise((ok, no) => {
     const at = performance.now();
     const kid = child.spawn(cmd[0], cmd.slice(1),
-      { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let outs = "";
     let errs = "";
     let over = false;
@@ -297,8 +298,9 @@ async function runtime_rows(): Promise<string[][]> {
 function checker_cell(lang: string, home: string, dir: string): Promise<Ran> {
   const t = CHECK_TIMEOUT;
   if (lang === "bend") {
+    const own = NO_BASE.has(path.relative(ROOT, path.join(home, "main.bend")));
     return exec_run([process.execPath, MAIN, path.join(home, "main.bend")],
-      dir, t);
+      dir, t, false, own ? { ...process.env, BEND_NO_BASE: "1" } : process.env);
   }
   const ext: Record<string, string> = { lean: "lean", agda: "agda",
     rocq: "v", isabelle: "thy" };

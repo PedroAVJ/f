@@ -28,4 +28,3 @@ def main(a, b):
       K3{}
 
 #|\{O: \{O: K0{}; I: K1{}}; I: \{O: K2{}; I: K3{}}}
-# no-base

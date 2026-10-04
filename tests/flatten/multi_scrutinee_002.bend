@@ -22,4 +22,3 @@ def main(a, b):
       C{a,b}
 
 #|\{S: (a => \{S: (b => A{a, b}); (b => C{S{a}, b})}); Z: (b => B{b}); (a => b => C{a, b})}
-# no-base

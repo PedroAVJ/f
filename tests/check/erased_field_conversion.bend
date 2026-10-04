@@ -31,4 +31,3 @@ def main(): Ua{}
 #|   |          ^^^^
 #|18 |
 #|exit 1
-# no-base

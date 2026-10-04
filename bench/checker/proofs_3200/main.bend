@@ -242255,4 +242255,3 @@ def blen3199_cat(xs, ys):
       %blen3199_cat(t, ys) : {S{add(blen3199(t), blen3199(ys))} == S{_} : Nat}
       {==}
 
-# no-base

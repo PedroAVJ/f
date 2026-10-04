@@ -62,4 +62,3 @@ def sel(k, n):
       R4{}
 
 #|\{WZ: WZ{}; WS: \{WZ: WS{WZ{}}; WS: (q => main(q))}}
-# no-base

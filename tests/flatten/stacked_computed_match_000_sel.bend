@@ -44,4 +44,3 @@ def main(a, b):
       K3{}
 
 #|\{Zn: \{Zn: K0{}; Sn: (p => K1{})}; Sn: (p => \{Zn: K2{}; Sn: (q => K3{})})}
-# no-base

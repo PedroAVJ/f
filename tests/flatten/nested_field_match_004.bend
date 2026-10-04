@@ -35,4 +35,3 @@ def main(w):
       go(x, y)
 
 #|\{P: (x => y => go(x, y))}
-# no-base

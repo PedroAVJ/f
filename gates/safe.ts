@@ -31,7 +31,7 @@ let all: string[];
 const stage = fs.mkdtempSync("/tmp/bend-safe-");
 fs.copyFileSync(bin, path.join(stage, "bendtt"));
 const base = ["-czf", "-", "-s", ",^\\./,lib/,", "--exclude", "bend2/docs", "--exclude", "bend2/pack",
-  "--exclude", "*.bendtt", "-C", ROOT, "bend2", "gates/safe_node.ts", "gates/safe_diag.ts", "-C", stage, "bendtt"];
+  "--exclude", "*.bendtt", "-C", ROOT, "bend2", "gates/safe_node.ts", "gates/safe_diag.ts", "gates/no_base.txt", "-C", stage, "bendtt"];
 let tar: Buffer;
 if (corpus === "tests") {
   all = find("tests", ROOT);

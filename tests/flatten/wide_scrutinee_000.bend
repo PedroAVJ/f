@@ -24,4 +24,3 @@ def main(a, b, c, d):
       C{x,y}
 
 #|\{Z: (b => c => \{Z: A{}; (d => C{Z{}, d})}); S: (x => b => c => d => B{x, d}); (a => b => c => d => C{a, d})}
-# no-base

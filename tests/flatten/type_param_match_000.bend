@@ -20,4 +20,3 @@ def main(A, b, c):
       d
 
 #|A => \{Nil: (c => []); Cons: (c => d => c => d)}
-# no-base

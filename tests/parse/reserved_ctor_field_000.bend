@@ -18,4 +18,3 @@ def main(): Mk8{}
 #|  |       ^^^^
 #|5 |
 #|exit 1
-# no-base

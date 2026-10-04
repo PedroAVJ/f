@@ -37,4 +37,3 @@ def main(): early(Zn{})
 #|   |   ^^^^^
 #|19 |
 #|exit 1
-# no-base

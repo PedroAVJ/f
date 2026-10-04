@@ -26,4 +26,3 @@ def main(): Uu6{}
 #|   |   ^^
 #|13 |
 #|exit 1
-# no-base

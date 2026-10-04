@@ -20,4 +20,3 @@ def main(a, b, c):
       B{S{a}, b, c}
 
 #|\{Z: (b => c => A{}); S: (a => b => c => B{S{a}, b, c})}
-# no-base

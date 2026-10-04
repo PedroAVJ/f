@@ -30,4 +30,3 @@ type T<a, b, -A: Kind(a), -B: Kind(b)> is Kind(a):
 #|   |        ^
 #|17 | 
 #|exit 1
-# no-base

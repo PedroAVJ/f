@@ -97,4 +97,3 @@ def sel(n):
       k
 
 #|\{T: (b => b); F: (b => F{})}
-# no-base

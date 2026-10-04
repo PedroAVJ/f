@@ -24,4 +24,3 @@ law main:
 def main(): {==}
 
 #|{==}
-# no-base

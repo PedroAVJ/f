@@ -43,4 +43,3 @@ def main(n):
   step(f(n))
 
 #|n => step(f(n))
-# no-base

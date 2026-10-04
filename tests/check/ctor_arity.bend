@@ -18,4 +18,3 @@ def main(): Ra{Ra{}}
 #|   |             ^^^^^^^^
 #|10 |
 #|exit 1
-# no-base

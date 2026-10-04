@@ -11,4 +11,3 @@ def main(a, b):
   a
 
 #|a => b => a
-# no-base

@@ -32,4 +32,3 @@ law main:
 def main(): fst(Pq11{Uu11{}, Uu11{}}, Uu11{}, Uu11{})
 
 #|Uu11{}
-# no-base

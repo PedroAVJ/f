@@ -104,4 +104,3 @@ def main(s):
   sel({str_len(s) : W})
 
 #|s => sel(str_len(s))
-# no-base

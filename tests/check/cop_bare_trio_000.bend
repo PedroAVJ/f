@@ -36,4 +36,3 @@ def main():
   addself(Succ{Succ{Zero{}}})
 
 #|3n
-# no-base

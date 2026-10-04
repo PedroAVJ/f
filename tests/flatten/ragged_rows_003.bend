@@ -38,4 +38,3 @@ def main(d, m, n):
           K300{}
 
 #|\{WZ: (m => n => K100{}); WS: (d => \{WZ: \{S: (p => main(d, WZ{}, p)); (n => K200{})}; (m => n => K300{})})}
-# no-base

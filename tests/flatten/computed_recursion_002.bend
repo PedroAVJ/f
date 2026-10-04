@@ -32,4 +32,3 @@ def main(n):
       sel(main(p))
 
 #|\{Zn: S{Z{}}; Sn: (p => sel(main(p)))}
-# no-base

@@ -97,4 +97,3 @@ def sel(n):
       k
 
 #|\{Nl: \{Nl: T{}; (b => F{})}; Cs: \{Ch: (cx => xs => \{Nl: F{}; Cs: \{Ch: (cy => ys => band(beq(cx, cy), main(xs, ys)))}})}}
-# no-base

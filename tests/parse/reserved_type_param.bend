@@ -14,4 +14,3 @@ type Bad<match: Type>:
 #|  |          ^^^^^
 #|5 |   Bb10{}
 #|exit 1
-# no-base

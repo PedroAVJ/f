@@ -25,4 +25,3 @@ def main(a):
       XD{a}
 
 #|\{A: XA{}; C: XC{}; B: XB{}; (a => XD{a})}
-# no-base

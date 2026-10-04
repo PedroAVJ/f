@@ -18,4 +18,3 @@ def main(): Tru{}
 #|   |             ^^^^^
 #|10 |
 #|exit 1
-# no-base

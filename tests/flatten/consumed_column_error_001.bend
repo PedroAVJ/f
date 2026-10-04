@@ -36,4 +36,3 @@ def main(): f(Zw3{})
 #|   |       ^^^^^^^^
 #|20 |         case Zw3{}:
 #|exit 1
-# no-base

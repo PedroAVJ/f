@@ -30,4 +30,3 @@ def main(): f(Zx{})
 #|   |             ^^^^^^
 #|14 |       Zx{}
 #|exit 1
-# no-base
