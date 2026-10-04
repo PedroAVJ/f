@@ -35,8 +35,8 @@ type Topology is Data:
 type Exposure is Data:
   Tailscale{port: U32}
 
-# One app V builds and runs: a web app, its page a UI module's f (ui, its path without ".bend") at
-# state.bend's initial(), built to dist/web/index.html.
+# One app V builds and runs: a web app, a UI module's s, update and f (ui, its path without ".bend"),
+# built to dist/web with its first screen in index.html.
 type Application is Data:
   Web{ui: String}
 

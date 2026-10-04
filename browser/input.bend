@@ -1,15 +1,18 @@
 import Base
 import ../ui/primitives.bend as P
+import ../ui/kit.bend as K
 import ../ai/wire_json.bend as J
 import ./host.bend as Host
 import ./scene.bend as Scene
 
 # What a person did in a rendered tree: clicked a button (by its label), typed into a textbox (its label and
-# its whole new text), went to an address (back, forward, a link: the web loop sets the page from it), or
-# something an app ignores.
+# its whole new text), focused or left a textbox, went to an address (back, forward, a link: the web loop
+# sets the page from it), or something an app ignores.
 type Input is Data:
   Clicked{label: String}
   Typed{label: String, value: String}
+  Focused{label: String}
+  Blurred{label: String}
   Navigated{address: String}
   Ignored{}
 
@@ -22,8 +25,12 @@ def field(r: Result<&1, &1, String, J.Json>, +key: String) -> String:
 
 def typed(+data: String) -> Input:
   +name = field(J.read(data), "name")
-  Bool.pick(Input, String.eq(field(J.read(data), "action"), "field") && String.starts_with(name, "textbox · "),
-    Typed{String.drop(name, 10n), field(J.read(data), "value")}, Ignored{})
+  +action = field(J.read(data), "action")
+  +label = String.drop(name, 10n)
+  Bool.pick(Input, Bool.not(String.starts_with(name, "textbox · ")), Ignored{},
+    Bool.pick(Input, String.eq(action, "field"), Typed{label, field(J.read(data), "value")},
+      Bool.pick(Input, String.eq(action, "focus"), Focused{label},
+        Bool.pick(Input, String.eq(action, "blur"), Blurred{label}, Ignored{}))))
 
 # A browser event as an Input: a button region sends its node name, a textbox a field edit.
 def of(r: Host.Reply) -> Input:
@@ -38,11 +45,35 @@ def of(r: Host.Reply) -> Input:
 def next() -> IO(Input):
   IO.bind(Host.Reply, Input, Host.event(), r => IO.pure(Input, of(r)))
 
-# Show a tree in the page, its buttons and textboxes live.
-def show(+tree: P.UI) -> IO(Unit):
-  IO.bind(Host.Reply, Unit, Host.render(Scene.html(tree)), r => IO.pure(Unit, Unit{}))
+# The inputs' states after an Input: an edit sets its textbox's text; focusing or leaving it, its focus.
+def with_text(xs: List<&2, K.Held>, +label: String, +text: String) -> List<&2, K.Held>:
+  match xs:
+    case []: [K.Held{label, K.InputState{text, K.Focus.Blurred{}}}]
+    case K.Held{+l, K.InputState{t, +f}} <> +rest:
+      Bool.pick(List<&2, K.Held>, String.eq(l, label), K.Held{l, K.InputState{text, f}} <> rest, K.Held{l, K.InputState{t, f}} <> with_text(rest, label, text))
+def with_focus(xs: List<&2, K.Held>, +label: String, +focus: K.Focus) -> List<&2, K.Held>:
+  match xs:
+    case []: [K.Held{label, K.InputState{"", focus}}]
+    case K.Held{+l, K.InputState{+t, f}} <> +rest:
+      Bool.pick(List<&2, K.Held>, String.eq(l, label), K.Held{l, K.InputState{t, focus}} <> rest, K.Held{l, K.InputState{t, f}} <> with_focus(rest, label, focus))
+def keep(xs: List<&2, K.Held>, i: Input) -> List<&2, K.Held>:
+  match i:
+    case Typed{l, v}: with_text(xs, l, v)
+    case Focused{l}: with_focus(xs, l, K.Focus.Focused{})
+    case Blurred{l}: with_focus(xs, l, K.Focus.Blurred{})
+    case _: xs
 
-# Show a tree at an address: the page marks it for the browser's address bar.
-def show_at(+tree: P.UI, address: String) -> IO(Unit):
-  IO.bind(Host.Reply, Unit, Host.render(Scene.html(tree) ++ "<span hidden data-bend-address=\"" ++ Scene.escape(address) ++ "\"></span>"),
-    r => IO.pure(Unit, Unit{}))
+# A UI as HTML or Canvas commands in a language, its inputs empty (a first screen).
+def html(u: K.UI, +lang: K.Lang) -> String:
+  Scene.html(K.draw(u, K.Rendering{lang, []}))
+def canvas(u: K.UI, +lang: K.Lang) -> String:
+  Scene.canvas(K.draw(u, K.Rendering{lang, []}))
+
+# Show a UI in the page, its buttons and textboxes live, in the app's language with its inputs' states.
+def show(u: K.UI, r: K.Rendering) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.render(Scene.html(K.draw(u, r))), x => IO.pure(Unit, Unit{}))
+
+# Show a UI at an address: the page marks it for the browser's address bar.
+def show_at(u: K.UI, r: K.Rendering, address: String) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.render(Scene.html(K.draw(u, r)) ++ "<span hidden data-bend-address=\"" ++ Scene.escape(address) ++ "\"></span>"),
+    x => IO.pure(Unit, Unit{}))
