@@ -77,3 +77,8 @@ def show(u: K.UI, r: K.Rendering) -> IO(Unit):
 def show_at(u: K.UI, r: K.Rendering, address: String) -> IO(Unit):
   IO.bind(Host.Reply, Unit, Host.render(Scene.html(K.draw(u, r)) ++ "<span hidden data-bend-address=\"" ++ Scene.escape(address) ++ "\"></span>"),
     x => IO.pure(Unit, Unit{}))
+
+# Show a UI as Canvas commands (what a native shell paints, or the browser's canvas renderer), its buttons and
+# textboxes live regions, in the app's language with its inputs' states.
+def show_canvas(u: K.UI, r: K.Rendering) -> IO(Unit):
+  IO.bind(Host.Reply, Unit, Host.canvas(Scene.canvas(K.draw(u, r))), x => IO.pure(Unit, Unit{}))
