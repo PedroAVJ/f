@@ -165,24 +165,38 @@ def region_label(+name: String) -> String:
   Bool.pick(String,String.starts_with(name,"button · "),String.drop(name,9n),Bool.pick(String,disabled(name),String.drop(name,19n),Bool.pick(String,String.starts_with(name,"textbox · "),String.drop(name,10n),name)))
 def region_role(+name: String) -> String:
   Bool.pick(String,String.starts_with(name,"textbox · "),"textbox",Bool.pick(String,String.eq(name,"Field text"),"textbox","button"))
-def region_html(b: P.Box, id: U32) -> String:
+# A textbox is an input over its drawn text, which shows through: the input holds the whole value (the
+# "value · " leaf F places first inside it) and sends each edit as a field event named after the box.
+def textbox_html(+name: String, +value: String, +x: U32, +y: U32, +width: U32, +height: U32, +id: U32) -> String:
+  "<input data-bend-field=\"" ++ escape(name) ++ "\" value=\"" ++ escape(value) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" autocomplete=\"off\" spellcheck=\"false\" style=\"position:absolute;box-sizing:border-box;margin:0;border:0;outline:none;padding:0 16px;background:transparent;color:transparent;caret-color:#101112;font-family:system-ui;font-size:17px;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\">"
+def value_of(+name: String) -> String:
+  Bool.pick(String,String.starts_with(name,"value · "),String.drop(name,8n),"")
+def region_html(b: P.Box, +id: U32, +value: String) -> String:
   match b:
-    case P.Box{+name,mark,x,y,width,height,level,layer}:
-      "<button type=\"button\" data-bend-event=\"" ++ escape(name) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" role=\"" ++ region_role(name) ++ "\" " ++ Bool.pick(String,String.eq(region_role(name),"textbox"),"aria-readonly=\"true\" ","") ++ Bool.pick(String,disabled(name),"disabled ","") ++ "style=\"position:absolute;border:0;padding:0;background:transparent;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\"></button>"
-def region_at(xs: List<&2,P.Box>, +index: U32, id: U32) -> String:
+    case P.Box{+name,mark,+x,+y,+width,+height,level,layer}:
+      Bool.pick(String,String.starts_with(name,"textbox · "),textbox_html(name,value,x,y,width,height,id),
+      "<button type=\"button\" data-bend-event=\"" ++ escape(name) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" role=\"" ++ region_role(name) ++ "\" " ++ Bool.pick(String,String.eq(region_role(name),"textbox"),"aria-readonly=\"true\" ","") ++ Bool.pick(String,disabled(name),"disabled ","") ++ "style=\"position:absolute;border:0;padding:0;background:transparent;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\"></button>")
+def region_at(xs: List<&2,P.Box>, +index: U32, id: U32, +value: String) -> String:
   match xs index:
     case Nil{} _: ""
-    case Con{P.Box{name,P.Spacing{axis},x,y,w,h,level,layer},tail} _: region_at(tail,index,id)
-    case Con{box,tail} 0: region_html(box,id)
-    case Con{box,tail} _: region_at(tail,U32.sub(index,1),id)
+    case Con{P.Box{name,P.Spacing{axis},x,y,w,h,level,layer},tail} _: region_at(tail,index,id,value)
+    case Con{box,tail} 0: region_html(box,id,value)
+    case Con{box,tail} _: region_at(tail,U32.sub(index,1),id,value)
+# The name of the box at a pre-order index ("" past the end).
+def name_at(xs: List<&2,P.Box>, +index: U32) -> String:
+  match xs index:
+    case Nil{} _: ""
+    case Con{P.Box{name,P.Spacing{axis},x,y,w,h,level,layer},tail} _: name_at(tail,index)
+    case Con{P.Box{name,mark,x,y,w,h,level,layer},tail} 0: name
+    case Con{box,tail} _: name_at(tail,U32.sub(index,1))
 def focus_html(+boxes: List<&2,P.Box>, order: List<&2,U32>) -> String:
   match order:
     case Nil{}: ""
-    case Con{+index,tail}: region_at(boxes,index,index) ++ focus_html(boxes,tail)
+    case Con{+index,tail}: region_at(boxes,index,index,value_of(name_at(boxes,U32.inc(index)))) ++ focus_html(boxes,tail)
 def disabled_box(b: P.Box, id: U32) -> String:
   match b:
     case P.Box{+name,mark,x,y,w,h,level,layer}:
-      Bool.pick(String,disabled(name),region_html(b,id),"")
+      Bool.pick(String,disabled(name),region_html(b,id,""),"")
 def disabled_html(xs: List<&2,P.Box>, +index: U32) -> String:
   match xs:
     case Nil{}: ""

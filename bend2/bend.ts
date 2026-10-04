@@ -956,6 +956,7 @@ const PRELUDES: Record<string, Array<[string, string[]]>> = {
     ["ui/components", ["UI", "Visual", "Composer", "Near", "NearIdentityView=NearIdentity", "HeaderView=Header", "NameField", "AppShell", "UI.append=append_components"]],
     ["browser/components", ["UI.html=html"]],
     ["browser/scene", ["Tree.html=html", "Tree.canvas=canvas"]],
+    ["browser/input", ["Input", "Clicked", "Typed", "Ignored", "Input.next=next", "Tree.show=show"]],
     ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree", "Lang", "Lang.pick=es_en", "Role", "Line", "title", "caption", "input", "action", "lines", "screen", "stack"]],
   ],
   State: [

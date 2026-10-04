@@ -9,6 +9,9 @@ import V
 ```
 
 F supplies component functions, Shape/Layout trees and function transitions.
+In the browser, `Tree.show(t)` renders a tree with its buttons and textboxes
+live, and `Input.next()` waits for what a person did: `Clicked{label}`,
+`Typed{label, value}` (the textbox's whole new text) or `Ignored{}`.
 State supplies component data, AI stream/request data and Dot session records.
 V supplies release/deployment declarations and plan functions, and the verbs
 over a `System{releases, deployments}`. A release is one thing released:
@@ -16,8 +19,11 @@ over a `System{releases, deployments}`. A release is one thing released:
 `Package{..}` on the Bend hub or `Plugin{..}`. A deployment is intent:
 `Mac{Tailscale{9453}, [Web{"ui"}]}` runs, on this Mac, the web app whose UI is
 ui.bend's `f`, served on the tailnet at HTTPS port 9453. V derives the rest:
-the page, `f(initial())` (state.bend's `initial`) from an entry it writes to
-dist/web.bend, built to dist/web/index.html; a launch agent
+the app, from entries it writes beside dist/web (it renders `f(state)` from
+state.bend's `initial()`, waits for an `Input`, applies update.bend's
+`update(state, input)` and renders again), built with `-o dist/web.web` (which
+needs Emscripten) into dist/web, its index.html titled and prerendered with
+the first screen; a launch agent
 com.<user>.<repo>.web (the first word of the account's full name, the
 repository's folder) serving it with python3's http.server on 127.0.0.1; its
 local port (the one Tailscale already proxies 9453 to, else the first free of

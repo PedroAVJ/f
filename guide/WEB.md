@@ -28,7 +28,9 @@ frames above 16,384 pixels on either side or 16,777,216 total pixels are rejecte
 instead of being clipped. Stroke widths are non-negative decimal strings,
 validated before DOM insertion and Canvas painting.
 
-Declared button regions preserve enabled/disabled state. HTML buttons use
+Declared button regions preserve enabled/disabled state. A textbox region is
+an input holding the field's whole value over its drawn text; each edit sends
+a field event named after the textbox. HTML buttons use
 F's focus order and native keyboard activation; Canvas hit tests send the
 same region name to Bend. The retained application tree and state stay in
 Wasm; Canvas packets are transient paint values. Replacing HTML and repainting
