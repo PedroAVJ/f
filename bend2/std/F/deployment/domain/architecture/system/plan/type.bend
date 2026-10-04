@@ -6,7 +6,8 @@ type Hub is Data:
   Same{}
   Differs{file: String}
 
-# What GitHub and the working tree say about the repository.
+# What the working tree and GitHub say about a declared repository: origin as github.com/<owner>/<name> (else as
+# it is), GitHub's visibility for the declared one, and whether the tree is clean and pushed.
 type Remote is Data:
   Remote{origin: String, visibility: String, clean: Bool, pushed: Bool}
 
@@ -17,9 +18,10 @@ type Remote is Data:
 type Tag is Data:
   Tag{repository: Bool, tagged: Bool, built: String, valid: Bool, differs: Bool}
 
-# What the world looks like now, as far as a release is concerned.
+# What the world looks like now, as far as the releases are concerned: the hub's answer for each package, the
+# repository for each code release and the tag for each plugin, in declaration order.
 type Observed is Data:
-  Observed{files: List<&2, String>, reached: List<&2, String>, hubs: List<&2, Hub>, remote: Remote, tags: List<&2, Tag>}
+  Observed{files: List<&2, String>, reached: List<&2, String>, hubs: List<&2, Hub>, remotes: List<&2, Remote>, tags: List<&2, Tag>}
 
 # One step of a plan. Publish, Push, ReleasePlugin, Rebuild, ServePort and Launch change the world; Current and Change do not
 # (a Change is what a Rebuild would change, shown by a dry run); Blocked stops the deploy.

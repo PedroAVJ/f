@@ -18,7 +18,11 @@ deploy(system())`, and `bend system deploy`, run in the app's folder, runs it
 (bend runs the longest `./a/b.bend` its words name, and passes it the rest).
 `check` observes the repository and this Mac and prints the plan; `deploy`
 then pushes, builds, (re)loads the launchd agents and `tailscale serve`s them.
-Only `Platform.Launchd` nodes deploy so far.
+Only `Platform.Launchd` nodes deploy so far. A `System` ends with its releases,
+one per thing released: `Code{GitHub{owner, name, OpenSource{license}}}` (or
+`Proprietary{}`), `Package{..}` on the Bend hub and `Plugin{..}`; a code release
+is blocked unless origin is github.com/<owner>/<name> and GitHub's visibility
+is public for open source, private for proprietary.
 
 Names enter the importing file's scope. For example, `UI`, `layout`,
 `Session.initial`, `StreamState.reduce`, `Release` and `plan` require no F/State/V

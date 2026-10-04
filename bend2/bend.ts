@@ -971,7 +971,7 @@ const PRELUDES: Record<string, Array<[string, string[]]>> = {
     ["deployment/domain/architecture/category/type", ["Category", "Capability"]],
     ["deployment/domain/architecture/relationship/type", ["Relationship"]],
     ["deployment/domain/architecture/system/deployment/host/type", ["Host"]],
-    ["deployment/domain/architecture/system/release/type", ["Release", "Repository", "Package", "Plugin"]],
+    ["deployment/domain/architecture/system/release/type", ["Release", "Code", "Package", "Plugin", "Repository", "GitHub", "Source", "OpenSource", "Proprietary"]],
     ["deployment/domain/architecture/system/deployment/type", ["Deployment", "Break", "Node", "NodeRole=Role", "Platform"]],
     ["deployment/domain/architecture/system/plan/type", ["Observed", "Step", "RepositoryStatus=Remote", "PackageStatus=Hub", "ReleaseTag=Tag"]],
     ["deployment/domain/architecture/system/plan/ops", ["plan", "blocked", "any_blocked", "show_all"]],
@@ -1017,7 +1017,7 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
       for (const binding of names) {
         const [name, local = name] = binding.split("=");
         const target = sub + ":" + local;
-        const def = book.tlds[target];
+        const def = book.tlds[target] ?? book.ctrs[target];
         if (!def) throw Err(book, ctx_nil(), "a defined prelude binding " + name, undefined, sp);
         bind_(name, target);
         for (const ctr of (def as ADT).c ?? []) {

@@ -23,80 +23,78 @@ def name_chars(cs: List<&2, Char>) -> Bool:
     case +c <> rest:
       (Char.is_lower(c) || Char.is_digit(c) || Char.is_eq(c, '-')) && name_chars(rest)
 
-def package_ok(p: Rl.Package) -> Bool:
-  match p:
+def package_ok(r: Rl.Release) -> Bool:
+  match r:
     case Rl.Package{+n, +v, _, _}:
       Nat.is_ge(String.length(n), 12n) && Nat.is_le(String.length(n), 64n) && name_chars(String.to_list(n)) &&
       Nat.is_eq(List.length(&2, String, String.split(v, '.')), 4n) && all_numbers(String.split(v, '.'))
+    case _:
+      True{}
 
-def packages_ok(ps: List<&2, Rl.Package>) -> Bool:
-  match ps:
+# Every package the system releases follows the hub's rules.
+def packages_ok(rs: List<&2, Rl.Release>) -> Bool:
+  match rs:
     case []:
       True{}
-    case p <> rest:
-      package_ok(p) && packages_ok(rest)
+    case r <> rest:
+      package_ok(r) && packages_ok(rest)
 
-def packages(r: Rl.Release) -> List<&2, Rl.Package>:
-  match r:
-    case Rl.Release{_, ps, _}:
-      ps
+def is_open(s: Rl.Source) -> Bool:
+  match s:
+    case Rl.OpenSource{_}:
+      True{}
+    case Rl.Proprietary{}:
+      False{}
 
-def plugins(r: Rl.Release) -> List<&2, Rl.Plugin>:
-  match r:
-    case Rl.Release{_, _, gs}:
-      gs
+# Every repository the system releases its code from is open source.
+def open_source(rs: List<&2, Rl.Release>) -> Bool:
+  match rs:
+    case []:
+      True{}
+    case r <> rest:
+      match r:
+        case Rl.Code{Rl.GitHub{_, _, s}}:
+          is_open(s) && open_source(rest)
+        case _:
+          open_source(rest)
 
-def repository(r: Rl.Release) -> Rl.Repository:
-  match r:
-    case Rl.Release{repo, _, _}:
-      repo
-
-def is_public(r: Rl.Release) -> Bool:
-  match r:
-    case Rl.Release{repo, _, _}:
-      match repo:
-        case Rl.Repository{_, p}:
-          p
-
-# Every component any package ships.
-def shipped_components(ps: List<&2, Rl.Package>) -> List<&2, String>:
-  match ps:
+# Every component any package or plugin ships.
+def shipped_components(rs: List<&2, Rl.Release>) -> List<&2, String>:
+  match rs:
     case []:
       []
-    case p <> rest:
-      match p:
+    case r <> rest:
+      match r:
         case Rl.Package{_, _, _, cs}:
           List.append(&2, String, cs, shipped_components(rest))
+        case Rl.Plugin{_, _, _, cs, _}:
+          List.append(&2, String, cs, shipped_components(rest))
+        case _:
+          shipped_components(rest)
 
 # Every package's entry file.
-def entries(ps: List<&2, Rl.Package>) -> List<&2, String>:
-  match ps:
+def entries(rs: List<&2, Rl.Release>) -> List<&2, String>:
+  match rs:
     case []:
       []
-    case p <> rest:
-      match p:
+    case r <> rest:
+      match r:
         case Rl.Package{_, _, e, _}:
           e <> entries(rest)
+        case _:
+          entries(rest)
 
 # Every plugin's entry file.
-def plugin_entries(gs: List<&2, Rl.Plugin>) -> List<&2, String>:
-  match gs:
+def plugin_entries(rs: List<&2, Rl.Release>) -> List<&2, String>:
+  match rs:
     case []:
       []
-    case g <> rest:
-      match g:
+    case r <> rest:
+      match r:
         case Rl.Plugin{_, _, e, _, _}:
           e <> plugin_entries(rest)
-
-# Every component any plugin ships.
-def plugin_components(gs: List<&2, Rl.Plugin>) -> List<&2, String>:
-  match gs:
-    case []:
-      []
-    case g <> rest:
-      match g:
-        case Rl.Plugin{_, _, _, cs, _}:
-          List.append(&2, String, cs, plugin_components(rest))
+        case _:
+          plugin_entries(rest)
 
 # ---- the repository: Bend only, and no dead code ----
 # Bend, or a foreign effect in C or JavaScript (Bend's two lanes).
