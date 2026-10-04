@@ -6,7 +6,7 @@ import ../../bend2/std/F/ui/nearling.bend as N
 import ../../bend2/std/F/browser/scene.bend as Scene
 import ../../bend2/std/F/browser/host.bend as Host
 
-def card(+count: U32) -> P.Tree:
+def card(+count: U32) -> P.UI:
   P.layout("frame",P.Vertical{},8,4,160,0,P.Leading{},[
     P.text("button · increment","Count " ++ U32.show(count),P.TextType{"Body",18,500},T.TextRole.Ink{},144,24,P.Leading{}),
     P.symbol("glyph",S.Search{},24),

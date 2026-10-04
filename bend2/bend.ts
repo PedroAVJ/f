@@ -949,17 +949,55 @@ async function book_file(book: Book, file: string, spn?: Span): Promise<string> 
   return fs.realpathSync(file);
 }
 
+// A file importing UI that defines `type Page` gets its addresses: Page.url(p) and Page.at(address), from
+// its shape (after the file's last type). A case is its name in kebab case, then its fields: String and U32 as segments, a Data type of
+// the file (last) as its own nested path; anything else, and a missing segment, reads as the first case.
+// A State type of one case with a `page: Page` field gets State.page(s) and State.with_page(s, p).
+function page_defs(book: Book, text: string): [string, number] {
+  const ts: Record<string, [string, string[][]][]> = {};
+  let cut = 0;
+  for (const m of text.matchAll(/^type (\w+) is Data:\n((?:[ \t]+\S.*\n?)*)/gm)) {
+    cut = text.slice(0, m.index + m[0].length).split("\n").length - 1;
+    ts[m[1]] = [...m[2].matchAll(/^\s+(\w+)\{(.*)\}/gm)].map(c => [c[1], c[2].trim() ? c[2].split(/,\s*(?=\w+\s*:)/).map(f => f.split(/\s*:\s*/)) : []]);
+  }
+  const out: string[] = [], done = new Set<string>();
+  const val = (t: string): string => t === "String" ? '""' : t === "U32" ? "0" : t + ".read([])";
+  const gen = (T: string) => {
+    if (done.has(T)) return;
+    done.add(T);
+    const cs = ts[T], url: string[] = [], read: string[] = [];
+    const first = cs[0][0] + "{" + cs[0][1].map(([, t]) => val(t)).join(", ") + "}";
+    for (const [c, fs] of cs) {
+      const seg = c.replace(/(?<=.)([A-Z])/g, "-$1").toLowerCase(), vs = fs.map((_, i) => "f" + i);
+      fs.forEach(([f, t], i) => {
+        if (t !== "String" && t !== "U32" && !(ts[t] && i === fs.length - 1)) throw Err(book, ctx_nil(), "a Page field of String, U32, or a Data type of this file last", T + "." + c + "." + f);
+        if (ts[t]) gen(t);
+      });
+      url.push("    case " + c + "{" + vs.join(", ") + "}:\n      \"/" + seg + "\"" + fs.map(([, t], i) => t === "String" ? ' ++ "/" ++ Address.escape(f' + i + ")" : t === "U32" ? ' ++ "/" ++ U32.show(f' + i + ")" : " ++ " + t + ".url(f" + i + ")").join(""));
+      read.push('Bool.pick(' + T + ', String.eq(x, "' + seg + '"), ' + c + "{" + fs.map(([, t], i) => t === "String" ? "Address.segment(rest, " + i + "n)" : t === "U32" ? "Address.number(Address.segment(rest, " + i + "n))" : t + ".read(List.drop(&2, String, rest, " + i + "n))").join(", ") + "}, ");
+    }
+    out.push("def " + T + ".url(x: " + T + ") -> String:\n  match x:\n" + url.join("\n"),
+      "def " + T + ".read(xs: List<&2, String>) -> " + T + ":\n  match xs:\n    case []:\n      " + first + "\n    case +x <> +rest:\n      " + read.join("") + first + ")".repeat(read.length));
+  };
+  gen("Page");
+  out.push("def Page.at(address: String) -> Page:\n  Page.read(Address.segments(address))");
+  const st = ts.State?.length === 1 ? ts.State[0][1] : [], at = st.findIndex(([f, t]) => f === "page" && t === "Page");
+  if (at >= 0) {
+    const vs = st.map((_, i) => i === at ? "_" : "f" + i), ps = st.map((_, i) => i === at ? "p" : "f" + i);
+    out.push("def State.page(s: State) -> Page:\n  match s:\n    case State{" + st.map((_, i) => i === at ? "p" : "_").join(", ") + "}:\n      p",
+      "def State.with_page(s: State, p: Page) -> State:\n  match s:\n    case State{" + vs.join(", ") + "}:\n      State{" + ps.join(", ") + "}");
+  }
+  return [out.join("\n\n") + "\n", cut];
+}
+
 // Explicit framework preludes select bindings; files retain canonical identities.
 const PRELUDES: Record<string, Array<[string, string[]]>> = {
-  F: [
-    ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "Tree", "Box", "text", "layout", "leaf", "rounded", "solid"]],
-    ["ui/components", ["UI", "Visual", "Composer", "Near", "NearIdentityView=NearIdentity", "HeaderView=Header", "NameField", "AppShell", "UI.append=append_components"]],
-    ["browser/components", ["UI.html=html"]],
-    ["browser/scene", ["Tree.html=html", "Tree.canvas=canvas"]],
-    ["browser/input", ["Input", "Clicked", "Typed", "Ignored", "Input.next=next", "Tree.show=show"]],
+  UI: [
+    ["ui/primitives", ["Shape", "Geometry", "Fill", "TextFill", "TextType", "Radius", "Stroke", "Effect", "Bitmap", "Layout", "Axis", "Align", "UI", "Box", "text", "layout", "leaf", "rounded", "solid"]],
+    ["browser/scene", ["UI.html=html", "UI.canvas=canvas"]],
+    ["browser/input", ["Input", "Clicked", "Typed", "Navigated", "Ignored", "Input.next=next", "UI.show=show", "UI.show_at=show_at"]],
+    ["browser/address", ["Address.segments=segments", "Address.segment=segment", "Address.number=number", "Address.escape=escape"]],
     ["ui/kit", ["Transition", "Duration", "Reason", "Transition.progress=progress", "Transition.ease=ease_of", "Button", "ButtonKind", "Intent", "Form", "Content", "Field", "Bubble", "Badge", "NearIdentity", "TypingIndicator", "Header", "Thread", "Conversation", "WelcomeHero", "Search", "Sheet", "CallControls", "Button.tree=button_tree", "Button.action=act", "Field.tree=field_tree", "Bubble.tree=bubble_tree", "Badge.tree=badge_tree", "NearIdentity.tree=identity_tree", "TypingIndicator.tree=indicator_tree", "Header.tree=header_tree", "Thread.tree=thread_tree", "Conversation.tree=conversation_tree", "WelcomeHero.tree=hero_tree", "Search.tree=search_tree", "Sheet.tree=sheet_tree", "CallControls.tree=call_controls_tree", "Lang", "Lang.pick=es_en", "Role", "Line", "title", "caption", "input", "action", "lines", "screen", "stack"]],
-  ],
-  State: [
     ["dot/session", ["Session", "Permission", "Permissions", "TaskApproval", "Command", "Call", "Message", "MessageRole", "MessageSource", "MessageStatus", "Task", "TaskStatus", "TaskEvent", "Continuity", "Session.initial=initial", "Session.update=update", "Session.phase=phase", "Session.in_call=in_call", "Continuity.initial=history_initial", "Continuity.message=history_message", "Continuity.task=history_task"]],
     ["ai/protocol", ["StreamState", "Frame", "StreamTransition=Transition", "Framing", "StreamState.initial=initial", "StreamState.reduce=reduce", "StreamState.text=text", "StreamState.terminal=terminal", "StreamState.Phase=Phase", "StreamTransition.Event=TextEvent"]],
     ["ui/kit", ["Remote", "Moment", "Motion", "FieldState", "Press", "FixedState", "ServedState", "Moment.still=still"]],
@@ -1024,6 +1062,7 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
   };
   // Base loads into every file but itself and one with a "# no-base" line
   const base = real !== BASE_BEND && !/^# no-base$/m.test(text);
+  let ui = false;
   for (let i = 0, at = 0; i < lines.length; at += lines[i].length + 1, i++) {
     const line = lines[i].trim();
     if (line === "" || line.startsWith("#")) {
@@ -1037,10 +1076,11 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     const sp  = { file: { str: text, ns, al }, beg, end: beg };
     const file = m !== null && (m[2] !== undefined || /\/|\.bend$/.test(m[1]));
     if (m === null || (!file && m[1] !== "Base" && !Object.hasOwn(PRELUDES, m[1]))) {
-      throw Err(book, ctx_nil(), "an import ('import F', 'import State', 'import V', or 'import <path> [as <Name>]'; Base is always there)", "'" + line + "'", sp);
+      throw Err(book, ctx_nil(), "an import ('import UI', 'import V', or 'import <path> [as <Name>]'; Base is always there)", "'" + line + "'", sp);
     }
     body[i] = "";
     if (!file) {
+      ui ||= m[1] === "UI";
       await (m[1] === "Base" ? book_load(book, BASE_BEND, "", seen, sp) : prelude(m[1], sp));
       continue;
     }
@@ -1083,7 +1123,13 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     await book_load(book, BASE_BEND, "", seen);
   }
   const n0 = book.order.length;
-  parse_book(book, dir, body.join("\n"), ns, al);
+  // a Page's derived defs go after the file's last type, before its defs
+  const [pg, cut] = ui && /^type Page is Data:/m.test(text) ? page_defs(book, text) : ["", body.length];
+  parse_book(book, dir, body.map((l, i) => i < cut ? l : "").join("\n"), ns, al);
+  if (pg) {
+    parse_book(book, dir, pg, ns, al);
+    parse_book(book, dir, body.map((l, i) => i < cut ? "" : l).join("\n"), ns, al);
+  }
   for (const k of book.order.slice(n0).flatMap((k) => [k, ...((book.tlds[k] as ADT).c ?? []).map((c) => c.k)])) {
     const name = ns === "" ? k : k.slice(ns.length + 1);
     const [src, sp, file] = from["=" + name] ?? [];

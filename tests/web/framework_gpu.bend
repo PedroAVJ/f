@@ -5,7 +5,7 @@ import ../../bend2/std/F/browser/scene.bend as Scene
 import ../../bend2/std/F/browser/host.bend as Host
 
 def kernel(x: U32) -> U32: U32.add(U32.mul(x,3),1)
-def tree(+value: U32) -> P.Tree:
+def tree(+value: U32) -> P.UI:
   P.layout("result",P.Vertical{},8,4,160,64,P.Leading{},[
     P.text("label","GPU sum " ++ U32.show(value),P.TextType{"Body",18,500},T.TextRole.Ink{},144,24,P.Leading{}),
     P.rounded("bar",P.Solid{T.SurfaceRole.Accent{},T.State.Rest{}},value,16,P.Corner{2},P.NoStroke{},P.Leading{})])

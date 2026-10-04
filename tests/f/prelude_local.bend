@@ -1,6 +1,5 @@
 import Base
-import F
-import State
+import UI
 
 type Message is Data:
   Message{text: String}

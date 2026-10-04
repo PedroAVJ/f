@@ -36,7 +36,7 @@ same region name to Bend. The retained application tree and state stay in
 Wasm; Canvas packets are transient paint values. Replacing HTML and repainting
 Canvas keeps the renderer attached to the current root.
 
-F, State and V are explicit preludes. The bridge remains internal backend support;
+UI and V are explicit preludes. The bridge remains internal backend support;
 there is no additional Browser prelude. The semantic UI renderer emits
 escaped HTML forms, field-edit events and declared buttons. Photo fields select a
 file, decode/resize it through browser APIs and upload it to the application's
@@ -68,6 +68,6 @@ runs in JavaScript. Recursion, captured state, floating point and arbitrary
 ADTs remain CPU computations; no placement or profiling policy is added.
 
 V's existing plan/check records compile and run in Wasm. They do not execute
-deployment actions. State exports the existing data and pure session/stream reducers. Applications
+deployment actions. UI exports the existing data and pure session/stream reducers. Applications
 perform authorized persistence through their IO adapters; no extra channel API is
 introduced.

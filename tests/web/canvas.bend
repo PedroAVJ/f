@@ -4,7 +4,7 @@ import ../../bend2/std/F/ui/tokens.bend as T
 import ../../bend2/std/F/browser/scene.bend as Scene
 import ../../bend2/std/F/browser/host.bend as Host
 
-def tile(+size: U32) -> P.Tree:
+def tile(+size: U32) -> P.UI:
   P.rounded("tile", P.Solid{T.SurfaceRole.Background{}, T.State.Rest{}}, size, size, P.Corner{0}, P.NoStroke{}, P.Leading{})
 def show(label: String, reply: Host.Reply) -> IO(Unit):
   match reply:

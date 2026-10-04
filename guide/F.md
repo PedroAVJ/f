@@ -3,29 +3,37 @@
 Import the parts you use explicitly:
 
 ```bend
-import F
-import State
+import UI
 import V
 ```
 
-F supplies component functions, Shape/Layout trees and function transitions.
-In the browser, `Tree.show(t)` renders a tree with its buttons and textboxes
-live, and `Input.next()` waits for what a person did: `Clicked{label}`,
-`Typed{label, value}` (the textbox's whole new text) or `Ignored{}`.
-State supplies component data, AI stream/request data and Dot session records.
+UI supplies the output type `UI` (Shape/Layout trees), component functions,
+function transitions, component data, AI stream/request data and Dot session
+records. In the browser, `UI.show(u)` renders a UI with its buttons and
+textboxes live, and `Input.next()` waits for what a person did:
+`Clicked{label}`, `Typed{label, value}` (the textbox's whole new text),
+`Navigated{address}` or `Ignored{}`. A file importing UI that defines
+`type Page` gets `Page.url(p)` and `Page.at(address)` from its shape: a case
+is its kebab-case name, then its String and U32 fields as segments and a
+nested Data type of the file (last) as its own path; an unknown address is
+the first case. A one-case `State` with a `page: Page` field also gets
+`State.page(s)` and `State.with_page(s, p)`.
+
 V supplies release/deployment declarations and plan functions, and the verbs
 over a `System{releases, deployments}`. A release is one thing released:
 `Code{GitHub{owner, name, OpenSource{license}}}` (or `Proprietary{}`),
 `Package{..}` on the Bend hub or `Plugin{..}`. A deployment is intent:
 `Mac{Tailscale{9453}, [Web{"ui"}]}` runs, on this Mac, the web app whose UI is
 ui.bend's `f`, served on the tailnet at HTTPS port 9453. V derives the rest:
-the app, from entries it writes beside dist/web (it renders `f(state)` from
-state.bend's `initial()`, waits for an `Input`, applies update.bend's
-`update(state, input)` and renders again), built with `-o dist/web.web` (which
+the app, from entries it writes beside dist/web (ui.bend defines `State`,
+with a `page: Page`, its first state `s()`, `update(s, input)` and `f(s)`;
+the app shows `f(s)` at its page's address, waits for an `Input`, goes to
+the page an address names or updates, and shows again), built with `-o dist/web.web` (which
 needs Emscripten) into dist/web, its index.html titled and prerendered with
 the first screen; a launch agent
 com.<user>.<repo>.web (the first word of the account's full name, the
-repository's folder) serving it with python3's http.server on 127.0.0.1; its
+repository's folder) serving it with python3's http.server on 127.0.0.1,
+index.html for any path that is not a file; its
 local port (the one Tailscale already proxies 9453 to, else the first free of
 4600, 4610, .. 4990); the `tailscale serve`; and the address,
 https://<tailnet name>:9453. One app per Tailscale port so far. An app's
@@ -47,9 +55,9 @@ clean, and GitHub's visibility is public for open source, private for
 proprietary.
 
 Names enter the importing file's scope. For example, `UI`, `layout`,
-`Session.initial`, `StreamState.reduce`, `Release` and `plan` require no F/State/V
+`Session.initial`, `StreamState.reduce`, `Release` and `plan` require no UI/V
 prefix. Constructors with different meanings stay under their type: use
-`UI.Text`, `Geometry.Text` and `Command.Start`.
+`Geometry.Text` and `Command.Start`.
 Private helpers in the copied source do not become bare bindings.
 
 Direct `.bend` imports still work. Prelude bindings refer to those same canonical

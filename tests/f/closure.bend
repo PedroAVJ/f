@@ -9,7 +9,6 @@ import ../../bend2/std/F/ui/metrics.bend as Metrics
 import ../../bend2/std/F/ui/kit.bend as Kit
 import ../../bend2/std/F/ui/symbols.bend as Symbols
 import ../../bend2/std/F/ui/nearling.bend as Nearling
-import ../../bend2/std/F/ui/components.bend as Components
 import ../../bend2/std/F/ai/ai-sdk.bend as AI
 import ../../bend2/std/F/ai/runtime.bend as Runtime
 import ../../bend2/std/F/ai/transcription-runtime.bend as TranscriptionRuntime

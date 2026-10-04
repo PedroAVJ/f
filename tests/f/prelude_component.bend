@@ -1,6 +1,5 @@
 import Base
-import F
-import State
+import UI
 import ../../bend2/std/F/ui/primitives.bend as P
 
 def main() -> IO(Unit):

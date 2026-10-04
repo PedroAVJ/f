@@ -1,6 +1,7 @@
 # A Mac deployment lowers to its topology: the tailnet address, the web
 # app's page (its UI module's) built to dist/web/index.html, a launch agent
-# com.<user>.<repo>.web serving it on 127.0.0.1, and the HTTPS port served
+# com.<user>.<repo>.web serving it on 127.0.0.1 (index.html for
+# any path), and the HTTPS port served
 # from there; the local port is the one Tailscale already serves the port
 # from, else the Mac's free one
 import V
@@ -13,7 +14,7 @@ import ../../bend2/std/F/deployment/domain/architecture/system/deployment/nix_da
 def shown_agent(a: L.Agent) -> String:
   match a:
     case L.Agent{_, label, command, args, _, log, _}:
-      label ++ " " ++ command ++ " " ++ String.join(args, " ") ++ " > " ++ log
+      label ++ " " ++ command ++ " -c <server> " ++ String.join(List.drop(&2, String, args, 2n), " ") ++ " > " ++ log
 
 def shown_agents(xs: List<&2, L.Agent>) -> String:
   match xs:
@@ -79,9 +80,9 @@ def main() -> IO(Unit):
     IO.write(shown(DO.lower(mac(), D.Here{"ana", "shop", "m.ts.net", [], 4600})))
 #|https://m.ts.net:9453
 #|ui -> dist/web/index.html
-#|com.pedro.open-dot.web /usr/bin/python3 -m http.server 4640 --bind 127.0.0.1 --directory dist/web > open-dot-web
+#|com.pedro.open-dot.web /usr/bin/python3 -c <server> 4640 dist/web > open-dot-web
 #|http://127.0.0.1:4640
 #|https://m.ts.net:9453
 #|ui -> dist/web/index.html
-#|com.ana.shop.web /usr/bin/python3 -m http.server 4600 --bind 127.0.0.1 --directory dist/web > shop-web
+#|com.ana.shop.web /usr/bin/python3 -c <server> 4600 dist/web > shop-web
 #|http://127.0.0.1:4600

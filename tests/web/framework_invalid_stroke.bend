@@ -4,7 +4,7 @@ import ../../bend2/std/F/ui/tokens.bend as T
 import ../../bend2/std/F/browser/scene.bend as Scene
 import ../../bend2/std/F/browser/host.bend as Host
 
-def view() -> P.Tree:
+def view() -> P.UI:
   P.rounded("stroke",P.Solid{T.SurfaceRole.Surface{},T.State.Rest{}},64,32,P.Corner{8},P.Stroke{T.LineRole.Line{},T.State.Rest{},"0px #000;background:rgb(1,2,3);--probe:"},P.Leading{})
 def status(label: String, reply: Host.Reply) -> IO(Unit):
   match reply:
