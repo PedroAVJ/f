@@ -794,8 +794,12 @@ def field_motion_blur(+lines: Lines, grow: Transit<&2, U32>, m: Moment, +n: U32)
   match grow:
     case Settled{}: shadow_blur(lines, n)
     case Transitioning{+from, +to, started_at}: lerp(shadow_blur(lines, from), shadow_blur(lines, to), ease_of(started_at, m, cap_t()))
-def field_box(placeholder: String, +width: U32, +focused: Bool, +empty: Bool, text: P.Tree, +accessories: List<&2, S.Drawing>, +h: U32, +blur: U32) -> Field:
-  Field{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, width, h, P.Leading{}, [
+# A textbox's whole text, as a 0 x 0 leaf first inside it ("value · <text>"): what the shown lines
+# truncate or wrap, for a renderer that edits it (the browser's input).
+def value_leaf(+draft: String) -> P.Tree:
+  P.leaf("value · " ++ draft, P.Shape{P.Rounded{0, 0, P.Corner{0}}, P.Fill.None{}, P.NoStroke{}, []}, 0, 0, P.Leading{})
+def field_box(placeholder: String, +draft: String, +width: U32, +focused: Bool, +empty: Bool, text: P.Tree, +accessories: List<&2, S.Drawing>, +h: U32, +blur: U32) -> Field:
+  Field{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, width, h, P.Leading{}, [value_leaf(draft),
     P.leaf("Container", P.Shape{P.Rounded{width, h, P.Corner{22}}, P.Solid{T.SurfaceRole.Surface{}, T.State.Rest{}}, P.Stroke{Bool.pick(T.LineRole, focused, T.LineRole.Accent{}, hairline()), T.State.Rest{}, Bool.pick(String, focused, "1.5", "1")}, shadow_of(blur)}, width, h, P.Middle{}),
     P.layout("Content", P.Horizontal{}, 10, 0, U32.sub(width, 32), 0, P.Middle{}, Con{text, accessory_trees(accessories)})]), empty}
 def field(markup: FieldMarkup, +width: U32) -> Field:
@@ -809,7 +813,7 @@ def field(markup: FieldMarkup, +width: U32) -> Field:
       +visible = last_lines(all, cap_of(lines))
       +text = P.layout("Field text", P.Vertical{}, 0, 0, tw, 0, P.Middle{}, field_lines(visible, Bool.pick(T.TextRole, empty, hint(), ink()), focused))
       +settled_h = field_height(count(visible))
-      field_box(placeholder, width, focused, empty, text, accessories, field_motion_h(lines, grow, m, settled_h), field_motion_blur(lines, grow, m, n))
+      field_box(placeholder, draft, width, focused, empty, text, accessories, field_motion_h(lines, grow, m, settled_h), field_motion_blur(lines, grow, m, n))
 def field_tree(f: Field) -> P.Tree:
   match f:
     case Field{tree, empty}: tree
@@ -1134,7 +1138,7 @@ def composer(markup: FieldMarkup, +size: ComposerSize, +box: U32) -> Composer:
         pill_container(size, focused, box, h, field_motion_blur(lines, grow, m, count(all))),
         P.layout("Row", P.Horizontal{}, 4, 0, box, h, P.Leading{}, Con{
           aligned(button_tree(plus_button()), button_align),
-          Con{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, tw, h, P.Middle{}, [aligned(text, P.Middle{})]),
+          Con{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, tw, h, P.Middle{}, [value_leaf(draft), aligned(text, P.Middle{})]),
           Con{aligned(button_tree(mic_button()), button_align), send_slot(send, empty, button_align)}}})])
       Composer{P.layout(named(A11yRole.Group{}, "Escribir mensaje"), P.Vertical{}, 0, 0, box, 0, P.Leading{}, [pill])}
 def composer_tree(c: Composer) -> P.Tree:
