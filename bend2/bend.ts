@@ -999,25 +999,30 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
   const hub   = (s: string): boolean => /^0x[0-9a-f]+\//.test(s);
   const ok    = (s: string, lib: boolean): boolean => hub(s) === lib
     && /^(\/|(\.\.\/)*)([A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*$/.test(s.replace(/^0x[0-9a-f]+\//, ""));
-  // a prelude's bindings enter this file's scope; V only in a system.bend
+  // a bare name's import, for a clash's error: a prelude's, or a file's
+  // imported with no alias (its own names, bare; a def of this file's clashes)
+  const from: Record<Name, [string, Span | undefined, boolean]> = Object.create(null);
+  const bind = (name: string, target: string, src: string, sp?: Span, file = false) => {
+    const key = "=" + name;
+    if (name.split(".")[0] in al || (key in al && al[key] !== target)) throw Err(book, ctx_nil(), "an unambiguous binding " + name + (key in from ? " (" + from[key][0] + " and " + src + " both bind it)" : ""), undefined, sp);
+    al[key] = target;
+    from[key] ??= [src, sp, file];
+  };
+  // a prelude's bindings enter this file's scope
   const prelude = async (pre: string, sp?: Span) => {
     for (const [entry, names] of PRELUDES[pre]) {
       const sub = "std/F/" + entry;
       await book_load(book, BEND_DIR + sub + ".bend", sub, seen, sp, top);
-      const bind = (name: string, target: string) => {
-        const key = "=" + name;
-        if (name.split(".")[0] in al || (key in al && al[key] !== target)) throw Err(book, ctx_nil(), "an unambiguous prelude binding " + name, undefined, sp);
-        al[key] = target;
-      };
+      const bind_ = (name: string, target: string) => bind(name, target, "import " + pre, sp);
       for (const binding of names) {
         const [name, local = name] = binding.split("=");
         const target = sub + ":" + local;
         const def = book.tlds[target];
         if (!def) throw Err(book, ctx_nil(), "a defined prelude binding " + name, undefined, sp);
-        bind(name, target);
+        bind_(name, target);
         for (const ctr of (def as ADT).c ?? []) {
           const child = ctr.k.slice(sub.length + 1);
-          bind(child === local ? name : name + "." + child.replace(local + ".", ""), ctr.k);
+          bind_(child === local ? name : name + "." + child.replace(local + ".", ""), ctr.k);
         }
       }
     }
@@ -1035,23 +1040,26 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     const m   = /^import\s+(\S+)(?:\s+as\s+([A-Za-z_]\w*))?\s*(?:#.*)?$/.exec(line);
     const beg = at + lines[i].indexOf(m?.[1] ?? line);
     const sp  = { file: { str: text, ns, al }, beg, end: beg };
-    if (m === null || (m[2] === undefined && m[1] !== "Base" && (m[1] === "V" || !Object.hasOwn(PRELUDES, m[1])))) {
-      throw Err(book, ctx_nil(), "an import ('import F', 'import State', or 'import <path> as <Name>'; Base is always there, V in system.bend)", "'" + line + "'", sp);
+    const file = m !== null && (m[2] !== undefined || /\/|\.bend$/.test(m[1]));
+    if (m === null || (!file && m[1] !== "Base" && !Object.hasOwn(PRELUDES, m[1]))) {
+      throw Err(book, ctx_nil(), "an import ('import F', 'import State', 'import V', or 'import <path> [as <Name>]'; Base is always there)", "'" + line + "'", sp);
     }
     body[i] = "";
-    if (m[2] === undefined) {
+    if (!file) {
       await (m[1] === "Base" ? book_load(book, BASE_BEND, "", seen, sp) : prelude(m[1], sp));
       continue;
     }
-    if (!m[1].endsWith(".bend")) {
+    // a path names a .bend file, its suffix optional: ./x is ./x.bend
+    const to = /\.[^/]*$/.test(m[1]) ? m[1] : m[1] + ".bend";
+    if (!to.endsWith(".bend")) {
       throw Err(book, ctx_nil(), "an import of a .bend file", "'" + m[1] + "'", sp);
     }
-    if (m[2] in al || "=" + m[2] in al) {
+    if (m[2] !== undefined && (m[2] in al || "=" + m[2] in al)) {
       throw Err(book, ctx_nil(), "a fresh alias (" + m[2] + " names an earlier import)", "'" + line + "'", sp);
     }
     const bad = () => Err(book, ctx_nil(), "an import path of plain names (letters, digits, _ and -; the hub's files import the hub's)", "'" + m[1] + "'", sp);
-    const nv  = /^([^/]*@[^/]*)\//.exec(m[1]);
-    const as  = nv === null ? m[1] : await name_hash(book, nv[1], sp) + m[1].slice(nv[1].length);
+    const nv  = /^([^/]*@[^/]*)\//.exec(to);
+    const as  = nv === null ? to : await name_hash(book, nv[1], sp) + to.slice(nv[1].length);
     const rel = path.posix.normalize(as);
     if (!ok(as.replace(/^\.\//, "").slice(0, -5), hub(as))) {
       throw bad();
@@ -1065,17 +1073,29 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
     if (!ok(sub, got.startsWith(lib)) || (hub(ns) && !got.startsWith(lib))) {
       throw bad();
     }
-    al[m[2]] = sub;
+    if (m[2] !== undefined) {
+      al[m[2]] = sub;
+    }
     await book_load(book, got, sub, seen, sp, top);
+    for (const k of m[2] === undefined ? [...Object.keys(book.tlds), ...Object.keys(book.ctrs)] : []) {
+      const name = k.slice(sub.length + 1);
+      if (k.startsWith(sub + ":") && name !== "main" && !name.includes(":")) {
+        bind(name, k, "import " + m[1], sp, true);
+      }
+    }
   }
   if (base) {
     await book_load(book, BASE_BEND, "", seen);
   }
-  if (real.endsWith("/system.bend")) {
-    await prelude("V");
-  }
   const n0 = book.order.length;
   parse_book(book, dir, body.join("\n"), ns, al);
+  for (const k of book.order.slice(n0).flatMap((k) => [k, ...((book.tlds[k] as ADT).c ?? []).map((c) => c.k)])) {
+    const name = ns === "" ? k : k.slice(ns.length + 1);
+    const [src, sp, file] = from["=" + name] ?? [];
+    if (file) {
+      throw Err(book, ctx_nil(), "an unambiguous name " + name + " (this file defines it, and " + src + " brings it)", undefined, sp);
+    }
+  }
   if (real === BASE_BEND) {
     for (const k of book.order.slice(n0)) {
       book.tlds[k].b = true;

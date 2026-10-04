@@ -35,6 +35,7 @@ const VERSION = "2.0.35";
 // the commands, one row each: [usage, what it does]; bend guide stays last
 const USAGE = [
   ["bend <file.bend> [args]", "check the file, then run main with args"],
+  ["bend <word>... [args]", "the same for the longest ./word/.../word.bend; the rest are args"],
   ["bend <file.bend> -o <out>", "build a binary, or C, JS, .mjs, .web or BendTT by extension"],
   ["bend <file.bend> --check-only", "check the file and its imports; run nothing"],
   ["bend <file.bend> --verdict", "check it, then recheck it with the proven kernel"],
@@ -44,7 +45,6 @@ const USAGE = [
   ["bend <page.html> -o <dir>", "bundle a page that imports .bend files"],
   ["bend base [--types|<name>]", "print Base, its types, or a name and subnames"],
   ["bend update", "install the latest bend (curl | sh, shown first)"],
-  ["bend check | deploy", "plan, or run, ./system.bend's deploy (V)"],
   ["bend version", "print the version"],
   ["bend guide", "print the Bend guide"],
 ];
@@ -148,8 +148,6 @@ async function cli(): Promise<void> {
     cli_guide(args[1] ?? "guide");
   } else if (args[0] === "base" && args.length <= 2) {
     cli_base(args[1]);
-  } else if (args[0] === "check" || args[0] === "deploy") {
-    await cli_system(args[0], args.slice(1));
   } else {
     await cli_file(args);
   }
@@ -231,13 +229,14 @@ function ver_newer(ver: string): boolean {
 // cli_file checks, runs, builds, publishes or bundles a file
 async function cli_file(args: string[]): Promise<void> {
   const outs: string[] = [];
-  const argv: string[] = [];
+  let argv: string[] = [];
   let file: string | undefined;
   let only = false;
   let verdict = false;
   let checkup = false;
   let publish = false;
   let named: string | undefined;
+  let words = 0;
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
     if (a === "--help" || a === "-h") {
@@ -263,7 +262,7 @@ async function cli_file(args: string[]): Promise<void> {
     } else if (a.startsWith("-")) {
       cli_fail("unknown option " + a);
     } else if (file !== undefined) {
-      argv.push(a);
+      words = argv.push(a);
     } else {
       file = a;
     }
@@ -271,6 +270,9 @@ async function cli_file(args: string[]): Promise<void> {
   if (file === undefined) {
     cli_say(1, HELP);
     process.exit(1);
+  }
+  if (!/\.(bend|html)$/.test(file) && !fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    [file, ...argv] = path_words([file, ...argv.splice(0, words)]).concat(argv);
   }
   if (file.endsWith(".html")) {
     if (outs.length !== 1 || only || checkup || publish) {
@@ -323,33 +325,6 @@ async function cli_file(args: string[]): Promise<void> {
   }
 }
 
-// cli_system runs `bend check|deploy`: ./system.bend's own main if it has
-// one, else V's check or deploy of its system().
-async function cli_system(cmd: string, argv: string[]): Promise<void> {
-  const file = path.resolve("system.bend");
-  const V = "std/F/deployment/domain/architecture/system/";
-  if (!fs.existsSync(file)) {
-    cli_fail(cmd + " reads ./system.bend, and there is none here");
-  }
-  try {
-    const book = await book_read(file);
-    const sys = book.tlds["system"];
-    if (book_main(book) === null) {
-      if (sys?.$ !== "Def" || (sys.T as { k?: string }).k !== V + "type:System") {
-        cli_fail("system.bend must define system() -> System");
-      }
-      const n0 = book.order.length;
-      Bend.parse_book(book, path.dirname(file), "def main() -> IO(Unit):\n  "
-        + cmd + "(system())\n", "", { ["=" + cmd]: V + "deploy/ops:" + cmd });
-      Bend.book_valid(book, n0);
-    }
-    process.exitCode = book_run(book, [file, ...argv]);
-  } catch (e) {
-    cli_say(2, book_err(e) + "\n");
-    process.exitCode = 1;
-  }
-}
-
 // cli_checkup checks and runs each import of the file alone (Base read
 // once, seeded into every module that imports it); one that fails fails it.
 async function cli_checkup(file: string): Promise<void> {
@@ -379,6 +354,15 @@ async function cli_checkup(file: string): Promise<void> {
   if (bad) {
     process.exit(1);
   }
+}
+
+// path_words resolves `bend a b c`: the longest of a/b/c.bend, a/b.bend and
+// a.bend that is a file, then the words after it, its arguments.
+function path_words(ws: string[]): string[] {
+  const tried = ws.map((_, k) => ws.slice(0, ws.length - k).join("/") + ".bend");
+  const k = tried.findIndex((at) => fs.statSync(at, { throwIfNoEntry: false })?.isFile());
+  return k >= 0 ? [tried[k], ...ws.slice(ws.length - k)]
+    : cli_fail("no file for '" + ws.join(" ") + "': tried " + tried.join(", "));
 }
 
 function path_real(p: string): string {

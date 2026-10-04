@@ -22,8 +22,7 @@ lines its run must print, and the gates run on the mini cluster.
     bend2/std/F/        copied F implementation and internal browser support;
                         from near-bend's packages/function, MIT, each
                         tree's LICENSE beside it (THIRD_PARTY_NOTICES.md).
-                        Explicit F and State imports select bare public bindings; V
-                        binds them in every system.bend.
+                        Explicit F, State and V imports select bare public bindings.
     bend2/pack/         package.json, tsconfig.json, bun.lock
     bend2/docs/         the papers' Typst sources, the film, gen_pins.ts (the
                         record pins on this Mac), gen_charts.ts (the landing

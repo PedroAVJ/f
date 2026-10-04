@@ -277,4 +277,4 @@ can add it here.
 Thanks to [Ayush Somani](https://ayushsomani.me/) for reserving the
 `bend-lang` name for us.
 
-Framework extensions use explicit `import F` and `import State` preludes; V is in every `system.bend`. See [the framework guide](guide/F.md) and [web compilation](guide/WEB.md).
+Framework extensions use explicit `import F`, `import State` and `import V` preludes. See [the framework guide](guide/F.md) and [web compilation](guide/WEB.md).
