@@ -8,7 +8,7 @@ import ./LAWS.bend as Laws
 
 def Laws.first_key_is_system(a):
   match a:
-    case A.Architecture{s, env}:
+    case A.Architecture{s, cs, env}:
       match s env:
-        case S.System{k, n, d, cs, ns, r} En.Environment{ps, xs, ks, inv, ag}:
+        case S.System{k, n, d, rs, ds} En.Environment{ps, xs, ks, inv, ag}:
           {==}
