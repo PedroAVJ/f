@@ -810,9 +810,7 @@ function ty_adt(book: Bend.Book, A: HTerm | null): Of<"ADT"> | null {
 
 function adt_of(book: Bend.Book, A: HTerm | null): Of<"ADT"> {
   const adt = ty_adt(book, A)!;
-  if (adt.k === "Array") {
-    lay_el(book, adt.x[0]);
-  }
+  if (adt.k === "Array") lay_el(book, adt.x[0]);
   return adt;
 }
 
@@ -878,9 +876,7 @@ function lay_of(book: Bend.Book, A: HTerm | null): Lay {
 function lay_el(book: Bend.Book, A: HTerm | null): Lay {
   const t = ty_wnf(book, A);
   if (t?.$ === "Eql") return lay_of(book, A);
-  if (t?.$ !== "ADT") {
-    die("an open Array element type");
-  }
+  if (t?.$ !== "ADT") die("an open Array element type");
   const tld = book.tlds[t.k];
   return lay_of(book, tld?.$ === "ADT" && tld.c[0]
     ? tele_unbind(book, tld.c[0].T).ret : A);
@@ -936,9 +932,7 @@ function ctr_adt(fl: File, x: Of<"Ctr">,
   const ctr = fl.book.ctrs[x.k];
   const adt = adt_of(fl.book, ty ?? (ctr ? tele_unbind(fl.book, ctr.T).ret
     : null));
-  if (ty === null && adt.x.length > 0) {
-    die("a constructor outside a datatype");
-  }
+  if (ty === null && adt.x.length > 0) die("a constructor outside a datatype");
   return [adt, adt.k === "U32" || adt.k === "F32"
     ? Bend.u32_from_term(x, adt.k) : null];
 }
@@ -1025,9 +1019,7 @@ function mat_lits(x: HTerm): Row[] {
       walk(a, j + 1, n + (k === "True" ? 2 ** j : 0), sub && ((v) =>
         sub(Bend.Ctr("WCon", [Bend.Ctr(k, []), v]) as Of<"Ctr">)));
     }
-    if (own) {
-      ws.push([end, j, n, h ? 2 : 1]);
-    }
+    if (own) ws.push([end, j, n, h ? 2 : 1]);
   };
   walk(mat_arms(x).arms[0][1], 0, 0, null);
   return ws;
@@ -1181,9 +1173,7 @@ function io_base(book: Bend.Book, t: HTerm): HTerm[] | null {
 export function io_type(book: Bend.Book): HTerm | null {
   const main = book.tlds["main"];
   const xs = main?.$ === "Def" ? io_base(book, main.T) : null;
-  if (xs && def_foreign(main)) {
-    die("main must be a filled def: a foreign main cannot anchor IO");
-  }
+  if (xs && def_foreign(main)) die("main must be a filled def: a foreign main cannot anchor IO");
   return xs?.length === 1 ? xs[0] : null;
 }
 
@@ -1245,38 +1235,28 @@ function file_book(book: Bend.Book, roots: Name[], js: boolean): File {
   };
   const queue = roots.slice();
   for (const d of queue) {
-    if (SRCS.has(d)) {
-      continue;
-    }
+    if (SRCS.has(d)) continue;
     memo_gc();
     const tld = book.tlds[d];
     SRCS.set(d, null);
     for (const x of tld?.$ === "ADT" ? tld.c : tld ? [tld] : []) {
       queue.push(...type_adts(fl, x.T));
     }
-    if (!done_live(tld)) {
-      continue;
-    }
+    if (!done_live(tld)) continue;
     const deps = new Set<Name>();
     const refs = new Set<Name>();
     let flat = true;
     term_any(fl, fun_of(fl, d).h!, (s, tail) => {
-      if (s.$ === "Ann") {
-        queue.push(...type_adts(fl, s.T));
-      }
+      if (s.$ === "Ann") queue.push(...type_adts(fl, s.T));
       if (s.$ === "Ref") {
-        if (s.b) {
-          fl.bangs.add(s.k);
-        }
+        if (s.b) fl.bangs.add(s.k);
         if (intr_of(fl, s.k) === undefined) {
           refs.add(s.k);
           fl.sites.set(s.k, (fl.sites.get(s.k) ?? 0) + 1);
         }
       }
       const ck = term_spine(fl, s);
-      if (ck.k !== null && ck.k !== d) {
-        deps.add(ck.k);
-      }
+      if (ck.k !== null && ck.k !== d) deps.add(ck.k);
       flat &&= !((s.$ === "Let" && s.k.length >= 2)
         || (ck.k !== null && (ck.b || (ck.k === d && !tail))));
       return false;
@@ -1292,9 +1272,7 @@ function facts_hot(fl: File, B: HTerm | null, force: boolean,
   const w = ty_wnf(fl.book, B);
   if (w?.$ === "Lam") return facts_hot(fl, w.f(DUMMY), force, local);
   if (w?.$ !== "ADT") {
-    if (!force) {
-      return;
-    }
+    if (!force) return;
     const m = w?.$ === "App" && term_spine(fl, w);
     const fam = m && done_live(m.tld) && term_strip(Bend.term_unapply(
       m.all.reduce((b, x) => Bend.term_apply(b, x), m.tld.v!))[0]);
@@ -1320,9 +1298,7 @@ function facts_hot(fl: File, B: HTerm | null, force: boolean,
   const tk = "t:" + w.k;
   const hot = force || fl.hot.has(tk);
   w.x.forEach((x) => facts_hot(fl, x, hot, local));
-  if (!hot || fl.hot.has(tk)) {
-    return;
-  }
+  if (!hot || fl.hot.has(tk)) return;
   fl.hot.add(tk);
   const tld = fl.book.tlds[w.k];
   if (tld?.$ === "ADT") {
@@ -1413,9 +1389,7 @@ function seg_open(fl: File, name: string, ret: Lay, frame: Seg["frame"],
   fl.segs.push(seg);
   fl = { ...fl, seg, spares: [], uses: new Map() };
   olds.forEach((w, i) => {
-    if (fl.brwl.has(w)) {
-      fl.brwl.set(news[i], fl.brwl.get(w)!);
-    }
+    if (fl.brwl.has(w)) fl.brwl.set(news[i], fl.brwl.get(w)!);
   });
   let i = 0;
   live.forEach(([p, b]) => bind_uses(fl, p,
@@ -1455,9 +1429,7 @@ function node_fields(fl: File, t: string, k: Name, tail = false): Val[] {
   const ws = emit_hold(fl, node.ks.map((_, j) => `${fb}${j}]`), "f", node.ks);
   if (r !== undefined) {
     ws.forEach((w, j) => {
-      if (node.ks[j] === "box") {
-        fl.brwl.set(w, r);
-      }
+      if (node.ks[j] === "box") fl.brwl.set(w, r);
     });
   } else if (tail) {
     fl.spares.push({ words: n, name: sp, z });
@@ -1662,9 +1634,10 @@ function bind_set(fl: File, p: Of<"Var">, b: Bind, n: number): void {
   }
 }
 
-function bind_dead(fl: File, rest: HTerm[]): void {
-  for (const [p, b] of [...fl.uses]) {
-    bind_set(fl, p, b, Math.min(b.n, rest_use(fl, rest, p)));
+function bind_dead(fl: File, rest: HTerm[], ps = [...fl.uses.keys()]): void {
+  for (const p of ps) {
+    const b = fl.uses.get(p);
+    if (b) bind_set(fl, p, b, Math.min(b.n, rest_use(fl, rest, p)));
   }
 }
 
@@ -1674,9 +1647,7 @@ function die(m: string): never {
 
 function memo<K, V>(m: Map<K, V>, k: K, f: (k: K) => V): V {
   let v = m.get(k);
-  if (v === undefined) {
-    m.set(k, v = f(k));
-  }
+  if (v === undefined) m.set(k, v = f(k));
   return v;
 }
 
@@ -1691,12 +1662,8 @@ function memo_gc(): void {
 
 function show_main(book: Bend.Book): (number | Name)[] | null {
   const main = book.tlds.main;
-  if (!book.tlds.IO) {
-    die("a build needs import Base");
-  }
-  if (!fun_runs(main)) {
-    die("no main to run");
-  }
+  if (!book.tlds.IO) die("a build needs import Base");
+  if (!fun_runs(main)) die("no main to run");
   if (io_type(book) !== null) return null;
   const show: (number | Name)[] = [];
   let names = 0;
@@ -1732,9 +1699,7 @@ function show_main(book: Bend.Book): (number | Name)[] | null {
         show.push(names++, c.k, doms.length,
           c.k === "Tuple" ? 2 : Number(c.k === "Con" || c.k === "Nil"));
         for (const [f, d] of doms.entries()) {
-          if (!dom_live(d)) {
-            refuse();
-          }
+          if (!dom_live(d)) refuse();
           refs.push([show.push(at, 0) - 1, d[2], fs[f]]);
           at += fs[f].ks.length;
         }
@@ -1799,9 +1764,7 @@ function anf(fl: File, t: HTerm, ty: HTerm | null = null): HTerm {
         const o = term_open(s);
         const on = let_live(fl, s);
         for (const [j, v] of s.v.entries()) {
-          if (on[j]) {
-            binds.push([o.ps[j], go(v, true, null)]);
-          }
+          if (on[j]) binds.push([o.ps[j], go(v, true, null)]);
         }
         return go(o.b, top, T);
       }
@@ -1879,9 +1842,7 @@ function emit_args(fl: File, ck: Spine, jump = false, fork = false): string[] {
   const k = ck.k!;
   const brw = brw_of(fl, k);
   ck.all.forEach((a, q) => {
-    if (fl.hot.has(k + "~" + q)) {
-      facts_hot(fl, a, true);
-    }
+    if (fl.hot.has(k + "~" + q)) facts_hot(fl, a, true);
   });
   const xs = ck.xs.map(term_strip);
   const vars = xs.filter((x) => x.$ === "Var");
@@ -1922,9 +1883,7 @@ function emit_each(fl: File, xs: HTerm[], ats: Lay[] = []): Val[] {
 }
 
 function emit_put(fl: File, dst: Val | null, v: Val): void {
-  if (dst === null) {
-    spare_flush(fl);
-  }
+  if (dst === null) spare_flush(fl);
   const ws = val_own(fl, val_to(fl, v, dst?.lay ?? fl.seg.ret));
   ws.forEach((w, j) => file_push(fl, `${dst?.ws[j] ?? "r" + j} = ${w};`));
   if (dst === null) {
@@ -1954,9 +1913,8 @@ function emit_fuse(fl: File, ck: Spine, dst: Val | null, tail = false): void {
   block(fl, `if (${name}(${["e", o, ...xs].join(", ")}) == 0) {`, () =>
     file_push(fl, "return 0;"));
   out.ws.forEach((v, j) => file_push(fl, `${v} = ${o}[${j}];`));
-  if (tail) {
-    bind_dead(fl, []);
-  }
+  bind_dead(fl, tail ? [] : fl.rest, tail ? undefined
+    : ck.xs.map(term_strip).filter((x) => x.$ === "Var").map(probe_of));
   emit_put(fl, dst, out);
 }
 
@@ -1966,9 +1924,7 @@ function emit_open(fl: File, k: Name): [File, Val[]] {
   const vals = lays.map((l, i) =>
     val_new(l.ks.map(() => name_local(fl, live[i][1])), l));
   brw_of(fl, k).forEach((b, i) => vals[i].ws.forEach((w, j) => {
-    if (b && lays[i].ks[j] === "box") {
-      fl.brwl.set(w, k + "~" + i);
-    }
+    if (b && lays[i].ks[j] === "box") fl.brwl.set(w, k + "~" + i);
   }));
   const seg = seg_new(k, ret, vals.flatMap((v) => v.ws),
     vals.flatMap((v) => v.lay.ks));
@@ -2142,9 +2098,7 @@ function emit_ctr(fl: File, x: Of<"Ctr">, ty: HTerm | null,
       : `blk_node(e, ${val_own(fl, vs[0])[0]}, ${val_own(fl, vs[1])[0]})`],
     BOX);
   }
-  if (fl.hot.has(x.k)) {
-    facts_ctr(fl, fl.book.ctrs[x.k], adt.x);
-  }
+  if (fl.hot.has(x.k)) facts_ctr(fl, fl.book.ctrs[x.k], adt.x);
   const pos = at ?? lay_of(fl.book, adt);
   const seen = memo(fl.consts, pos, () => new Map());
   const got = seen.get(x);
@@ -2158,9 +2112,7 @@ function emit_ctr(fl: File, x: Of<"Ctr">, ty: HTerm | null,
     vs.every((f) => f.stat));
   const out = lay === pos ? v
     : val_new([ctr_build(fl, x.k, val_own(fl, v), v.stat)], BOX, v.stat);
-  if (out.stat) {
-    seen.set(x, out);
-  }
+  if (out.stat) seen.set(x, out);
   return out;
 }
 
@@ -5985,9 +5937,18 @@ function io_sys() {
   return globalThis.BEND_SYS;
 }
 
+// strerror needs bun:ffi; a host without it (node) gets the bare errno.
+function io_strerror(code) {
+  try {
+    return String(io_sys().strerror(code));
+  } catch (_) {
+    return "errno " + code;
+  }
+}
+
 function io_fail(code) {
   return { $: "Fail",
-    error: io_tup(code >>> 0, String(io_sys().strerror(code))) };
+    error: io_tup(code >>> 0, io_strerror(code)) };
 }
 
 function io_done(value) {
