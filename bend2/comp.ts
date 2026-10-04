@@ -2943,7 +2943,7 @@ function js_host(fl: File, k: Name): string {
     }(run_loop(${js_sat(k)}(${xs.join(", ")}))); ${back.join(" ")} return r; }`;
 }
 
-// A module (for the .bend loader and -o <out>.mjs) roots and exports each
+// A module (for the .bend loader and tool.ts -o <out>.mjs) roots and exports each
 // def a host can call.
 export function js_lib(book: Bend.Book, mod = false): string {
   const outs = !mod ? null : [...new Set(book.order)].filter((k) => {

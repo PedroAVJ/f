@@ -31,4 +31,4 @@ def main() -> IO(Unit):
     r : Result<&1, &1, U32 & String, Window> <- Window.open("Clicks", 256, 256)
     opened(r)
 
-#|Window.open: no display (build a native binary with bend <file> -o <out> and run it from a desktop session)
+#|Window.open: no display (a window opens in a native build, run from a desktop session)

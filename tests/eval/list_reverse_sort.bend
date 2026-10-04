@@ -75,4 +75,3 @@ def srt():
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

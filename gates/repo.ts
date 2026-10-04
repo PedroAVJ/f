@@ -50,6 +50,7 @@ allow("bend2/bend.ts", 48000);
 allow("bend2/comp.ts", 64000);
 allow("bend2/main.ts", 16000);
 allow("bend2/safe.ts", 24000);
+allow("bend2/tool.ts");
 allow("bend2/bendtt.lean", 64000);
 allow(/^bend2\/effs\/[a-z0-9_]+\.(c|js)$/);
 allow(/^bend2\/std\/F\/([a-z0-9_-]+\/)*[A-Za-z0-9_-]+\.bend$/);

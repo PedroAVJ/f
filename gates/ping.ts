@@ -13,20 +13,22 @@
 // launcher with the executable, drops app/, current, id, last, rep and bad,
 // cleans its temp dir, writes no shell rc, names the version, the PATH line
 // and the daily check in its card (a second install, bin on PATH, omits the
-// PATH line); bend --help prints the help, and its check
-// logs one line {v, os, arch, ip} with no id and no cmd; a second run and
-// bend --version log nothing; BEND_NO_TELEMETRY=1 asks nothing and writes
-// no cache; a newer release with a notice prints one line and the notice
+// PATH line); a bare bend names its version in one line and logs nothing;
+// a program runs through the executable, and its check logs one line {v,
+// os, arch, ip} with no id and no cmd; a second run logs nothing;
+// BEND_NO_TELEMETRY=1 asks nothing and writes no cache; a newer release
+// with a notice prints one line (the installer's command) and the notice
 // (control characters stripped) on stderr, stdout and the exit code being
-// the command's own; a dead origin costs one run under four seconds; bend
-// update runs the installer again; guide, base and a program run through
-// the executable; run in a project, it preloads none of its bunfig.toml
-// and reads none of its .env (its BEND_LIB would name a package and swap in
+// the program's own; a dead origin costs one run under four seconds; the
+// removed commands and flags (update, guide, version, base, login, --help,
+// -o, --publish) fail in one line; run in a project, it preloads none of its
+// bunfig.toml and reads none of its .env (its BEND_LIB would name a package and swap in
 // the project's copy); a tampered sha256 installs nothing; a Windows or a MIPS
 // uname is refused in one line; a 2.0.0-2.0.7 launcher's ping and its
 // latest.json fallback name the version, no sha256 and the move notice; the
-// formula carries the sum; --publish ships LICENSE files, names the license
-// as the hub does, sends no leading byte order mark (a package published
+// formula carries the sum; the internal tool keeps failure and success for
+// a closed reader; its --publish (bend2/tool.ts, not the CLI) ships LICENSE
+// files, names the license as the hub does, sends no leading byte order mark (a package published
 // from a file with one imports), refuses a License/ directory, and every
 // request carries User-Agent: bend/<ver>. SKIP when the site repo is not at
 // lib.SITE.
@@ -60,6 +62,7 @@ const TARGET = process.platform + "-" + process.arch;
 const SAID   = "Once a day, bend asks bend-lang.com";
 const MOVED  = "Bend's installer changed";
 const PATHS  = "/usr/bin:/bin";
+const TOOL   = path.join(lib.ROOT, "bend2", "tool.ts");
 const TERMS  = "Publishing to BendHub: public and permanent, under"
   + " https://bend-lang.com/bender/terms#s18\n";
 
@@ -83,11 +86,17 @@ function bend(args: string[], env: Record<string, string> = {}):
   return run(BIN, args, env);
 }
 
+// the internal tool, under this bun: publishing, verdicts and builds
+function tool(args: string[], env: Record<string, string> = {}):
+  Promise<lib.Exec> {
+  return run(process.execPath, [TOOL, ...args], env);
+}
+
 // The reader has exited before bend starts: no race with its first write.
-function bend_closed(args: string[]): Promise<lib.Exec> {
+function bend_closed(args: string[], cmd = [BIN]): Promise<lib.Exec> {
   return run("bash", ["-c",
     'exec 3> >(true); wait "$!"; exec "$@" >&3 2>&3',
-    "--", BIN, ...args], { BEND_NO_TELEMETRY: "1" });
+    "--", ...cmd, ...args], { BEND_NO_TELEMETRY: "1" });
 }
 
 // the card without its colors
@@ -120,7 +129,7 @@ function logs(): Record<string, unknown>[] {
   }
 }
 
-// pkg_hash is the hash --publish gives these files
+// pkg_hash is the hash tool.ts --publish gives these files
 function pkg_hash(files: Record<string, string>): string {
   const sha = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
   return "0x" + sha(Object.keys(files).sort().map((p) => sha(files[p]) + " "
@@ -135,7 +144,7 @@ function publish(dir: string, files: Record<string, string>):
       { recursive: true });
     fs.writeFileSync(path.join(TMP, "pub", dir, f), text);
   }
-  return bend([path.join(TMP, "pub", dir, "lic_" + dir + ".bend"),
+  return tool([path.join(TMP, "pub", dir, "lic_" + dir + ".bend"),
     "--publish"], { BEND_HUB: ORIGIN });
 }
 
@@ -226,9 +235,11 @@ try {
   fs.writeFileSync(BIN, "#!/bin/sh\necho launcher\n", { mode: 0o755 });
   const ins = await install();
   check("install.sh over the old layout: " + ins.err, ins.code === 0);
-  const vers = await bend(["version"]);
-  check("bin/bend is the executable", vers.code === 0
-    && vers.out === "bend " + ver + "\n"
+  const usage = "bend: no words: bend <words...> runs main in ./<words>.bend"
+    + " (bend " + ver + ")\n";
+  const vers = await bend([]);
+  check("bin/bend is the executable, and a bare bend names its version",
+    vers.code === 1 && vers.out === "" && vers.err === usage
     && fs.statSync(BIN).size > 1_000_000);
   check("the old layout is gone", ["app", "current", "id", "last", "rep",
     "bad"].every((f) => !fs.existsSync(path.join(BEND, f)))
@@ -243,20 +254,23 @@ try {
   check("a second install, bin on PATH, omits the PATH line", again.code === 0
     && !again.out.includes("PATH=")
     && fs.statSync(BIN).size > 1_000_000);
-  check("bend version logs nothing", logs().length === 0
+  check("a bare bend logs nothing", logs().length === 0
     && !fs.existsSync(path.join(BEND, "check.json")));
-  const help = await bend(["--help"]);
+  const sum_file = path.join(TMP, "sum.bend");
+  fs.writeFileSync(sum_file,
+    "import Base\ndef main() -> Nat:\n  (2n + 3n : Nat)\n");
+  const sum5 = await bend([sum_file]);
   const line = logs().pop() ?? {};
-  check("bend --help prints the help", help.code === 0
-    && help.out.includes("usage:"));
+  check("a program runs through the executable", sum5.code === 0
+    && sum5.out === "5n\n");
   check("the check logs {v, os, arch, ip} and nothing else",
     logs().length === 1 && line.v === ver && line.os === process.platform
     && line.arch === process.arch && typeof line.ip === "string"
     && Object.keys(line).sort().join() === "arch,ip,os,t,v");
-  await bend(["--help"]);
+  await bend([sum_file]);
   check("a second run logs nothing", logs().length === 1);
   fresh();
-  const mute = await bend(["--help"], { BEND_NO_TELEMETRY: "1" });
+  const mute = await bend([sum_file], { BEND_NO_TELEMETRY: "1" });
   check("BEND_NO_TELEMETRY=1 asks nothing and writes no cache",
     mute.code === 0 && logs().length === 1
     && !fs.existsSync(path.join(BEND, "check.json")));
@@ -264,33 +278,25 @@ try {
   fresh();
   fs.writeFileSync(path.join(TMP, "bad.bend"),
     "import Base\ndef main() -> Nat:\n  True{}\n");
-  await bend(["guide"]);
+  await bend([sum_file]);
   const bad = await bend([path.join(TMP, "bad.bend")]);
   check("a newer release prints its line and the notice on stderr, the"
-    + " command's stdout and exit code untouched", bad.code === 1
-    && bad.out === "" && bad.err.includes("bend 99.0.0 is available: run"
-    + " bend update\nhelloworld\n"));
+    + " program's stdout and exit code untouched", bad.code === 1
+    && bad.out === "" && bad.err.includes("bend 99.0.0 is available: curl"
+    + " -fsSL " + ORIGIN + "/install.sh | sh\nhelloworld\n"));
   release(ver);
   fresh();
   const t0 = Date.now();
-  const dead = await bend(["--help"], { BEND_ORIGIN: "http://127.0.0.1:1" });
+  const dead = await bend([sum_file], { BEND_ORIGIN: "http://127.0.0.1:1" });
   check("a dead origin costs one run under four seconds", dead.code === 0
-    && dead.out.includes("usage:") && Date.now() - t0 < 4000);
-  const was = fs.statSync(BIN).ino;
-  const upd = await bend(["update"]);
-  check("bend update runs the installer again: " + upd.err, upd.code === 0
-    && upd.err.startsWith("curl -fsSL " + ORIGIN + "/install.sh | sh\n")
-    && plain(upd.out).includes("Bend \u2588  " + ver) && fs.statSync(BIN).ino !== was);
-  const guide = await bend(["guide"]);
-  const base  = await bend(["base", "Map"]);
-  fs.writeFileSync(path.join(TMP, "sum.bend"),
-    "import Base\ndef main() -> Nat:\n  (2n + 3n : Nat)\n");
-  const sum5 = await bend([path.join(TMP, "sum.bend")]);
-  check("guide, base and a program run through the executable",
-    guide.out.startsWith("# Bend") && base.out.startsWith("type Map")
-    && sum5.code === 0 && sum5.out === "5n\n");
+    && dead.out === "5n\n" && Date.now() - t0 < 4000);
+  for (const args of [["update"], ["guide"], ["version"], ["base", "Map"],
+    ["login"], ["--help"], [sum_file, "-o", "x"], [sum_file, "--publish"]]) {
+    const got = await bend(args, { BEND_NO_TELEMETRY: "1" });
+    check("bend " + args.join(" ") + " fails in one line: " + got.err,
+      got.code === 1 && got.out === "" && /^bend: [^\n]*\n$/.test(got.err));
+  }
   const bad_file = path.join(TMP, "bad.bend");
-  const sum_file = path.join(TMP, "sum.bend");
   const unsafe_file = path.join(TMP, "unsafe.bend");
   const checkup = path.join(TMP, "checkup.bend");
   const good_checkup = path.join(TMP, "good_checkup.bend");
@@ -299,14 +305,16 @@ try {
   fs.writeFileSync(checkup,
     "import ./sum.bend as Good\nimport ./bad.bend as Bad\n");
   fs.writeFileSync(good_checkup, "import ./sum.bend as Good\n");
-  for (const args of [[bad_file], [bad_file, "--check-only"],
-    [unsafe_file, "--verdict"], ["--unknown"], [checkup, "--checkup"]]) {
-    const got = await bend_closed(args);
+  const via = [process.execPath, TOOL];
+  for (const [args, cmd] of [[[bad_file]], [["--unknown"]], [[bad_file,
+    "--check-only"], via], [[unsafe_file, "--verdict"], via], [[checkup,
+    "--checkup"], via]] as [string[], string[]?][]) {
+    const got = await bend_closed(args, cmd);
     check("a closed reader keeps failure: " + args.join(" "), got.code === 1);
   }
-  for (const args of [[sum_file], [sum_file, "--check-only"],
-    ["--help"], [good_checkup, "--checkup"]]) {
-    const got = await bend_closed(args);
+  for (const [args, cmd] of [[[sum_file]], [[sum_file, "--check-only"], via],
+    [[good_checkup, "--checkup"], via]] as [string[], string[]?][]) {
+    const got = await bend_closed(args, cmd);
     check("a closed reader keeps success: " + args.join(" "), got.code === 0);
   }
   const two  = "import Base\ndef two() -> Nat:\n  2n\n";
@@ -325,11 +333,11 @@ try {
     spdx.err.includes(TERMS + "License: MIT (LICENSE)\n"));
   for (const flags of [["--verdict", "--publish"], ["--publish", "--verdict"]]) {
     const count = seen.length;
-    const run = await bend([path.join(TMP, "sum.bend"), ...flags],
+    const run = await tool([sum_file, ...flags],
       { BEND_HUB: ORIGIN, BEND_NO_TELEMETRY: "1" });
     check(flags.join(" ") + " is refused before publishing: " + run.err,
-      run.code === 1 && run.out === "" && run.err === "bend: --publish"
-      + " takes no other option (see bend --help)\n" && seen.length === count);
+      run.code === 1 && run.out === "" && run.err === "bend2/tool.ts: --publish"
+      + " takes no other option\n" && seen.length === count);
   }
   const ids: [string, string][] = [
     ["SPDX-License-Identifier: MIT\r\n", "MIT (LICENSE)"],
@@ -413,8 +421,8 @@ try {
   const fake = await install();
   script = script.replace("0".repeat(64), sum);
   check("a tampered sha256 installs nothing", fake.code === 1
-    && fake.err.includes("does not match") && (await bend(["version"]))
-    .out === "bend " + ver + "\n");
+    && fake.err.includes("does not match") && (await bend([]))
+    .err === usage);
   const fakes = path.join(TMP, "fakes");
   fs.mkdirSync(fakes);
   fs.writeFileSync(path.join(fakes, "uname"), "#!/bin/sh\n"

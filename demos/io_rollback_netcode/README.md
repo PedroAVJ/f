@@ -22,12 +22,12 @@ puts it; WASD or the arrows move it; Esc quits. The id is the clock at
 launch (or PID); SERVER=127.0.0.1 PORT=7777 ROOM=lobby are the
 defaults.
 
-    bend demos/io_rollback_netcode/server.bend -o relay && ./relay
-    bend demos/io_rollback_netcode/walkers_demo.bend -o walkers && ./walkers
+    bun bend2/tool.ts demos/io_rollback_netcode/server.bend -o relay && ./relay
+    bun bend2/tool.ts demos/io_rollback_netcode/walkers_demo.bend -o walkers && ./walkers
 
 Headless test: two players that must print the same three lines.
 
-    bend demos/io_rollback_netcode/walkers_test.bend -o bot
+    bun bend2/tool.ts demos/io_rollback_netcode/walkers_test.bend -o bot
     PID=1 ROOM=t ./bot & PID=2 ROOM=t ./bot; wait
     # posts=64 tick=900 hash=...     (the same three lines from each)
     # posts=64 tick=1200 hash=...

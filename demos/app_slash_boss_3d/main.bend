@@ -12,7 +12,7 @@
 # SLASH_WAV=path writes the mix there as text; SLASH_VOICES=N adds N
 # looping voices.
 #
-#   bend demos/app_slash_boss_3d/main.bend -o slash && ./slash
+#   bun bend2/tool.ts demos/app_slash_boss_3d/main.bend -o slash && ./slash
 import Base
 import ./bend3d.bend as R
 

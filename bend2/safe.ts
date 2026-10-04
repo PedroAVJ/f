@@ -1,6 +1,6 @@
 // Safe
 // ====
-// `bend f.bend --verdict` checks f.bend twice: bend2 checks it, then
+// `tool.ts f.bend --verdict` checks f.bend twice: bend2 checks it, then
 // safe_book elaborates the checked book to BendTT (bend2/bendtt.lean,
 // the minimal kernel with a proof) and the kernel's CLI checks the text.
 // The elaborator reads bend2's checked terms (Def.e: every node of a

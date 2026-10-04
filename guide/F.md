@@ -40,8 +40,8 @@ the app, from entries it writes beside dist/web (ui.bend defines `State`,
 with a `page: Page`, its first state `s()`, `update(s, input)` and `f(s)`;
 the app shows `f(s)` at its page's address in `State.lang(s)`, with its
 inputs' states, waits for an `Input`, goes to the page an address names or
-updates, keeps the inputs' states, and shows again), built with `-o dist/web.web` (which
-needs Emscripten) into dist/web, its index.html titled and prerendered with
+updates, keeps the inputs' states, and shows again), built by the fork's internal tool (`bend2/tool.ts`, `-o dist/web.web`, which
+needs Emscripten; the `bend` command only runs) into dist/web, its index.html titled and prerendered with
 the first screen; a launch agent
 com.<user>.<repo>.web (the first word of the account's full name, the
 repository's folder) serving it with python3's http.server on 127.0.0.1,

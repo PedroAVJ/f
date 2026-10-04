@@ -9,4 +9,3 @@ def t(+n: Nat) -> {toString(n) == Nat.add(n, 1n) : Nat}:
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

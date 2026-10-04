@@ -1,7 +1,7 @@
 # The relay: one process, every room. PORT picks the port
 # (default 7777). See the Server section of netcode.bend.
 #
-#   bend demos/io_rollback_netcode/server.bend -o relay && ./relay
+#   bun bend2/tool.ts demos/io_rollback_netcode/server.bend -o relay && ./relay
 import Base
 import ./netcode.bend as Net
 

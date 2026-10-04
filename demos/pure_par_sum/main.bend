@@ -1,6 +1,6 @@
 # Parallel sum: the 2^d numbers from i as a fork/join tree; sum! runs it on
 # the GPU or every core. Prints 2147450880.
-#   bend demos/pure_par_sum/main.bend -o sum && ./sum
+#   bun bend2/tool.ts demos/pure_par_sum/main.bend -o sum && ./sum
 import Base
 
 def pow2(d: Nat) -> Nat:

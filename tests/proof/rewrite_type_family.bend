@@ -64,4 +64,3 @@ def even_dbl(n):
       even_dbl(p)
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

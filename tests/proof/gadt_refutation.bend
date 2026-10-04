@@ -84,4 +84,3 @@ def one_odd(ev):
       z_ne_s(p, s_inj(Z{}, S{p}, eq))
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

@@ -119,4 +119,3 @@ def ack_gt(m, n):
           le_trans(2n+q, 1n+ack(1n+p, q), ack(p, ack(1n+p, q)), ack_gt(1n+p, q), ack_gt(p, ack(1n+p, q)))
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

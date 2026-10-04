@@ -9,7 +9,7 @@
 # (server.bend), then this file once per player: your square appears at
 # once, where your id puts it.
 #
-#   bend demos/io_rollback_netcode/walkers_demo.bend -o walkers && ./walkers
+#   bun bend2/tool.ts demos/io_rollback_netcode/walkers_demo.bend -o walkers && ./walkers
 #
 # The player's id is the clock at launch (or PID); the relay is
 # SERVER:PORT (127.0.0.1:7777) and the room is ROOM (lobby).

@@ -8,4 +8,3 @@ def two() -> Nat:
   2n
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

@@ -14,4 +14,3 @@ def ap_eq(f, g, e):
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

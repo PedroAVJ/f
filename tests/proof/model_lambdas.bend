@@ -8,4 +8,3 @@ def L(f, h, x):
   h(Nat, 0n, x)
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

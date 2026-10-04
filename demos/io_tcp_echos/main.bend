@@ -3,7 +3,7 @@
 # (IO.spawn) that echoes each recv until the peer closes; the accept
 # loop is @unsafe: it runs until killed. Try it:
 #
-#   bend demos/io_tcp_echos/main.bend -o echos && ./echos
+#   bun bend2/tool.ts demos/io_tcp_echos/main.bend -o echos && ./echos
 #   nc 127.0.0.1 7777
 import Base
 

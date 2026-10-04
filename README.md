@@ -122,7 +122,7 @@ Add this to your `AGENTS.md`:
 
 ```
 When using Bend:
-- run `bend guide` to learn it
+- read https://github.com/bendlang/bend/blob/main/guide/GUIDE.md to learn it
 - use `LAWS.bend` to keep important rules
 - run `bend PROOF.bend` before committing
 - parallelize the code whenever possible
@@ -198,14 +198,14 @@ def add_zero(x):
 
 # References
 
-- Guide: [GUIDE.md](guide/GUIDE.md), also printed by `bend guide`.
+- Guide: [GUIDE.md](guide/GUIDE.md).
 - Demos: [demos/](demos), apps, servers and proofs, each with its `LAWS.bend`.
-- Base: [base.bend](bend2/base.bend), the base library, also printed by `bend base`.
+- Base: [base.bend](bend2/base.bend), the base library.
 - F framework: explicit UI/V imports select bare bindings from the copied implementation in [bend2/std/F](bend2/std/F), with internal web compiler support. See [F.md](guide/F.md), [WEB.md](guide/WEB.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - Web: [WEB.md](guide/WEB.md), Wasm application execution, browser effects and generated WebGPU kernels; [demos/browser](demos/browser) is the initial UI example.
 - Paper: [BendTT: An Affine Dependent Type Theory](paper/BendTT.pdf).
 - Paper: [BendRT: A Parallel Runtime for CPUs and GPUs](paper/BendRT.pdf).
-- Formalization: [bendtt.lean](bend2/bendtt.lean), the kernel of `--verdict` and its proofs, in Lean.
+- Formalization: [bendtt.lean](bend2/bendtt.lean), the kernel that rechecks proofs, and its proofs, in Lean.
 - Benches: [bench/](bench), every bench used to make the charts above.
 - Formatter: [bend-fmt-lsp](tools/bend-fmt-lsp), a formatting-only Bend 2 language server.
 - Community language server: [bend2-lsp](https://github.com/don2e4/bend2-lsp), with formatting, diagnostics, and hover.
@@ -245,10 +245,10 @@ def add_zero(x):
 - The compiler is young and has blind spots (unusually slow programs). Report.
 - We don't have as many benchmarks as we'd like yet, especially for the checker.
 - The compiler (not kernel) is 99% AI-written and not yet fully audited.
-- The checker has no proof and may have bugs; `--verdict` uses a proven kernel.
+- The checker has no proof and may have bugs; the tooling rechecks with a proven kernel.
 - A binary needs clang 14+; ! needs 19+, Metal or CUDA 12.
 - No Windows (WSL works); on Linux, Window and Audio need X11 and ALSA headers.
-- A hub package is a hash, unless its author names and versions it after `bend login`.
+- A hub package is a hash, unless its author names and versions it.
 - Error messages are terse; no debugger, profiler or REPL.
 - The editor tool only formats; the community bend2-lsp adds errors and hover.
 - No test framework and no documentation beyond the guide.

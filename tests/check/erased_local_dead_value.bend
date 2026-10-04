@@ -8,4 +8,3 @@ def g(x: Nat, f: Nat -> Nat) -> Nat:
   0n
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

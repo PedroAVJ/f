@@ -30,4 +30,3 @@ def f(n, e, h2, h3):
   NZ{}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

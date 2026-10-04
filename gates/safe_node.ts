@@ -1,5 +1,5 @@
-// safe.ts's node side: runs `bend <f> --verdict` on each file named on
-// stdin, PAR at a time, each capped at CAP s, and prints one JSON array
+// safe.ts's node side: runs `bun bend2/tool.ts <f> --verdict` on each
+// file named on stdin, PAR at a time, each capped at CAP s, and prints one JSON array
 // of { f, code, ms, out }. On a mismatch (bend2 checks, the kernel does
 // not), out gains why: the defs `-o` leaves out of scope, or else the
 // kernel's error on the translation, with the failing call if live. A
@@ -15,7 +15,7 @@ const res: unknown[] = [];
 function one(f: string): Promise<void> {
   const env = NO_BASE.has(f) ? { ...process.env, BEND_NO_BASE: "1" } : process.env;
   return new Promise((done) => {
-    const kid = child.spawn(process.execPath, ["bend2/main.ts", f, "--verdict"], { env });
+    const kid = child.spawn(process.execPath, ["bend2/tool.ts", f, "--verdict"], { env });
     let txt = "";
     kid.stdout.on("data", (d) => { txt += d; });
     kid.stderr.on("data", (d) => { txt += d; });
@@ -26,7 +26,7 @@ function one(f: string): Promise<void> {
       if (txt.includes("Sorry - ")) {
         const tt = f.replace(/\.bend$/, ".bendtt");
         const run = (bin: string, args: string[]) => child.spawnSync(bin, args, { encoding: "utf8", timeout: 20000, env });
-        const oos = run(process.execPath, ["bend2/main.ts", f, "-o", tt]).stderr.trim();
+        const oos = run(process.execPath, ["bend2/tool.ts", f, "-o", tt]).stderr.trim();
         let why = oos !== "" ? oos : "BendTT: " + run(process.env.BENDTT ?? "", [tt]).stdout.trim();
         const m = /^In (\S+):\naffine live code/m.exec(why);
         if (m !== null) {

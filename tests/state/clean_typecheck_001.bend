@@ -36,4 +36,3 @@ def vpad(n, v):
   v
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

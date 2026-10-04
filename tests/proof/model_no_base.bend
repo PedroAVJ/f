@@ -9,4 +9,3 @@ def reflexive(~n: Grow<Nat>) -> {n == n : Grow<Nat>}:
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

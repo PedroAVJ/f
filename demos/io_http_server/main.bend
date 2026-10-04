@@ -3,7 +3,7 @@
 # own (IO.spawn) that reads the request, sends the response and
 # closes; the accept loop is @unsafe: it runs until killed. Try it:
 #
-#   bend demos/io_http_server/main.bend -o http_server && ./http_server
+#   bun bend2/tool.ts demos/io_http_server/main.bend -o http_server && ./http_server
 #   curl http://127.0.0.1:8080
 import Base
 

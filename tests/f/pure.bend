@@ -28,4 +28,3 @@ import ../../bend2/std/F/deployment/source/type.bend as Source
 import ../../bend2/std/F/deployment/source/ops.bend as SourceChecks
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

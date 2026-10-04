@@ -27,4 +27,3 @@ def agree_32(+x: U32) -> {root_loop(32n, x) == root_rec(32n, x) : U32}:
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

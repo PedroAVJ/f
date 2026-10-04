@@ -45,4 +45,3 @@ def choice_t(mk, ok, x):
   ok(x)
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

@@ -5,15 +5,23 @@ bidirectional pass and runs massively parallel on CPU threads and GPUs.
 bend2/bend.ts is the language (parser, theory, checker) and is human-written:
 do not edit it. bend2/comp.ts is the one compiler: the C runtime (host and
 device from one source), the C emitter and the JS emitter; base.bend is the
-prelude; main.ts is the CLI. Every test is a Bend file that ends in the `#|`
-lines its run must print, and the gates run on the mini cluster.
+prelude; main.ts is the CLI (`bend <words...>` runs a main, nothing else)
+and tool.ts the internal tool the gates and V run. Every test is a Bend file
+that ends in the `#|` lines its run must print, and the gates run on the mini
+cluster.
 
     bend2/bend.ts       the language: parser, theory, checker
     bend2/comp.ts       the compiler and runtimes (C, Metal, CUDA, JS, Wasm,
                         browser WGSL kernel lowering)
-    bend2/main.ts       the CLI; imported, the .bend loader for bun and node
-    bend2/safe.ts       --verdict and -o <out>.bendtt: the elaborator from a
-                        checked book to BendTT text
+    bend2/main.ts       the CLI, bare: `bend a b` runs ./a/b.bend (else ./a.bend),
+                        the rest IO.args; no commands, no flags; imported, the
+                        .bend loader for bun and node
+    bend2/tool.ts       the internal tool (not the user's CLI): -o <out> (binary,
+                        C, JS, .mjs, .web, .bendtt), --check-only, --verdict,
+                        --checkup, --publish, link, login, base; V's build,
+                        the gates and gen_pins.ts run it
+    bend2/safe.ts       tool.ts --verdict and -o <out>.bendtt: the elaborator
+                        from a checked book to BendTT text
     bend2/bendtt.lean   BendTT: the kernel, its claims (no checked def has type
                         Empty, live code halts) and their proofs; --verdict
                         builds its CLI once, with Lean v4.34.0
@@ -47,8 +55,8 @@ lines its run must print, and the gates run on the mini cluster.
                         $BEND_NO_BASE, an internal switch; users get Base
     gates/_run.ts       the four gates with --gate
     demos/              one dir per demo
-    guide/              GUIDE.md, and the extras `bend guide <name>` prints:
-                        EFFECTS.md, SHADERS.md, F.md, WEB.md
+    guide/              GUIDE.md, and the extras EFFECTS.md, SHADERS.md, F.md,
+                        WEB.md
     paper/              BendTT.pdf, BendRT.pdf
     media/              the film and the charts
     .github/            ISSUE_TEMPLATE/bug.yml, the bug report form, and

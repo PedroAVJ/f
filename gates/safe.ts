@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // The --verdict gate: for each file of a corpus, bend2's verdict against
-// BendTT's, from one `bend <f> --verdict` run on a mini (ALL PROOFS CHECK, or
+// BendTT's, from one `tool.ts <f> --verdict` run on a mini (ALL PROOFS CHECK, or
 // SOME PROOFS FAIL and why; safe_node.ts adds why to a mismatch), each
 // under a 30 s alarm. Classes: agree (both check), u unsafe (a def relies
 // on @unsafe or foreign code: the goal allows it), bend2 rejects (--verdict

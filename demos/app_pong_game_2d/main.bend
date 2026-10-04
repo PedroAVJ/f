@@ -5,7 +5,7 @@
 # an Image quadtree: flat tells whether a cell is one color and draw
 # emits one Pix the moment it is.
 #
-#   bend demos/app_pong_game_2d/main.bend -o pong && ./pong
+#   bun bend2/tool.ts demos/app_pong_game_2d/main.bend -o pong && ./pong
 import Base
 
 type Pong.Keys is Data:

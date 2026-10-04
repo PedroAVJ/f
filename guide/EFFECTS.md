@@ -15,8 +15,8 @@ def Clock.now() -> IO(U32):
 ```
 
 Each file registers the effect under its def with `io_eff(CID(Clock.now),
-..)`. The `.c` file serves `bend x.bend -o x`; the `.js` file
-serves `bend x.bend -o x.js` and `bend x.bend`. Every effect in Base is
+..)`. The `.c` file serves a native build (`bun bend2/tool.ts x.bend -o x`, the
+repo's internal tool); the `.js` file serves `bend x.bend` and a JS build. Every effect in Base is
 built this way: `bend2/effs/*.c` and `*.js` are the reference.
 
 ## The C side
@@ -128,8 +128,8 @@ function clock_now() {
 io_eff(CID(Clock.now), clock_now);
 ```
 
-`bend main.bend -o main && ./main` prints a line; so do `bend main.bend -o
-main.js && bun main.js` and `bend main.bend`. The output name must not be
+`bun bend2/tool.ts main.bend -o main && ./main` prints a line; so do
+`bun bend2/tool.ts main.bend -o main.js && bun main.js` and `bend main.bend`. The output name must not be
 one of the effect's files.
 
 ## Compatibility

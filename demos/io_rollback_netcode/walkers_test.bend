@@ -9,7 +9,7 @@
 # names the player (else the clock); SERVER, PORT and ROOM as in
 # walkers_demo.bend.
 #
-#   bend demos/io_rollback_netcode/walkers_test.bend -o bot
+#   bun bend2/tool.ts demos/io_rollback_netcode/walkers_test.bend -o bot
 #   PID=1 ROOM=t ./bot & PID=2 ROOM=t ./bot; wait
 import Base
 import ./netcode.bend as Net

@@ -1,7 +1,7 @@
 # Parallel bitonic sort of a tree of 2^16 numbers: sort sorts the halves in
 # opposite directions and flow merges them, leaf by leaf, with mix. Every
 # fork is a parallel let; sort! runs on the GPU or every core. Prints sorted.
-#   bend demos/pure_par_sort/main.bend -o sort && ./sort
+#   bun bend2/tool.ts demos/pure_par_sort/main.bend -o sort && ./sort
 import Base
 
 # a number at depth 0, a pair of trees below

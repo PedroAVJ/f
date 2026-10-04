@@ -7,4 +7,3 @@ def f() -> Nat:
   List.length(&1, U32, Con{7, Nil{}})
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

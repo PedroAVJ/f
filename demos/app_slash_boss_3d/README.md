@@ -11,7 +11,7 @@ or `../../media/slash_boss_3d`, so the working directory must be the repo
 root or this directory):
 
 ```
-bend demos/app_slash_boss_3d/main.bend -o slash && ./slash
+bun bend2/tool.ts demos/app_slash_boss_3d/main.bend -o slash && ./slash
 ```
 
 **Laws** ([`LAWS.bend`](LAWS.bend), proved in [`PROOF.bend`](PROOF.bend)):

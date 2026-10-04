@@ -114,12 +114,13 @@ def here(+ls: List<&2, String>) -> D.Here:
   D.Here{line(ls, 5n), line(ls, 6n), line(ls, 4n), List.drop(&2, String, ls, 8n), Maybe.default(&2, U32, U32.read(line(ls, 7n)), 0)}
 
 # A web app's build: the two entries V writes beside its folder, dist/<app>.page.bend (the first screen, as
-# HTML) and dist/<app>.bend (the app), run and built by the fork ($BEND, else ../f/bend2/main.ts beside the
-# repository; bun and emcc from PATH, then Homebrew) into the folder dist/<app> (`-o dist/<app>.web`, which
-# needs Emscripten). Its index.html is titled with the first screen's first text, holds that screen until
-# the app starts, resolves its files from "/" (any path is the app) and loads the fork's address.js (the
-# address bar follows the page). dist/<app>.stamp holds the hash of its inputs (the entries, the fork's
-# commit, every Bend file of the repository) and of the folder; a build is fresh while both hold.
+# HTML) and dist/<app>.bend (the app): the page run by the fork's CLI ($BEND, else ../f/bend2/main.ts beside
+# the repository; bun and emcc from PATH, then Homebrew), the app built by the fork's internal tool beside
+# it (tool.ts `-o dist/<app>.web`, which needs Emscripten; the CLI only runs) into the folder dist/<app>.
+# Its index.html is titled with the first screen's first text, holds that screen until the app starts,
+# resolves its files from "/" (any path is the app) and loads the fork's address.js (the address bar follows
+# the page). dist/<app>.stamp holds the hash of its inputs (the entries, the fork's commit, every Bend file of
+# the repository) and of the folder; a build is fresh while both hold.
 # Arguments: the page entry, the folder's index.html, the app entry.
 def inputs_script() -> String:
   "b=${BEND:-../f/bend2/main.ts}; export PATH=\"$PATH:/opt/homebrew/bin\"; u=$(command -v bun)\n" ++
@@ -138,7 +139,7 @@ def page_script() -> String:
   "f() { cat \"$d.err\" >&2 2>/dev/null; rm -rf \"$d.out\" \"$d.err\" \"$d.web\"; exit 1; }\n" ++
   "mkdir -p \"$(dirname \"$d\")\" || exit 1; k=$(h \"$1\" \"$3\"); printf '%s' \"$1\" > \"$d.page.bend\" && printf '%s' \"$3\" > \"$d.bend\" || exit 1\n" ++
   "\"$u\" \"$b\" \"$d.page.bend\" > \"$d.out\" 2> \"$d.err\" || f\n" ++
-  "rm -rf \"$d.web\"; \"$u\" \"$b\" \"$d.bend\" -o \"$d.web\" > \"$d.err\" 2>&1 || f\n" ++
+  "rm -rf \"$d.web\"; \"$u\" \"$(dirname \"$b\")/tool.ts\" \"$d.bend\" -o \"$d.web\" > \"$d.err\" 2>&1 || f\n" ++
   "cp \"$(dirname \"$b\")/std/F/browser/address.js\" \"$d.web/\" || f\n" ++
   "t=$(grep -o '>[^<>][^<>]*<' \"$d.out\" | head -1 | sed 's/^>//; s/<$//; s/[&|\\\\]/\\\\&/g')\n" ++
   "sed -i '' \"s|<title>Bend</title>|<base href=\\\"/\\\"><title>$t</title>|\" \"$d.web/index.html\" || f\n" ++

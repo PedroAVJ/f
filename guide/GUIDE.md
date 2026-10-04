@@ -165,7 +165,7 @@ to the GPU is a zero-cost operation. The GPU shines on uniform numeric work like
 mandelbrot or nbody; divergent work like n-queens stays faster on the CPU. A
 machine without a GPU runs `!` on the CPU (still in parallel). What the lanes
 share also sets the speed: a `+` value read by every lane costs an atomic per
-read. Read `bend guide shaders` before you write a parallel app.
+read. Read `guide/SHADERS.md` before you write a parallel app.
 
 The JavaScript target ignores all that and just runs sequentially.
 
@@ -325,11 +325,9 @@ SOME PROOFS FAIL while any law is open or false, and ALL PROOFS CHECK once every
 law holds.
 bend refuses a `PROOF.bend` that sits beside a `LAWS.bend` without importing it.
 
-`bend PROOF.bend --verdict` checks the proofs a second time, with a small kernel
-that has a proof in Lean: it prints ALL PROOFS CHECK only when every def outside
-Base is a valid proof, which bend2 and the kernel both accept, and which relies
-on no `@unsafe` or foreign code. `-o PROOF.bendtt` writes the translation the
-kernel reads; the translation has no proof, so read it to confirm a law.
+Bend's own tooling checks proofs a second time with BendTT, a small kernel that
+has a proof in Lean. A def that relies on `@unsafe` or foreign code is never a
+proof: a `PROOF.bend` that does prints SOME PROOFS FAIL.
 
 Bend has no tactics: a proposition is a type, and a proof is a def of that type.
 `{a == b : T}` is an equality; `{==}` proves it when both sides compute to the
@@ -408,8 +406,7 @@ implemented by a host function named after the def, lowercased, dots to
 underscores. You can add your own effects the same way. Only the event loop runs
 them, so proofs, termination and the GPU never touch host code. In the other
 direction, a JS file may `import Game from "./game.bend"` (with `bend2/main.ts`
-preloaded), or from the `./game.mjs` that `-o game.mjs` writes, and call every
-non-IO def, with constructors as `{$: "Name", field: value}` and `Nat` as
+preloaded) and call every non-IO def, with constructors as `{$: "Name", field: value}` and `Nat` as
 `BigInt`. A value crosses without a copy: an `Array`
 argument is the caller's own array, updated in place, so copy it first if you
 keep it.
@@ -494,9 +491,8 @@ is_le is_gt is_ge` (returning `Bool`) for comparisons, `show` to `String` and
 are just sugar for these. Beyond numbers there are `Bool`, `Cmp`, `Maybe`,
 `Result`, `List`, `Array`, a string-keyed `Map` (`new set get has del keys`;
 `get` takes a default, and `get` and `has` hand the map back beside their
-result), `Set` on top of it, the `Equal` lemmas, and the effects. `bend base`
-prints all of it, `bend base --types` only the types, and `bend base Map` one
-name and everything under it.
+result), `Set` on top of it, the `Equal` lemmas, and the effects.
+`bend2/base.bend` holds all of it.
 
 ### Modules
 
@@ -523,45 +519,36 @@ is plain names (letters, digits, `_` and `-`): `math.bend` is a module,
 `math.extra.bend` is refused. A law left open in one file may be filled in
 another as `def M.name(..)`, so a proof can ship separately from its claim.
 `import 0x<hash>/main.bend as P` imports a package by content hash, fetched
-from the hub and checked against it; `bend main.bend --publish` uploads a file
-with everything it imports and prints that line.
+from the hub and checked against it.
 `import <name>@<version>/main.bend as P` is the same package by the name
-its author gave it on the hub, with `bend main.bend --publish
-<name>@<version>` after `bend login`.
+its author gave it on the hub. Publishing is a system's `release` (V, in
+`guide/F.md`), not the `bend` command's.
 
 A publish is public and permanent, under BendHub's terms
 (https://bend-lang.com/bender/terms#s18). Put a `LICENSE` file
 next to your entry file, ideally opening with a line like
-`SPDX-License-Identifier: MIT`; `--publish` takes every file named exactly
+`SPDX-License-Identifier: MIT`; a publish takes every file named exactly
 `LICENSE` beside a published file, and a package without one is MIT-0. You are
 responsible for what you publish, so pick the license it may carry. Adding a
 `LICENSE` changes a package's hash: publish it as a new version.
 
 ## Tooling
 
-Bend is a single command:
+Bend is a single command, with no subcommands and no flags:
 
 ```bash
-bend file.bend            # check; run main (IO compiled; a value normalized)
-bend file.bend -o file    # compile to a native binary (clang 14+; 19+ with `!`)
-bend file.bend -o file.c  # emit the C source instead
-bend file.bend -o file.js # emit the JS source instead
-bend file.bend -o f.mjs   # emit an ES module of its non-IO defs, for JS to import
-bend file.bend --verdict  # check; then recheck with the proven BendTT kernel
-bend page.html -o dist    # bundle a web page that imports .bend files
-./file --threads 8        # run a native binary on 8 CPU threads
-./file --gpu off          # run ! calls on the CPU (the GPU is on by default)
-./file --gpu 4GB          # cap the GPU's heap at 4GB
+bend file.bend            # check; run main (IO compiled to JS; a value normalized)
+bend a b c                # the same for ./a/b.bend (else ./a.bend); the rest are IO.args
+bend a -- -x              # words after -- reach IO.args as they are
 ```
 
 A `main` that returns `IO` runs compiled; one that returns a value is normalized
 by the checker (slow for big work) and printed; a file with no `main` just
-checks. A binary that uses `!` builds its GPU program too, as `file.gpu`, which
-must stay beside it: on macOS it needs Metal, on Linux CUDA 12 at
-`/usr/local/cuda`. On Linux a program with a Window needs `libx11-dev`, one
-with Audio `libasound2-dev`. `bend guide` prints this text, `bend base` prints
-the Base library (`bend base Map` prints one name and everything under it), and
-`bend --help` lists the other commands.
+checks. Building (a native binary, C, JS, a web app) is V's `build`
+(`guide/F.md`), not this command's. A native binary takes `--threads 8` and
+`--gpu off|4GB`; one that uses `!` needs its `file.gpu` beside it, Metal on
+macOS or CUDA 12 at `/usr/local/cuda` on Linux, where a Window needs
+`libx11-dev` and Audio `libasound2-dev`.
 
 ## Syntax Reference
 
@@ -653,22 +640,21 @@ is a wall between two checking modes. Code that runs is checked *live*; types,
 erased arguments and equations are checked *dead*. Dead code may loop forever or
 inhabit `Empty`, but nothing dead ever counts as live evidence, and live
 recursion must terminate. `bend2/bendtt.lean` is BendTT's kernel in Lean, with
-a proof that no def it accepts has type `Empty` and that live code halts;
-`--verdict` checks a file with it. `paper/BendTT.pdf` is the paper.
+a proof that no def it accepts has type `Empty` and that live code halts. `paper/BendTT.pdf` is the paper.
 
 ## Further Reading
 
 - `demos/`: complete programs, including the game and its proof from the video.
-- `bend2/base.bend`: the Base library, also printed by `bend base`.
+- `bend2/base.bend`: the Base library.
 - `paper/BendTT.pdf` and `paper/BendRT.pdf`: the type theory and the runtime.
 
 ## Extra
 
-`bend guide shaders` prints "Shaders in Bend", a tutorial written by AIs for
+`guide/SHADERS.md` is "Shaders in Bend", a tutorial written by AIs for
 AIs on how to write efficient shaders in Bend. It distills what building
 `demos/app_slash_boss_3d` (120 FPS in pure Bend) taught. Read it before you
 write a graphical or parallel app in Bend.
 
-`bend guide effects` prints "Effects in Bend", an AI-written note (to be
+`guide/EFFECTS.md` is "Effects in Bend", an AI-written note (to be
 revised by a human) on the C and JS side of custom effects. Read it before
 you write one.

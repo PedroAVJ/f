@@ -7,4 +7,3 @@ def f():
   1
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

@@ -1,7 +1,7 @@
 # Bend web builds
 
 ```sh
-bun bend2/main.ts application.bend -o application.web
+bun bend2/tool.ts application.bend -o application.web
 ```
 
 The build emits sequential and shared-memory Wasm, compiler-generated WGSL for
@@ -10,7 +10,8 @@ Application calculations, F layout, token resolution and sprite sampling run
 in generated Bend code. JavaScript delivers browser effects and paints the
 values it receives.
 
-Building requires Emscripten (`emcc`, or `BEND_EMCC`). Serve the output over
+`bend2/tool.ts` is the fork's internal tool (V's `build` runs it); the `bend`
+command only runs programs. Building requires Emscripten (`emcc`, or `BEND_EMCC`). Serve the output over
 HTTP on localhost, or HTTPS elsewhere. Its manifest lists generated files;
 rebuilds preserve caller-owned assets. The default uses one Wasm worker.
 `?workers=4` selects up to eight when COOP/COEP headers enable shared memory;

@@ -22,4 +22,3 @@ def uses(a, b, c):
   B0{}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

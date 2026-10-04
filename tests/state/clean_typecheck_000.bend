@@ -21,4 +21,3 @@ def swap_swap(p):
   {==}
 
 #|ALL PROOFS CHECK
-#|Use --verdict for mathematical validity.

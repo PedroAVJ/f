@@ -4,7 +4,7 @@
 # (all four corners inside, or all beyond one edge) and draw emits one
 # Pix the moment it is.
 #
-#   bend demos/app_triangle_2d/main.bend -o triangle && ./triangle
+#   bun bend2/tool.ts demos/app_triangle_2d/main.bend -o triangle && ./triangle
 import Base
 
 def Tri.pick(c: Bool, a: U32, b: U32) -> U32:

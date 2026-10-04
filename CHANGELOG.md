@@ -1,7 +1,8 @@
 # Changelog
 
-Each release names what changed for a user. `bend update` installs the
-latest one; the GitHub release carries the same notes.
+Each release names what changed for a user. The installer (`curl -fsSL
+https://bend-lang.com/install.sh | sh`) installs the latest one; the GitHub
+release carries the same notes.
 
 ## 2.0.35 (2026-10-03)
 

@@ -208,7 +208,7 @@ counts, the frame costs 8.0 -> 16.5 ms (draw 6.0 -> 14.1).
   bang: 12.9 ms. `_ = x` drops a value on the spot.
 - Never let the device own the scene: draw 6.2 -> 12.0 ms.
 
-Verify in the emitted C (`bend x.bend -o x.c`): in a def's body, `term_peek` is
+Verify in the emitted C (`bun bend2/tool.ts x.bend -o x.c`): in a def's body, `term_peek` is
 a borrow; `term_keep`, `ctr_take` and `rfc_seal` are counts. A new keep in a
 device def is a regression.
 

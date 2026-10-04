@@ -5,7 +5,7 @@
 # corner shows the frames per second. A frame is the full quadtree to
 # depth 10 (1024 x 1024), built on the GPU by the one bang in the file.
 #
-#   bend demos/app_ray_tracer_3d/main.bend -o fly && ./fly
+#   bun bend2/tool.ts demos/app_ray_tracer_3d/main.bend -o fly && ./fly
 import Base
 
 type Fly is Data:

@@ -33,6 +33,9 @@ const ROOT = path.join(import.meta.dirname, "..", "..");
 
 const MAIN = path.join(ROOT, "bend2", "main.ts");
 
+// the internal tool, which builds (the bend CLI only runs)
+const TOOL = path.join(ROOT, "bend2", "tool.ts");
+
 const RUNTIME = path.join(ROOT, "bench", "runtime");
 
 const CHECKER = path.join(ROOT, "bench", "checker");
@@ -204,7 +207,7 @@ async function runtime_build(bench: string, want: string,
   const at = path.join(dir, bench);
   fs.mkdirSync(at);
   fs.copyFileSync(path.join(home, "main.lean"), path.join(at, "main.lean"));
-  await exec_run([process.execPath, MAIN, path.join(home, "main.bend"),
+  await exec_run([process.execPath, TOOL, path.join(home, "main.bend"),
     "-o", "main.c"], at, RUN_TIMEOUT);
   await exec_run(["sh", "-c", BUILD[0] + " -o cpu"], at, RUN_TIMEOUT);
   await exec_run(["sh", "-c", BUILD[2] + " -o gpu"], at, RUN_TIMEOUT);

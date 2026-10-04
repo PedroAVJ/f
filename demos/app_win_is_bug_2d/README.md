@@ -52,7 +52,7 @@ through `Game.replay`. The browser never decides anything.
 ```bash
 cd web
 bun index.html              # serves the page, .bend imports and all
-bend index.html -o out      # bundles it (needs bend on the PATH)
+bun ../../../bend2/tool.ts index.html -o out  # bundles it (the internal tool)
 bend ../PROOF.bend          # every law must be filled
 ```
 
