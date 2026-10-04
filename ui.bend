@@ -1,4 +1,3 @@
-import Base
 import F
 import ./state.bend as S
 import ./screens/connect.bend as ConnectScreen

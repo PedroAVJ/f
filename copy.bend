@@ -1,4 +1,3 @@
-import Base
 import F
 
 type Copy is Data:

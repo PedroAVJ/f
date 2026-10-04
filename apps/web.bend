@@ -1,5 +1,4 @@
 # The web app. For now it prints both screens as one HTML page (what `deploy` serves); the browser loop comes next.
-import Base
 import F
 import ../state.bend as S
 import ../ui.bend as App

@@ -1,6 +1,3 @@
-import Base
-import V
-
 def system() -> System:
   System{"open-dot", "Open Dot", "Dot, on your own Codex or Claude subscription.",
     [

@@ -1,4 +1,3 @@
-import Base
 import F
 
 # Which agent answers: the user's own subscription.

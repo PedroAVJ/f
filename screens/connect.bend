@@ -1,4 +1,3 @@
-import Base
 import F
 import ../copy.bend as C
 
