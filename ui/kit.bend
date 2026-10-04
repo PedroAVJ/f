@@ -2049,15 +2049,6 @@ def app_title(t: Text) -> UI:
   UI.Drawn{r => title(text_in(lang_of(r), t))}
 def caption(t: Text) -> UI:
   UI.Drawn{r => paragraph("Caption", text_in(lang_of(r), t), body(), hint(), column(), P.Leading{})}
-# An input is a function of its own state: the parent gives the placeholder, the runtime the state.
-def shown_input(+placeholder: Text, s: InputState) -> UI:
-  match s:
-    case InputState{text, focus}:
-      UI.Drawn{r => field_tree(field(plain(Lines.Single{}, text_in(lang_of(r), placeholder), [], FieldState{text, focus}), column()))}
-def input_of(+placeholder: Text) -> InputState -> UI:
-  s => shown_input(placeholder, s)
-def input(+placeholder: Text) -> UI:
-  UI.Owned{placeholder, input_of(placeholder)}
 def labeled(+kind: ButtonKind, +label: String, enabled: Bool) -> P.UI:
   button_tree(Bool.pick(Button, enabled, say(kind, label), say_off(kind, label)))
 # A primary, enabled button; action_as picks its kind and whether it is enabled.
