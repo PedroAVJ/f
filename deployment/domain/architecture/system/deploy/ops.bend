@@ -82,11 +82,11 @@ def here_script() -> String:
   "n=$(\"$t\" status --json --peers=false 2>/dev/null | grep -m1 '\"DNSName\"' | sed 's/.*\"DNSName\": *\"\\(.*\\)\\.\".*/\\1/')\n" ++
   "printf '%s\\ngui/%s\\n%s\\n%s\\n%s\\n' \"$HOME\" \"$(id -u)\" \"$(pwd -P)\" \"$t\" \"$n\""
 
-# A Bend program is its entry's run, kept in a temporary file next to whether it equals the installed one.
-# The fork runs from $BEND, else ../f/bend2/main.ts beside the repository; bun from PATH or Homebrew.
+# A Bend program is its entry's run, kept beside the installed file as <path>.next, next to whether it equals
+# it. The fork runs from $BEND, else ../f/bend2/main.ts beside the repository; bun from PATH or Homebrew.
 def build_script() -> String:
-  "b=${BEND:-../f/bend2/main.ts}; u=$(command -v bun || echo /opt/homebrew/bin/bun)\n" ++
-  "f=$(mktemp -t bend-build) || exit 1\n" ++
+  "b=${BEND:-../f/bend2/main.ts}; u=$(command -v bun || echo /opt/homebrew/bin/bun); f=\"$2.next\"\n" ++
+  "mkdir -p \"$(dirname \"$2\")\" || exit 1\n" ++
   "\"$u\" \"$b\" \"$1\" > \"$f\" 2> \"$f.err\" || { cat \"$f.err\" \"$f\" >&2; rm -f \"$f\" \"$f.err\"; exit 1; }; rm -f \"$f.err\"\n" ++
   "if cmp -s \"$f\" \"$2\"; then rm -f \"$f\"; printf '%s\\nsame\\n' \"$f\"; else printf '%s\\ndiffers\\n' \"$f\"; fi"
 
@@ -207,7 +207,7 @@ def run(+s: P.Step) -> IO(Unit):
     case P.Push{_}:
       IO.bind(Ran, Unit, sh("git push 2>&1", [], ""), r => done(r, PO.show(s)))
     case P.Install{from, to}:
-      IO.bind(Ran, Unit, sh("mkdir -p \"$(dirname \"$2\")\" && mv -f \"$1\" \"$2\"", [from, to], ""), r => done(r, PO.show(s)))
+      IO.bind(Ran, Unit, sh("mv -f \"$1\" \"$2\"", [from, to], ""), r => done(r, PO.show(s)))
     case P.Launch{label, path, plist, domain}:
       IO.bind(Ran, Unit, sh(launch_script(), [label, path, domain], plist), r => done(r, PO.show(s)))
     case P.ServePort{https, target, ts}:
