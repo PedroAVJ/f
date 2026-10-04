@@ -1,6 +1,6 @@
 import F
-import ../copy.bend as C
-import ../components/log.bend as L
+import ../copy as C
+import ../components/log as L
 
 def conversation(+lang: Lang, draft: String, history: List<&2, Line>, +busy: Bool) -> Tree:
   screen("conversation", [

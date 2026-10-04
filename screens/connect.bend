@@ -1,5 +1,5 @@
 import F
-import ../copy.bend as C
+import ../copy as C
 
 def connect(+lang: Lang) -> Tree:
   screen("connect", [

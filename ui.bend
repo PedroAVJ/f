@@ -1,7 +1,7 @@
 import F
-import ./state.bend as S
-import ./screens/connect.bend as ConnectScreen
-import ./screens/conversation.bend as ConversationScreen
+import ./state as S
+import ./screens/connect as ConnectScreen
+import ./screens/conversation as ConversationScreen
 
 def f(s: S.State) -> Tree:
   match s:

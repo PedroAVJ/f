@@ -1,3 +1,5 @@
+import V
+
 def system() -> System:
   System{"open-dot", "Open Dot", "Dot, on your own Codex or Claude subscription.",
     [
@@ -21,4 +23,4 @@ def system() -> System:
           [Serve{"web", 9453, 4640, "/"}]}},
         [], ["web"]}
     ]},
-    Release{Repository{"open-dot", True{}}, [], []}}
+    [Code{GitHub{"PedroAVJ", "open-dot", OpenSource{"MIT"}}}]}

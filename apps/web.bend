@@ -1,7 +1,7 @@
 # The web app. For now it prints both screens as one HTML page (what `deploy` serves); the browser loop comes next.
 import F
-import ../state.bend as S
-import ../ui.bend as App
+import ../state as S
+import ../ui as App
 
 def main() -> IO(Unit):
   do IO<Unit>:

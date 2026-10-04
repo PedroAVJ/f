@@ -1,6 +1,6 @@
 import F
-import ../state.bend as S
-import ../copy.bend as C
+import ../state as S
+import ../copy as C
 
 # The conversation so far, plus "Dot is typing…" while waiting.
 def log(+lang: Lang, history: List<&2, Line>, busy: Bool) -> Tree:
