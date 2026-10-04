@@ -1,7 +1,5 @@
-import F
-import ../state as S
-import ../copy as C
+import UI
 
 # The conversation so far, plus "Dot is typing…" while waiting.
-def log(+lang: Lang, history: List<&2, Line>, busy: Bool) -> Tree:
-  stack("log", List.append(&2, Tree, lines(history), Bool.pick(List<&2, Tree>, busy, [caption(C.t(lang, C.Typing{}))], [])))
+def log(history: List<&2, Line>, busy: Bool) -> UI:
+  stack(List.append(&1, UI, lines(history), Bool.pick(List<UI>, busy, [caption(Text{"Dot is typing…", "Dot está escribiendo…"})], [])))

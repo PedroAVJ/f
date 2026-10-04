@@ -1,10 +1,9 @@
-import F
-import ../copy as C
-import ../components/log as L
+import UI
+import ../components/log
+import ../components/composer
 
-def conversation(+lang: Lang, draft: String, history: List<&2, Line>, +busy: Bool) -> Tree:
-  screen("conversation", [
-    title("Dot"),
-    L.log(lang, history, busy),
-    input(C.t(lang, C.MessagePrompt{}), draft),
-    action(ButtonKind.Primary{}, C.t(lang, C.Send{}), Bool.not(busy))])
+def conversation(history: List<&2, Line>, busy: Bool) -> UI:
+  screen([
+    title(Text{"Dot", "Dot"}),
+    log(history, busy),
+    composer()])

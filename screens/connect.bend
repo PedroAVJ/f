@@ -1,9 +1,8 @@
-import F
-import ../copy as C
+import UI
 
-def connect(+lang: Lang) -> Tree:
-  screen("connect", [
-    title("Dot"),
-    caption(C.t(lang, C.Tagline{})),
-    action(ButtonKind.Primary{}, C.t(lang, C.WithCodex{}), True{}),
-    action(ButtonKind.Quiet{}, C.t(lang, C.WithClaude{}), True{})])
+def connect() -> UI:
+  screen([
+    title(Text{"Dot", "Dot"}),
+    caption(Text{"Your assistant, on your subscription", "Tu asistente, con tu suscripción"}),
+    action(Text{"Continue with ChatGPT", "Continuar con ChatGPT"}),
+    action_as(ButtonKind.Quiet{}, Text{"Continue with Claude", "Continuar con Claude"}, True{})])
