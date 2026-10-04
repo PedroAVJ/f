@@ -1,40 +1,32 @@
 import Base
-import ../f/bend2/std/F/deployment/domain/architecture/system/type.bend as Sys
-import ../f/bend2/std/F/deployment/domain/architecture/system/container/type.bend as Ct
-import ../f/bend2/std/F/deployment/domain/architecture/system/deployment/type.bend as D
-import ../f/bend2/std/F/deployment/domain/architecture/system/deployment/host/type.bend as H
-import ../f/bend2/std/F/deployment/domain/architecture/system/release/type.bend as R
-import ../f/bend2/std/F/deployment/domain/architecture/system/plan/type.bend as P
-import ../f/bend2/std/F/deployment/domain/architecture/system/plan/ops.bend as Plan
-import ../f/bend2/std/F/deployment/domain/architecture/category/type.bend as K
-import ../f/bend2/std/F/deployment/domain/architecture/relationship/type.bend as Rel
+import V
 
-def release() -> R.Release:
-  R.Release{R.Repository{"open-dot", True{}}, [], []}
+def release() -> Release:
+  Release{Repository{"open-dot", True{}}, [], []}
 
-def system() -> Sys.System:
-  Sys.System{"open-dot", "Open Dot", "Dot, on your own Codex or Claude subscription.",
+def system() -> System:
+  System{"open-dot", "Open Dot", "Dot, on your own Codex or Claude subscription.",
     [
-      Ct.Container{"web", "Web app", "ui.bend compiled to the browser.",
-        K.Client{}, Ct.Ours{}, Ct.Public{}, [], "ui.bend", [], ["F"], [], ["Bend"], [], [],
-        [Rel.Relationship{"server", "Sends messages", "HTTPS", True{}}]},
-      Ct.Container{"server", "Server", "Holds the session and talks to the agent.",
-        K.Proxy{}, Ct.Ours{}, Ct.Public{}, [K.Hosting{}], "server.bend", [], ["F"], [], ["Bend"], [], [],
-        [Rel.Relationship{"codex", "Asks Codex", "HTTPS", True{}}, Rel.Relationship{"claude", "Asks Claude", "HTTPS", True{}}]},
-      Ct.Container{"codex", "Codex", "The user's ChatGPT subscription.",
-        K.ModelApi{}, Ct.Theirs{}, Ct.Public{}, [], "", ["OpenAI"], [], [], [], [], [], []},
-      Ct.Container{"claude", "Claude", "The user's Claude subscription.",
-        K.ModelApi{}, Ct.Theirs{}, Ct.Public{}, [], "", ["Anthropic"], [], [], [], [], [], []}
+      Container{"web", "Web app", "ui.bend compiled to the browser.",
+        Category.Client{}, Ownership.Ours{}, Exposure.Public{}, [], "ui.bend", [], ["F"], [], ["Bend"], [], [],
+        [Relationship{"server", "Sends messages", "HTTPS", True{}}]},
+      Container{"server", "Server", "Holds the session and talks to the agent.",
+        Category.Proxy{}, Ownership.Ours{}, Exposure.Public{}, [Capability.Hosting{}], "server.bend", [], ["F"], [], ["Bend"], [], [],
+        [Relationship{"codex", "Asks Codex", "HTTPS", True{}}, Relationship{"claude", "Asks Claude", "HTTPS", True{}}]},
+      Container{"codex", "Codex", "The user's ChatGPT subscription.",
+        Category.ModelApi{}, Ownership.Theirs{}, Exposure.Public{}, [], "", ["OpenAI"], [], [], [], [], [], []},
+      Container{"claude", "Claude", "The user's Claude subscription.",
+        Category.ModelApi{}, Ownership.Theirs{}, Exposure.Public{}, [], "", ["Anthropic"], [], [], [], [], [], []}
     ],
-    D.Deployment{"https://dot.example.com", ["sessions"], [], [
-      D.Node{"mac", "Pedro's Mac", "launchd", D.Server{}, H.Owned{"MacBook"}, D.Unmanaged{}, [], ["web", "server"]}
+    Deployment{"https://dot.example.com", ["sessions"], [], [
+      Node{"mac", "Pedro's Mac", "launchd", NodeRole.Server{}, Host.Owned{"MacBook"}, Platform.Unmanaged{}, [], ["web", "server"]}
     ]},
     release()}
 
 # What the world looks like now. Hardcoded: nothing in V observes it yet.
-def observed() -> P.Observed:
-  P.Observed{["ui.bend", "state.bend", "copy.bend"], ["ui.bend", "state.bend", "copy.bend"], [],
-    P.Remote{"https://github.com/PedroAVJ/open-dot", "public", True{}, True{}}, []}
+def observed() -> Observed:
+  Observed{["ui.bend", "state.bend", "copy.bend"], ["ui.bend", "state.bend", "copy.bend"], [],
+    RepositoryStatus{"https://github.com/PedroAVJ/open-dot", "public", True{}, True{}}, []}
 
 def main() -> IO(Unit):
-  IO.print(Plan.show_all(Plan.plan(release(), observed())))
+  IO.print(show_all(plan(release(), observed())))
