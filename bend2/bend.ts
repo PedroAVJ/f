@@ -967,14 +967,11 @@ const PRELUDES: Record<string, Array<[string, string[]]>> = {
   ],
   V: [
     ["deployment/domain/architecture/system/type", ["System"]],
-    ["deployment/domain/architecture/system/deployment/host/type", ["Host"]],
     ["deployment/domain/architecture/system/release/type", ["Release", "Code", "Package", "Plugin", "Repository", "GitHub", "Source", "OpenSource", "Proprietary"]],
-    ["deployment/domain/architecture/system/deployment/type", ["Deployment", "Break", "Node", "NodeRole=Role", "Platform"]],
+    ["deployment/domain/architecture/system/deployment/type", ["Deployment", "Mac", "Exposure", "Tailscale", "Application", "Web"]],
     ["deployment/domain/architecture/system/plan/type", ["Observed", "Step", "RepositoryStatus=Remote", "PackageStatus=Hub", "ReleaseTag=Tag"]],
     ["deployment/domain/architecture/system/plan/ops", ["plan", "blocked", "any_blocked", "show_all"]],
-    ["deployment/domain/architecture/system/deployment/launchd/type", ["Launchd", "Program", "Build", "Agent", "Variable"]],
-    ["deployment/domain/architecture/system/deployment/nix_darwin/type", ["Serve"]],
-    ["deployment/domain/architecture/system/deploy/ops", ["cli", "check", "build", "release", "deploy", "ship"]],
+    ["deployment/domain/architecture/system/deploy/ops", ["cli", "check", "release", "deploy", "ship"]],
   ],
 };
 

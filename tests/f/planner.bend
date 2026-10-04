@@ -20,10 +20,10 @@ def new_release() -> Bool:
   String.eq(PO.show(PO.package_step(R.Package{"near-function", "0.1.0.0", "near-function.bend", []}, P.Unpublished{})), "publish  near-function@0.1.0.0")
 
 def continuity() -> Bool:
-  DO.breaks_eq(DO.breaks("before", ["history"], D.Deployment{"after", [], [], []}), [D.AddressChanged{}, D.StoreRemoved{"history"}])
+  DO.breaks_eq(DO.breaks("before", ["history"], D.Topology{"after", [], [], []}), [D.AddressChanged{}, D.StoreRemoved{"history"}])
 
 def records() -> Bool:
-  +d : D.Deployment = D.Deployment{"http://localhost:9460", ["history"], [], []}
+  +d : D.Topology = D.Topology{"http://localhost:9460", ["history"], [], []}
   String.eq(DO.recorded_address(DO.record(d)), "http://localhost:9460") && List.contains(~String, ~String.eq, DO.recorded_stores(DO.record(d)), "history")
 
 def percent_valid() -> Bool:

@@ -4,4 +4,4 @@ import ./release/type.bend as Rl
 
 # A software system: what it releases, and where it runs.
 type System is Data:
-  System{key: String, name: String, description: String, releases: List<&2, Rl.Release>, deployments: List<&2, D.Deployment>}
+  System{releases: List<&2, Rl.Release>, deployments: List<&2, D.Deployment>}
