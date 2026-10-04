@@ -625,12 +625,13 @@ def sized_inset(t: Tone, +content: Content, +name: String, +extra: P.Tree, +busy
       +inner = Bool.pick(P.Tree, busy, P.layout("Busy", P.Horizontal{}, 8, 0, 0, 0, P.Middle{}, [content_tree(content, color, state), extra]), content_tree(content, color, state))
       shell(fill, stroke, state, Bool.pick(U32, Bool.and(is_icon(content), Bool.not(busy)), 44, U32.max(44, U32.add(width(inner), 36))), inset, name, inner, bare)
 def sized(t: Tone, +content: Content, +name: String, +extra: P.Tree, +busy: Bool) -> Button: sized_inset(t, content, name, extra, busy, 0)
-def intent_content(+i: Intent, f: Form) -> Content:
+def intent_content_in(+i: Intent, f: Form, +lang: Lang) -> Content:
   match f:
-    case Form.Text{}: Label{intent_label(i)}
-    case Form.Within{+max}: Label{M.truncate(intent_label(i), max, label_type())}
-    case Form.Icon{}: with_icon(intent_icon(i), intent_label(i), False{})
-    case Form.Both{}: with_icon(intent_icon(i), intent_label(i), True{})
+    case Form.Text{}: Label{intent_text(i, lang)}
+    case Form.Within{+max}: Label{M.truncate(intent_text(i, lang), max, label_type())}
+    case Form.Icon{}: with_icon(intent_icon(i), intent_text(i, lang), False{})
+    case Form.Both{}: with_icon(intent_icon(i), intent_text(i, lang), True{})
+def intent_content(+i: Intent, f: Form) -> Content: intent_content_in(i, f, Lang.Es{})
 def drawn(t: Tone, +i: Intent, f: Form, +extra: P.Tree, +busy: Bool) -> Button: sized(t, intent_content(i, f), intent_label(i), extra, busy)
 # Waiting on the server: never takes a tap (disabled), whatever its pose.
 def waiting(t: Tone) -> Button:
@@ -677,6 +678,16 @@ def act(+kind: ButtonKind, +intent: Intent, +form: Form) -> Button:
   button(kind, Fixed{intent, form}, FixedState.Enabled{Press.Up{}})
 def act_off(+kind: ButtonKind, +intent: Intent, +form: Form) -> Button:
   button(kind, Fixed{intent, form}, FixedState.Disabled{})
+# The same in a language: an intent's label in `lang`.
+def act_in(+lang: Lang, +kind: ButtonKind, +intent: Intent, +form: Form) -> Button:
+  sized(tone(kind, Shade.Rest{}), intent_content_in(intent, form, lang), intent_text(intent, lang), P.Last{}, False{})
+def act_off_in(+lang: Lang, +kind: ButtonKind, +intent: Intent, +form: Form) -> Button:
+  sized(tone(kind, Shade.Off{}), intent_content_in(intent, form, lang), intent_text(intent, lang), P.Last{}, False{})
+# A Button with the app's own text (already in the app's language).
+def say(+kind: ButtonKind, +label: String) -> Button:
+  sized(tone(kind, Shade.Rest{}), Label{label}, label, P.Last{}, False{})
+def say_off(+kind: ButtonKind, +label: String) -> Button:
+  sized(tone(kind, Shade.Off{}), Label{label}, label, P.Last{}, False{})
 # In a narrower box the label truncates to the box (the name stays whole).
 def button_in(+kind: ButtonKind, +intent: Intent, +box: U32) -> Button:
   act(kind, intent, Form.Within{U32.sub(U32.max(box, 44), 36)})
