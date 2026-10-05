@@ -11,7 +11,9 @@ export function createDotHost({ root, deliver }) {
     maxImageBytes: Number.isSafeInteger(imageLimit) && imageLimit >= 65536 && imageLimit <= 5 * 1024 * 1024 ? imageLimit : undefined,
   });
   let restored = false, initialized = false, refreshQueued = false, thread, atBottom = true, lastHeight = 0, prepend = false;
-  let displayedReview, pendingReview, browserSession, processingRefresh = false;
+  let displayedReview, pendingReview, browserSession, processingSendReview, processingRefresh = false;
+  const sendReviews = [];
+  const isSend = text => text === 'button · Send' || text === 'button · Enviar';
   const observeSnapshot = text => {
     const snapshot = JSON.parse(text);
     pendingReview = { provider: snapshot.provider, context: snapshot.reviewContext ?? null };
@@ -31,6 +33,7 @@ export function createDotHost({ root, deliver }) {
   const recordScroll = () => { atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40; };
   const click = e => {
     const button = e.target.closest('[data-bend-event]');
+    if (button && !button.disabled && isSend(button.dataset.bendEvent)) sendReviews.push({ ...displayedReview });
     const prefix = 'button · open-url:';
     if (!button?.dataset.bendEvent.startsWith(prefix)) return;
     e.stopImmediatePropagation();
@@ -74,7 +77,7 @@ export function createDotHost({ root, deliver }) {
       let held;
       try { held = JSON.parse(localStorage.getItem(PENDING)); } catch { /* Invalid saved context cannot override the displayed review. */ }
       if (displayedReview?.provider === 'bakery') {
-        spec.body.reviewContext = held?.id === spec.body.requestId && Object.hasOwn(held, 'reviewContext') ? held.reviewContext : displayedReview.context;
+        spec.body.reviewContext = held?.id === spec.body.requestId && Object.hasOwn(held, 'reviewContext') ? held.reviewContext : (processingSendReview?.context ?? null);
       }
       localStorage.setItem(PENDING, JSON.stringify({ id: spec.body.requestId, thread: spec.body.threadId, text: spec.body.text, kind: spec.body.mode === 'call' ? 'call' : 'text', ...(displayedReview?.provider === 'bakery' ? { reviewContext: spec.body.reviewContext } : {}) }));
     }
@@ -100,6 +103,7 @@ export function createDotHost({ root, deliver }) {
   return {
     request,
     eventConsumed(text) {
+      processingSendReview = isSend(text) ? sendReviews.shift() : undefined;
       try { processingRefresh = JSON.parse(text).action === 'refresh'; } catch { processingRefresh = false; }
     },
     rendered() {

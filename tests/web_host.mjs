@@ -55,13 +55,20 @@ globalThis.fetch = async (_url, options = {}) => {
   return Response.json(current);
 };
 const transportHost = createDotHost({ root, deliver() {} });
-const sendTurn = id => transportHost.request(6, JSON.stringify({ url: '/api/turn', body: { requestId: id, threadId: 'sabor-a-cielo', text: 'confirmo' } }));
+const clickSend = () => handlers.get('click')({ target: { closest: () => ({ disabled: false, dataset: { bendEvent: 'button · Send' } }) } });
+const sendTurn = (id, click = true) => {
+  if (click) clickSend();
+  transportHost.eventConsumed('button · Send');
+  return transportHost.request(6, JSON.stringify({ url: '/api/turn', body: { requestId: id, threadId: 'sabor-a-cielo', text: 'confirmo' } }));
+};
 try {
   await transportHost.request(3, '/api/session'); transportHost.rendered();
   current = { ...current, reviewContext: 'receipt-B' };
   await transportHost.request(3, '/api/session');
-  await sendTurn('stale-tab-request');
-  assert.equal(posted.at(-1).reviewContext, 'receipt-A', 'Unrendered snapshot must not authorize another receipt');
+  clickSend(); // A is still shown when Send is clicked.
+  transportHost.rendered(); // B paints before the queued Send event is consumed.
+  await sendTurn('stale-tab-request', false);
+  assert.equal(posted.at(-1).reviewContext, 'receipt-A', 'A queued Send must keep the receipt visible at click time even after B paints');
   transportHost.rendered();
   await sendTurn('stale-tab-request');
   assert.equal(posted.at(-1).reviewContext, 'receipt-A', 'Retry must preserve the original review context');
