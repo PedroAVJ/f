@@ -10,6 +10,8 @@
 
 extern int bend_main(int argc, char** argv);
 extern void bend_paint(CGContextRef, NSArray*, CGFloat, CGFloat);
+extern void bend_paint_overlay(CGContextRef, NSArray*, CGFloat, CGFloat);
+extern void bend_paint_clipped(CGContextRef, NSArray*, CGFloat, CGFloat);
 extern NSArray* bend_paint_regions(NSArray*);
 extern NSString* bend_paint_check(NSArray*);
 extern NSString* bend_paint_prepare(NSArray*);
@@ -413,6 +415,9 @@ static NSArray* ios_content_projection(NSArray* commands) {
 @interface BendIOSCanvas : UIView
 @property(strong) NSArray* commands;
 @property CGSize canvasSize;
+@property BOOL transparentBackground;
+@property BOOL viewportOnly;
+@property CGPoint drawingOrigin;
 @end
 @implementation BendIOSCanvas
 - (void)drawRect:(CGRect)rect {
@@ -424,7 +429,22 @@ static NSArray* ios_content_projection(NSArray* commands) {
     if (editor.isFirstResponder && editor.text.length) [editing addObject:[NSValue valueWithCGRect:editor.frame]];
   }
   NSMutableArray* projected = [NSMutableArray arrayWithCapacity:self.commands.count];
-  for (NSArray* command in self.commands) {
+  for (NSArray* source in self.commands) {
+    NSArray* command = source;
+    if (self.viewportOnly) {
+      if ([source[0] isEqual:@"frame"]) {
+        [projected addObject:@[@"frame", @(ceil(self.bounds.size.width)), @(ceil(self.bounds.size.height))]];
+        continue;
+      }
+      if (source.count >= 6 && ([source[0] isEqual:@"shape"] || [source[0] isEqual:@"region"])) {
+        CGRect box = CGRectMake([source[2] doubleValue], [source[3] doubleValue], [source[4] doubleValue], [source[5] doubleValue]);
+        if (!CGRectIntersectsRect(box, (CGRect){self.drawingOrigin, self.bounds.size})) continue;
+        NSMutableArray* shifted = [source mutableCopy];
+        shifted[2] = @(box.origin.x - self.drawingOrigin.x);
+        shifted[3] = @(box.origin.y - self.drawingOrigin.y);
+        command = shifted;
+      }
+    }
     BOOL hide = NO;
     if (command.count >= 7 && [command[0] isEqual:@"shape"] && [command[6] isKindOfClass:NSArray.class]) {
       NSArray* shape = command[6];
@@ -438,13 +458,47 @@ static NSArray* ios_content_projection(NSArray* commands) {
     }
     if (!hide) [projected addObject:command];
   }
-  bend_paint(UIGraphicsGetCurrentContext(), ios_content_projection(projected),
-    self.bounds.size.width, self.bounds.size.height);
+  if (self.viewportOnly)
+    bend_paint_clipped(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
+  else if (self.transparentBackground)
+    bend_paint_overlay(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
+  else
+    bend_paint(UIGraphicsGetCurrentContext(), ios_content_projection(projected), self.bounds.size.width, self.bounds.size.height);
 }
 @end
 
-@interface BendIOSController : UIViewController <UITextViewDelegate>
-@property(strong) UIScrollView* scroll;
+// The chrome paints above the conversation but only its controls receive taps.
+@interface BendIOSChromeScroll : UIScrollView
+@property BOOL controlsOnly;
+@end
+@implementation BendIOSChromeScroll
+- (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
+  UIView* hit = [super hitTest:point withEvent:event];
+  if (self.controlsOnly && (hit == self || [hit isKindOfClass:BendIOSCanvas.class])) return nil;
+  return hit;
+}
+@end
+
+static BOOL ios_thread_command(NSArray* command) {
+  if (command.count < 6 || (![command[0] isEqual:@"shape"] && ![command[0] isEqual:@"region"])) return NO;
+  NSString* name = command[1];
+  return [name hasPrefix:@"Scroll content · "] || [name hasPrefix:@"button · scroll:"] ||
+    [name hasPrefix:@"button, disabled · scroll:"];
+}
+static NSString* ios_thread_name(NSString* name) {
+  for (NSString* prefix in @[@"button · ", @"button, disabled · "]) {
+    NSString* tagged = [prefix stringByAppendingString:@"scroll:"];
+    if ([name hasPrefix:tagged]) return [prefix stringByAppendingString:[name substringFromIndex:tagged.length]];
+  }
+  return name;
+}
+
+@interface BendIOSController : UIViewController <UITextViewDelegate, UIScrollViewDelegate>
+@property(strong) BendIOSChromeScroll* scroll;
+@property(strong) UIScrollView* conversationScroll;
+@property(strong) BendIOSCanvas* conversationCanvas;
+@property CGRect conversationViewport;
+@property BOOL hasConversation;
 @property(strong) BendIOSCanvas* canvas;
 @property(strong) NSMutableDictionary<NSString*, BendIOSEditor*>* fields;
 @property(strong) NSMutableDictionary<NSString*, BendIOSButton*>* buttons;
@@ -461,7 +515,20 @@ static BendIOSController* ios_controller;
 - (void)viewDidLoad {
   [super viewDidLoad];
   self.fields = [NSMutableDictionary dictionary]; self.buttons = [NSMutableDictionary dictionary];
-  self.scroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+  self.conversationScroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+  self.conversationScroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+  self.conversationScroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+  self.conversationScroll.alwaysBounceVertical = YES;
+  self.conversationScroll.alwaysBounceHorizontal = NO;
+  self.conversationScroll.showsHorizontalScrollIndicator = NO;
+  self.conversationScroll.clipsToBounds = YES;
+  self.conversationScroll.delegate = self;
+  self.conversationCanvas = [[BendIOSCanvas alloc] initWithFrame:CGRectZero];
+  self.conversationCanvas.opaque = NO;
+  self.conversationCanvas.viewportOnly = YES;
+  [self.conversationScroll addSubview:self.conversationCanvas];
+  [self.view addSubview:self.conversationScroll];
+  self.scroll = [[BendIOSChromeScroll alloc] initWithFrame:CGRectZero];
   self.scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
   self.scroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
   self.scroll.alwaysBounceVertical = NO;
@@ -476,7 +543,13 @@ static BendIOSController* ios_controller;
     name:@"BendPaintAssetsChanged" object:nil];
   [self scheme:ios_dark];
 }
-- (void)assetsChanged:(NSNotification*)notification { [self.canvas setNeedsDisplay]; }
+- (void)scrollViewDidScroll:(UIScrollView*)scrollView {
+  if (scrollView != self.conversationScroll) return;
+  self.conversationCanvas.frame = (CGRect){scrollView.contentOffset, scrollView.bounds.size};
+  self.conversationCanvas.drawingOrigin = scrollView.contentOffset;
+  [self.conversationCanvas setNeedsDisplay];
+}
+- (void)assetsChanged:(NSNotification*)notification { [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay]; }
 - (void)keyboard:(NSNotification*)notification {
   self.keyboardFrame = [notification.name isEqual:UIKeyboardWillHideNotification]
     ? CGRectZero : [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
@@ -494,6 +567,7 @@ static BendIOSController* ios_controller;
       viewport.size.height = MAX(1, CGRectGetMinY(covered) - viewport.origin.y);
   }
   self.scroll.frame = viewport;
+  if (self.hasConversation) self.conversationScroll.frame = CGRectOffset(self.conversationViewport, viewport.origin.x, viewport.origin.y);
   CGSize size = CGSizeMake(MAX(1, floor(viewport.size.width)), MAX(1, floor(viewport.size.height)));
   if (!CGSizeEqualToSize(size, self.sentViewport)) {
     self.sentViewport = size;
@@ -510,11 +584,12 @@ static BendIOSController* ios_controller;
   ios_dark = dark; bend_paint_set_dark(dark);
   self.overrideUserInterfaceStyle = dark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
   self.view.backgroundColor = dark ? UIColor.blackColor : UIColor.whiteColor;
-  self.scroll.backgroundColor = self.view.backgroundColor;
+  self.scroll.backgroundColor = self.hasConversation ? UIColor.clearColor : self.view.backgroundColor;
+  self.conversationScroll.backgroundColor = self.view.backgroundColor;
   for (BendIOSEditor* field in self.fields.allValues) {
     field.tintColor = ios_ink(); field.textColor = field.isFirstResponder ? ios_ink() : UIColor.clearColor;
   }
-  [self.canvas setNeedsDisplay];
+  [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay];
 }
 - (void)edited:(BendIOSEditor*)field {
   // A recreated textbox must never reuse an acknowledged edit version.
@@ -549,6 +624,13 @@ static BendIOSController* ios_controller;
 }
 - (void)clicked:(BendIOSButton*)button {
   if (!button.enabled) return;
+  NSString* linkPrefix = @"button · open-url:";
+  if ([button.eventName hasPrefix:linkPrefix]) {
+    NSURL* url = [NSURL URLWithString:[button.eventName substringFromIndex:linkPrefix.length]];
+    if ([@[@"https", @"http"] containsObject:url.scheme.lowercaseString])
+      [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+    return;
+  }
   NSString* submit = ios_submit_label;
   if (!submit.length || ![button.eventName isEqual:[@"button · " stringByAppendingString:submit]])
     [self.view endEditing:YES];
@@ -571,9 +653,55 @@ static BendIOSController* ios_controller;
   return field;
 }
 - (void)apply:(NSArray*)commands {
-  NSArray* frame = ios_content_projection(commands)[0];
+  CGRect conversation = CGRectZero;
+  BOOL modal = NO;
+  for (NSArray* command in commands) if (command.count >= 6 && [command[0] isEqual:@"shape"]) {
+    if ([command[1] isEqual:@"Scroll viewport · Conversation"])
+      conversation = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    if ([command[1] isEqual:@"Scrim"]) modal = YES;
+  }
+  BOOL hadConversation = self.hasConversation;
+  CGFloat oldBottom = MAX(-self.conversationScroll.contentInset.top,
+    self.conversationScroll.contentSize.height - self.conversationScroll.bounds.size.height);
+  BOOL atBottom = !hadConversation || self.conversationScroll.contentOffset.y >= oldBottom - 24;
+  self.hasConversation = !CGRectIsEmpty(conversation);
+  self.conversationViewport = conversation;
+  self.conversationScroll.hidden = !self.hasConversation;
+  self.conversationScroll.userInteractionEnabled = !modal;
+  self.scroll.controlsOnly = self.hasConversation && !modal;
+  self.scroll.scrollEnabled = !self.hasConversation;
+  self.scroll.backgroundColor = self.hasConversation ? UIColor.clearColor : self.view.backgroundColor;
+  NSMutableArray* chrome = [NSMutableArray array];
+  NSMutableArray* thread = [NSMutableArray arrayWithObjects:@[@"frame", @(conversation.size.width), @1], @[@"clear"], nil];
+  CGFloat contentHeight = 0;
+  for (NSArray* command in commands) {
+    if (self.hasConversation && ios_thread_command(command)) {
+      NSMutableArray* item = [command mutableCopy];
+      item[2] = @([command[2] doubleValue] - conversation.origin.x);
+      item[3] = @([command[3] doubleValue] - conversation.origin.y);
+      contentHeight = MAX(contentHeight, [item[3] doubleValue] + [item[5] doubleValue]);
+      [thread addObject:item];
+    } else if (!(self.hasConversation && command.count > 1 && [command[1] isEqual:@"Canvas background"])) {
+      [chrome addObject:command];
+    }
+  }
+  if (self.hasConversation) {
+    contentHeight = MAX(1, ceil(contentHeight));
+    thread[0] = @[@"frame", @(conversation.size.width), @(contentHeight)];
+    self.conversationCanvas.commands = thread;
+    self.conversationCanvas.canvasSize = CGSizeMake(conversation.size.width, contentHeight);
+
+    self.conversationScroll.frame = CGRectOffset(conversation, self.scroll.frame.origin.x, self.scroll.frame.origin.y);
+    self.conversationScroll.contentSize = self.conversationCanvas.canvasSize;
+    self.conversationScroll.contentInset = UIEdgeInsetsMake(MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
+    if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
+      self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height));
+    [self scrollViewDidScroll:self.conversationScroll];
+  }
+  NSArray* frame = ios_content_projection(chrome)[0];
   self.canvas.canvasSize = CGSizeMake([frame[1] doubleValue], [frame[2] doubleValue]);
-  self.canvas.commands = commands;
+  self.canvas.commands = chrome;
+  self.canvas.transparentBackground = self.hasConversation;
   NSArray* regions = bend_paint_regions(commands) ?: @[];
   NSMutableDictionary* fields = [NSMutableDictionary dictionary], *buttons = [NSMutableDictionary dictionary];
   NSMutableArray* fresh = [NSMutableArray array]; NSCountedSet* seen = [NSCountedSet set];
@@ -610,10 +738,14 @@ static BendIOSController* ios_controller;
         button = [BendIOSButton buttonWithType:UIButtonTypeCustom];
         [button addTarget:self action:@selector(clicked:) forControlEvents:UIControlEventTouchUpInside];
       }
-      button.eventName = name; button.frame = bounds; button.enabled = enabled;
-      NSRange separator = [name rangeOfString:@" · "];
-      button.accessibilityLabel = separator.location == NSNotFound ? name : [name substringFromIndex:NSMaxRange(separator)];
-      [self.canvas addSubview:button]; buttons[key] = button;
+      NSString* eventName = ios_thread_name(name);
+      BOOL inConversation = self.hasConversation && ![eventName isEqual:name];
+      button.eventName = eventName;
+      button.frame = inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
+      button.enabled = enabled;
+      NSRange separator = [eventName rangeOfString:@" · "];
+      button.accessibilityLabel = separator.location == NSNotFound ? eventName : [eventName substringFromIndex:NSMaxRange(separator)];
+      [(inConversation ? self.conversationScroll : self.canvas) addSubview:button]; buttons[key] = button;
     }
   }
   for (NSString* key in self.fields) if (!fields[key]) [self.fields[key] removeFromSuperview];
@@ -661,7 +793,9 @@ static char* ios_canvas(const char* data, unsigned len, unsigned* status) {
   id commands = [NSJSONSerialization JSONObjectWithData:
     [NSData dataWithBytesNoCopy:(void*)data length:len freeWhenDone:NO] options:0 error:&error];
   NSString* problem = commands == nil ? @"invalid Canvas JSON" : bend_paint_check(commands) ?: bend_paint_prepare(commands);
-  if (!problem) problem = bend_paint_check(ios_content_projection(commands));
+  BOOL threadViewport = NO;
+  if (!problem) for (NSArray* command in commands) if (command.count > 1 && [command[1] isEqual:@"Scroll viewport · Conversation"]) threadViewport = YES;
+  if (!problem && !threadViewport) problem = bend_paint_check(ios_content_projection(commands));
   if (problem) { *status = 2; return ios_dup(problem); }
   dispatch_sync(dispatch_get_main_queue(), ^{ [ios_controller apply:commands]; });
   *status = 1; return ios_dup(@"");
@@ -699,8 +833,12 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
       }
       if (valid) {
         // A phone's content bounds are UIKit's; Bend receives their actual size.
-        dispatch_sync(dispatch_get_main_queue(), ^{ [ios_controller.view setNeedsLayout]; });
-        *status = 1; reply = ios_dup(@"");
+        __block CGSize viewport;
+        dispatch_sync(dispatch_get_main_queue(), ^{
+          [ios_controller.view setNeedsLayout]; [ios_controller.view layoutIfNeeded];
+          viewport = ios_controller.sentViewport;
+        });
+        *status = 1; reply = ios_dup(ios_json(@{@"action":@"resize", @"width":@((unsigned)viewport.width), @"height":@((unsigned)viewport.height)}));
       } else reply = ios_dup(@"viewport dimensions must be positive integer points");
     } else if (op == 10 || op == 11) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];

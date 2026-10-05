@@ -1097,7 +1097,7 @@ static atomic_int bp_dark;
 void bend_paint_set_dark(BOOL enabled) {
   atomic_store(&bp_dark, enabled ? 1 : 0);
 }
-void bend_paint(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
+static void bp_paint(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height, BOOL background, BOOL validated) {
   if (!cg) return;
   @autoreleasepool {
     CGAffineTransform d = CGContextGetUserSpaceToDeviceSpaceTransform(cg);
@@ -1105,9 +1105,11 @@ void bend_paint(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat heigh
     if (!(scale >= 1)) scale = 1;
     if (scale > 4) scale = 4;
     CGContextSaveGState(cg);
-    CGContextSetFillColorWithColor(cg, CGColorGetConstantColor(atomic_load(&bp_dark) ? kCGColorBlack : kCGColorWhite));
-    CGContextFillRect(cg, CGRectMake(0, 0, width, height));
-    NSString* error = bend_paint_check(commands);
+    if (background) {
+      CGContextSetFillColorWithColor(cg, CGColorGetConstantColor(atomic_load(&bp_dark) ? kCGColorBlack : kCGColorWhite));
+      CGContextFillRect(cg, CGRectMake(0, 0, width, height));
+    }
+    NSString* error = validated ? nil : bend_paint_check(commands);
     if (error) {
       bp_once("bend-paint-invalid", error);
     } else {
@@ -1121,6 +1123,17 @@ void bend_paint(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat heigh
     }
     CGContextRestoreGState(cg);
   }
+}
+void bend_paint(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
+  bp_paint(cg, commands, width, height, YES, NO);
+}
+void bend_paint_overlay(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
+  bp_paint(cg, commands, width, height, NO, NO);
+}
+// UIKit clips a previously validated packet into a screen-sized viewport.
+// Its derived shapes can begin above or left of that viewport.
+void bend_paint_clipped(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
+  bp_paint(cg, commands, width, height, YES, YES);
 }
 // The paint as a PNG (BEND_SNAPSHOT, tests): width x height points (the
 // frame's size when zero) at a scale.
