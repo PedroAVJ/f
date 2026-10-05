@@ -1,24 +1,36 @@
 import { test, expect, afterEach } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, rmSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { AppServer } from "../rpc.ts";
+import { ClaudeCode } from "../claude.ts";
 import { Sessions } from "../session.ts";
 import { httpHandler } from "../server.ts";
+import { audioUpload, audioDownload } from "../audio.ts";
+import { imageUpload, imagePath, readImage } from "../images.ts";
 
-const owned: { rpc: AppServer; root: string }[] = [];
+const pixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64");
+const pixelJpeg = Buffer.from("/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAAaADAAQAAAABAAAAAQAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAAQABAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICAwICAwUDAwMFBgUFBQUGCAYGBgYGCAoICAgICAgKCgoKCgoKCgwMDAwMDA4ODg4ODw8PDw8PDw8PD//bAEMBAgICBAQEBwQEBxALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/dAAQAAf/aAAwDAQACEQMRAD8A+L6KKK/lM/38P//Z", "base64");
+function imageRequest(metadata: unknown, bytes = pixelPng, mimeType = "image/png", login = "owner@test") {
+  const body = new FormData(); body.set("image", new File([new Uint8Array(bytes)], mimeType === "image/png" ? "photo.png" : "photo.jpg", { type: mimeType }));
+  body.set("metadata", JSON.stringify(metadata));
+  return new Request("https://mini.tail.test:9453/api/image", { method: "POST", headers: { Origin: "https://mini.tail.test:9453", "Tailscale-User-Login": login }, body });
+}
+
+const owned: { rpc: AppServer; root: string; claude?: ClaudeCode }[] = [];
 afterEach(async () => {
-  for (const item of owned.splice(0)) { item.rpc.close(); await Bun.sleep(50); rmSync(item.root, { recursive: true, force: true }); }
+  for (const item of owned.splice(0)) { item.rpc.close(); item.claude?.close(); await Bun.sleep(50); rmSync(item.root, { recursive: true, force: true }); }
 });
-async function fixture(mode = "complete", existingRoot?: string, timeoutMs = 2_000) {
+async function fixture(mode = "complete", existingRoot?: string, timeoutMs = 2_000, claudeMode?: string) {
   const root = existingRoot ?? mkdtempSync(join(tmpdir(), "dot-harness-test-"));
   const rpc = new AppServer([process.execPath, join(import.meta.dir, "mock-app-server.ts"), join(root, "official.json"), mode], root, timeoutMs);
-  owned.push({ rpc, root });
-  const sessions = new Sessions(rpc, join(root, "session.json"), root);
+  const claude = claudeMode ? new ClaudeCode([process.execPath, join(import.meta.dir, "mock-claude.ts"), join(root, "claude.json"), claudeMode], root) : undefined;
+  owned.push({ rpc, root, claude });
+  const sessions = new Sessions(rpc, join(root, "session.json"), root, claude);
   await sessions.ready;
   const official = () => JSON.parse(readFileSync(join(root, "official.json"), "utf8"));
-  return { root, rpc, sessions, official };
+  return { root, rpc, sessions, official, claude };
 }
 async function until(check: () => boolean) {
   const deadline = Date.now() + 2_000;
@@ -28,16 +40,332 @@ const selected = (sessions: Sessions) => {
   const snapshot = sessions.snapshot(); return snapshot.threads.find((t) => t.id === snapshot.selectedThreadId)!;
 };
 
+test("Claude and Codex share one durable conversation, hand off context and pin deduplicated provider receipts", async () => {
+  const f = await fixture("complete", undefined, 2_000, "complete");
+  f.sessions.submit({ requestId: "first-codex", text: "Hello" });
+  await until(() => selected(f.sessions).status === "idle");
+  const id = selected(f.sessions).id;
+  f.sessions.setProvider({ provider: "claude" });
+  const input = { requestId: "first-claude", text: "Continue this", provider: "claude" };
+  const acknowledgment = f.sessions.submit(input);
+  expect(acknowledgment.provider).toBe("claude");
+  expect(acknowledgment.acceptedRequestIds).toEqual(["first-codex", "first-claude"]);
+  expect(() => f.sessions.setProvider({ provider: "codex" })).toThrow("current turn");
+  f.sessions.submit(input);
+  await until(() => selected(f.sessions).status === "idle");
+  expect(f.sessions.snapshot().threads).toHaveLength(1);
+  expect(selected(f.sessions).id).toBe(id);
+  expect(selected(f.sessions).messages).toMatchObject([
+    { role: "user", text: "Hello" }, { role: "assistant", text: "Hello world" },
+    { role: "user", text: "Continue this" }, { role: "assistant", text: "Claude reply" },
+  ]);
+  const state = JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8"));
+  expect(state.calls).toHaveLength(1);
+  expect(state.calls[0].input.message.content).toContain("Hello world");
+  expect(state.calls[0].args).toContain("auto");
+  expect(state.calls[0].args).toContain("none");
+  expect(state.calls[0].args).not.toContain("--dangerously-skip-permissions");
+  f.sessions.setProvider({ provider: "codex" });
+  f.sessions.submit(input); // retry acknowledges its pinned original provider
+  expect(() => f.sessions.submit({ ...input, provider: "codex" })).toThrow("another provider");
+  f.sessions.submit({ requestId: "codex-after-claude", text: "Keep going", provider: "codex" });
+  await until(() => selected(f.sessions).status === "idle");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start").at(-1).params.input[0].text).toContain("Claude reply");
+  f.sessions.setProvider({ provider: "claude" });
+  f.sessions.submit({ requestId: "claude-resume", text: "Continue again" });
+  await until(() => selected(f.sessions).status === "idle");
+  const later = JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8"));
+  expect(later.calls[1].resume).toBe(true);
+  expect(later.calls[1].sessionId).toBe(later.calls[0].sessionId);
+  expect(later.calls[1].input.message.content).toContain("Keep going");
+  expect(f.sessions.health().providers.claude.model).toBe("claude-test-model");
+});
+
+test("Claude cancellation, process failure and restart preserve acknowledgments without replay", async () => {
+  const f = await fixture("complete", undefined, 2_000, "hold");
+  f.sessions.setProvider({ provider: "claude" });
+  f.sessions.submit({ requestId: "claude-stop", text: "Wait", provider: "claude" });
+  await until(() => existsSync(join(f.root, "claude.json")));
+  await f.sessions.stop({ threadId: selected(f.sessions).id });
+  await until(() => selected(f.sessions).status === "idle");
+  expect(selected(f.sessions).error).toBe("Turn stopped.");
+  f.rpc.close(); f.claude?.close(); owned.pop(); await Bun.sleep(50);
+  const resumed = await fixture("complete", f.root, 2_000, "exit");
+  expect(resumed.sessions.snapshot().provider).toBe("claude");
+  resumed.sessions.submit({ requestId: "claude-stop", text: "Wait", provider: "claude" });
+  expect(JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8")).calls).toHaveLength(1);
+  resumed.sessions.submit({ requestId: "claude-exit", text: "Continue" });
+  await until(() => selected(resumed.sessions).status === "failed");
+  expect(selected(resumed.sessions).error).toContain("not resent");
+  resumed.sessions.submit({ requestId: "claude-exit", text: "Continue" });
+  expect(JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8")).calls).toHaveLength(2);
+});
+
+test("Claude authentication failure leaves Codex usable and the mobile API exposes no provider selector", async () => {
+  const f = await fixture("complete", undefined, 2_000, "unauthenticated");
+  expect(() => f.sessions.setProvider({ provider: "claude" })).toThrow("not authenticated");
+  expect(f.sessions.snapshot().provider).toBe("codex");
+  f.sessions.submit({ requestId: "codex-still-works", text: "Hello" });
+  await until(() => selected(f.sessions).status === "idle");
+  const handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "" });
+  const request = (provider: string) => handler(new Request("http://localhost:19453/api/provider", {
+    method: "POST", headers: { Origin: "http://localhost:19453", "Content-Type": "application/json" }, body: JSON.stringify({ provider }),
+  }));
+  for (const provider of ["other", "codex", "claude"]) expect((await request(provider)).status).toBe(404);
+});
+
+test("voice messages retain private M4A bytes, deduplicate uploads and route recognized context once", async () => {
+  const f = await fixture();
+  const handler = httpHandler(f.sessions, { allowedLogin: "owner@test", publicHost: "mini.tail.test:9453" });
+  const bytes = new Uint8Array([0, 0, 0, 20, 102, 116, 121, 112, 77, 52, 65, 32, 0, 0, 0, 0, 109, 112, 52, 50]);
+  const upload = (metadata: any, login = "owner@test", payload = bytes) => {
+    const body = new FormData(); body.set("audio", new File([payload], "clip.m4a", { type: "audio/mp4" })); body.set("metadata", JSON.stringify(metadata));
+    return handler(new Request("https://mini.tail.test:9453/api/audio", { method: "POST", headers: { Origin: "https://mini.tail.test:9453", "Tailscale-User-Login": login }, body }));
+  };
+  const metadata = { requestId: "voice-1", clipId: "owned-clip", threadId: selected(f.sessions).id, durationMs: 1200, provider: "codex" };
+  expect((await upload(metadata, "other@test")).status).toBe(403);
+  const saved = await upload(metadata);
+  expect(saved.status).toBe(202);
+  const snapshot = await saved.json() as any;
+  const audio = snapshot.threads[0].messages[0].audio;
+  expect(audio).toMatchObject({ durationMs: 1200, mimeType: "audio/mp4", transcriptionStatus: "missing" });
+  expect(snapshot.acceptedRequestIds).toEqual(["voice-1"]);
+  expect(snapshot.threads[0].error).toContain("transcription");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(0);
+  const artifact = join(f.sessions.audioDirectory(), `${audio.id}.m4a`);
+  expect(new Uint8Array(readFileSync(artifact))).toEqual(bytes);
+  expect(statSync(artifact).mode & 0o777).toBe(0o600);
+  const download = (headers: HeadersInit = {}) => handler(new Request(`https://mini.tail.test:9453${audio.url}`, { headers }));
+  expect((await download()).status).toBe(403);
+  const playback = await download({ "Tailscale-User-Login": "owner@test" });
+  expect(playback.headers.get("Content-Type")).toBe("audio/mp4");
+  expect(new Uint8Array(await playback.arrayBuffer())).toEqual(bytes);
+  const range = await download({ "Tailscale-User-Login": "owner@test", Range: "bytes=4-7" });
+  expect(range.status).toBe(206); expect(await range.text()).toBe("ftyp");
+  expect((await upload({ ...metadata, transcript: "Hello from voice" })).status).toBe(202);
+  await until(() => selected(f.sessions).status === "idle");
+  expect(selected(f.sessions).messages[0].audio?.transcriptionStatus).toBe("ready");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+  expect((await upload({ ...metadata, transcript: "Hello from voice" })).status).toBe(202);
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+  expect((await upload(metadata, "owner@test", new Uint8Array([...bytes, 1]))).status).toBe(409);
+  expect((await upload({ ...metadata, requestId: "bad-transcript", transcript: 2 })).status).toBe(400);
+  expect((await upload({ ...metadata, requestId: "too-long", durationMs: 900_001 })).status).toBe(400);
+});
+
+test("search filters the ongoing saved conversation without changing provider or hidden histories", async () => {
+  const f = await fixture("complete", undefined, 2_000, "complete");
+  f.sessions.submit({ requestId: "search-one", text: "Needle in the first message" });
+  await until(() => selected(f.sessions).status === "idle");
+  f.sessions.setProvider({ provider: "claude" });
+  f.sessions.submit({ requestId: "search-two", text: "Another message" });
+  await until(() => selected(f.sessions).status === "idle");
+  const before = readFileSync(join(f.root, "session.json"), "utf8");
+  const handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "" });
+  const response = await handler(new Request("http://localhost:19453/api/search?q=NEEDLE"));
+  const result = await response.json() as any;
+  expect(result.threads).toHaveLength(1);
+  expect(result.threads[0].messages).toMatchObject([{ role: "user", text: "Needle in the first message" }]);
+  expect(result.provider).toBe("claude");
+  expect(result.acceptedRequestIds).toEqual(["search-one", "search-two"]);
+  expect(readFileSync(join(f.root, "session.json"), "utf8")).toBe(before);
+  expect((await handler(new Request(`http://localhost:19453/api/search?q=${"x".repeat(201)}`))).status).toBe(400);
+});
+
+test("search pages only matching long-message chunks including boundary spans and literal JSON query characters", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dot-harness-test-"));
+  const beginning = "UNIQUE_START_MATCH&/#/+/%", middle = "UNIQUE_MIDDLE_MATCH&/#/+/%", ending = "UNIQUE_END_MATCH&/#/+/%", boundary = "UNIQUE_BOUNDARY_MATCH&/#/+/%";
+  const chars = Array(30_100).fill("x");
+  for (const [offset, marker] of [[0, beginning], [5994, boundary], [12_040, middle], [30_050, ending]] as const) chars.splice(offset, marker.length, ...marker);
+  const source = chars.join("");
+  writeFileSync(join(root, "session.json"), JSON.stringify({ version: 1, selectedThreadId: "long-search", requests: [], threads: [
+    { id: "long-search", title: "Search", status: "idle", messages: [{ id: "long", role: "assistant", text: source }] },
+    { id: "archived", title: "Hidden", status: "idle", messages: [{ id: "hidden", role: "assistant", text: beginning }] },
+  ] }));
+  const f = await fixture("complete", root), handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "" });
+  const saved = readFileSync(join(root, "session.json"), "utf8");
+  for (const [marker, chunk] of [[beginning, 0], [middle, 2], [ending, 5], [boundary, 0]] as const) {
+    const response = await handler(new Request("http://localhost:19453/api/search", { method: "POST", headers: { Origin: "http://localhost:19453", "Content-Type": "application/json" }, body: JSON.stringify({ query: marker.toLowerCase() }) }));
+    expect(response.status).toBe(200);
+    const snapshot = await response.json() as any;
+    expect(snapshot.threads).toHaveLength(1);
+    expect(snapshot.threads[0].messages).toHaveLength(1);
+    expect(snapshot.threads[0].messages[0].id).toBe(`long:${chunk}`);
+    expect(snapshot.threads[0].messages[0].text).toContain(marker);
+    expect(snapshot.threads[0].messages[0].text.length).toBeLessThanOrEqual(6000);
+  }
+  expect(f.sessions.snapshot(undefined, "ABSENT&/#/+/%").threads[0].messages).toEqual([]);
+  expect(readFileSync(join(root, "session.json"), "utf8")).toBe(saved);
+});
+
+test("latest assistant keeps the complete reply and distinguishes identical answers by stored id", async () => {
+  const f = await fixture();
+  f.sessions.submit({ requestId: "same-first", text: "Hello" });
+  await until(() => selected(f.sessions).status === "idle");
+  const first = f.sessions.snapshot(undefined, undefined, true).threads[0].latestAssistant!;
+  expect(first).toEqual({ id: "assistant-1", text: "Hello world" });
+  expect(selected(f.sessions).messages.at(-1)?.id).toBe(`${first.id}:0`);
+  await Bun.sleep(10);
+  f.sessions.submit({ requestId: "same-second", text: "Hello again" });
+  await until(() => selected(f.sessions).status === "idle");
+  const second = f.sessions.snapshot(undefined, undefined, true).threads[0].latestAssistant!;
+  expect(second.text).toBe(first.text);
+  expect(second.id).not.toBe(first.id);
+  expect(f.sessions.snapshot(undefined, "Hello").threads[0].latestAssistant).toEqual({ id: second.id });
+  expect(selected(f.sessions).latestAssistant).toEqual({ id: second.id });
+  const handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "" });
+  const call = await handler(new Request("http://localhost:19453/api/session?call=1"));
+  expect((await call.json() as any).threads[0].latestAssistant).toEqual(second);
+});
+
+test("Claude transcript recovery preserves valid rows around corrupt lines and reports the skipped rows", async () => {
+  const f = await fixture("complete", undefined, 2_000, "complete");
+  const sessionId = "8e6cd1b1-5cb3-4b2a-b9a0-c3f8da27e62b";
+  const transcript = join(f.root, "claude-projects", "project", `${sessionId}.jsonl`);
+  const row = (id: string, text: string, overrides = {}) => JSON.stringify({ type: "assistant", sessionId, message: { id, content: [{ type: "text", text }] }, ...overrides });
+  writeFileSync(transcript, `${row("one", "Saved first")}\n{"type":"assistant","message":`);
+  expect(f.claude!.recoveredMessages(sessionId)).toEqual([{ id: "one", role: "assistant", text: "Saved first" }]);
+  expect(f.claude!.recoveryWarnings[0]).toContain("incomplete final transcript row at line 2");
+  expect(f.sessions.health().providers.claude.recoveryWarnings).toEqual(f.claude!.recoveryWarnings);
+  writeFileSync(transcript, `${row("one", "Saved first")}\nBROKEN\n${row("two", "Saved second")}\n${row("side", "Hidden subagent", { isSidechain: true })}\n${row("other", "Other session", { sessionId: "different" })}\nnull\n`);
+  expect(f.claude!.recoveredMessages(sessionId)).toEqual([
+    { id: "one", role: "assistant", text: "Saved first" }, { id: "two", role: "assistant", text: "Saved second" },
+  ]);
+  expect(f.claude!.recoveryWarnings).toHaveLength(2);
+  expect(f.claude!.recoveryWarnings[0]).toContain("invalid transcript row at line 2");
+  expect(f.claude!.recoveryWarnings[1]).toContain("invalid transcript row at line 6");
+  writeFileSync(transcript, `${row("one", "Saved first")}\n`);
+  expect(f.claude!.recoveredMessages(sessionId)).toHaveLength(1);
+  expect(f.claude!.recoveryWarnings).toEqual([]);
+});
+
+test("Claude recovery uses the configured projects directory when real auth status omits it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dot-harness-test-"));
+  const previous = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(root, "isolated-claude-config");
+  try {
+    const f = await fixture("complete", root, 2_000, "no-projects-directory");
+    f.sessions.setProvider({ provider: "claude" });
+    f.sessions.submit({ requestId: "recover-with-config", text: "Hello" });
+    await until(() => selected(f.sessions).status === "idle");
+    const state = JSON.parse(readFileSync(join(root, "claude.json"), "utf8"));
+    const sessionId = state.calls[0].sessionId;
+    expect(existsSync(join(process.env.CLAUDE_CONFIG_DIR!, "projects", "project", `${sessionId}.jsonl`))).toBe(true);
+    expect(f.claude!.recoveredMessages(sessionId)).toMatchObject([
+      { role: "user", text: "Hello" }, { role: "assistant", text: "Claude reply" },
+    ]);
+    expect(f.claude!.recoveryWarnings).toEqual([]);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previous;
+  }
+});
+
+test("audio publication deduplicates complete artifacts and rejects partial, corrupt and symlinked saved bytes", async () => {
+  const f = await fixture();
+  const directory = f.sessions.audioDirectory();
+  const bytes = new Uint8Array([0, 0, 0, 20, 102, 116, 121, 112, 77, 52, 65, 32, 0, 0, 0, 0, 109, 112, 52, 50]);
+  const id = createHash("sha256").update(bytes).digest("hex");
+  const path = join(directory, `${id}.m4a`);
+  const upload = () => {
+    const body = new FormData(); body.set("audio", new File([bytes], "clip.m4a", { type: "audio/mp4" }));
+    body.set("metadata", JSON.stringify({ durationMs: 1200 }));
+    return audioUpload(new Request("http://localhost/api/audio", { method: "POST", body }), directory);
+  };
+  const results = await Promise.all([upload(), upload()]);
+  expect(results.map(({ audio }) => audio.id)).toEqual([id, id]);
+  expect(new Uint8Array(readFileSync(path))).toEqual(bytes);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  const fs = await import("node:fs");
+  expect(fs.readdirSync(directory)).toEqual([`${id}.m4a`]);
+  for (const damaged of [bytes.subarray(0, 10), new Uint8Array([...bytes.subarray(0, bytes.length - 1), 0])]) {
+    writeFileSync(path, damaged);
+    await expect(upload()).rejects.toThrow("saved voice message is damaged");
+    expect(new Uint8Array(readFileSync(path))).toEqual(damaged);
+    expect(() => audioDownload(directory, id, new Request("http://localhost/api/audio"))).toThrow("Voice message not found");
+    expect(fs.readdirSync(directory)).toEqual([`${id}.m4a`]);
+  }
+  rmSync(path);
+  const target = join(f.root, "outside.m4a"); writeFileSync(target, bytes); symlinkSync(target, path);
+  await expect(upload()).rejects.toThrow("saved voice message is damaged");
+  expect(new Uint8Array(readFileSync(target))).toEqual(bytes);
+  expect(fs.readdirSync(directory)).toEqual([`${id}.m4a`]);
+});
+
+test("photos retain exact bytes/caption, privately download and send actual Codex image inputs once", async () => {
+  const f = await fixture();
+  const handler = httpHandler(f.sessions, { allowedLogin: "owner@test", publicHost: "mini.tail.test:9453" });
+  const metadata = { requestId: "photo-one", threadId: selected(f.sessions).id, imageId: "picked-one", text: "  Read this picture  ", width: 1, height: 1 };
+  expect((await handler(imageRequest(metadata, pixelPng, "image/png", "other@test"))).status).toBe(403);
+  const response = await handler(imageRequest(metadata)); expect(response.status).toBe(202);
+  const snapshot = await response.json() as any, message = snapshot.threads[0].messages[0], image = message.image;
+  expect(message.text).toBe(metadata.text);
+  expect(image).toMatchObject({ width: 1, height: 1, mimeType: "image/png", id: createHash("sha256").update(pixelPng).digest("hex") });
+  const file = imagePath(f.sessions.imageDirectory(), image);
+  expect(readFileSync(file)).toEqual(pixelPng); expect(statSync(file).mode & 0o777).toBe(0o600);
+  const download = (method = "GET", extra: HeadersInit = {}, login = "owner@test") => handler(new Request(`https://mini.tail.test:9453${image.url}`, { method, headers: { "Tailscale-User-Login": login, ...extra } }));
+  expect((await download("GET", {}, "other@test")).status).toBe(403);
+  const got = await download(); expect(got.headers.get("Content-Type")).toBe("image/png"); expect(Buffer.from(await got.arrayBuffer())).toEqual(pixelPng);
+  const head = await download("HEAD"); expect(head.headers.get("Content-Length")).toBe(String(pixelPng.length)); expect((await head.arrayBuffer()).byteLength).toBe(0);
+  const range = await download("GET", { Range: "bytes=0-7" }); expect(range.status).toBe(206); expect(Buffer.from(await range.arrayBuffer())).toEqual(pixelPng.subarray(0, 8));
+  expect((await download("GET", { Range: "bytes=0-9999" })).status).toBe(416);
+  await until(() => selected(f.sessions).status === "idle");
+  const inputs = f.official().calls.find((call: any) => call.method === "turn/start").params.input;
+  expect(inputs).toEqual([{ type: "text", text: metadata.text, text_elements: [] }, { type: "localImage", path: file }]);
+  expect((await handler(imageRequest(metadata))).status).toBe(202);
+  expect((await handler(imageRequest({ ...metadata, text: "Changed caption" }))).status).toBe(409);
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+  expect(selected(f.sessions).messages.find((item) => item.role === "user")?.image).toEqual(image);
+  expect((await handler(new Request(`https://mini.tail.test:9453/api/image/${"0".repeat(64)}`, { headers: { "Tailscale-User-Login": "owner@test" } }))).status).toBe(404);
+});
+
+test("image-only Claude turns use real base64 blocks and provider handoffs retain the actual photo", async () => {
+  const f = await fixture("complete", undefined, 2_000, "complete");
+  f.sessions.setProvider({ provider: "claude" });
+  const handler = httpHandler(f.sessions, { allowedLogin: "owner@test", publicHost: "mini.tail.test:9453" });
+  const metadata = { requestId: "claude-photo", threadId: selected(f.sessions).id, imageId: "photo-claude", text: "", width: 1, height: 1 };
+  expect((await handler(imageRequest(metadata))).status).toBe(202);
+  await until(() => selected(f.sessions).status === "idle");
+  const state = JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8"));
+  expect(state.calls[0].input.message.content).toEqual([{ type: "image", source: { type: "base64", media_type: "image/png", data: pixelPng.toString("base64") } }]);
+  expect(selected(f.sessions).messages[0].text).toBe("");
+  f.sessions.setProvider({ provider: "codex" });
+  f.sessions.submit({ requestId: "codex-photo-followup", text: "Explain the previous photo" });
+  await until(() => selected(f.sessions).status === "idle");
+  const input = f.official().calls.find((call: any) => call.method === "turn/start").params.input;
+  expect(input[0].text).toContain('"image"');
+  expect(input[1].type).toBe("localImage"); expect(readFileSync(input[1].path)).toEqual(pixelPng);
+});
+
+test("photo container/dimension checks and atomic publication reject corrupt saved files", async () => {
+  const f = await fixture(); const directory = f.sessions.imageDirectory();
+  const metadata = { imageId: "photo", text: "Caption", width: 1, height: 1 };
+  const saved = await imageUpload(imageRequest(metadata, pixelJpeg, "image/jpeg"), directory);
+  expect(saved.image).toMatchObject({ mimeType: "image/jpeg", width: 1, height: 1 });
+  expect(readImage(directory, saved.image)).toEqual(pixelJpeg);
+  await expect(imageUpload(imageRequest({ ...metadata, width: 2 }, pixelJpeg, "image/jpeg"), directory)).rejects.toThrow("dimensions");
+  await expect(imageUpload(imageRequest(metadata, pixelPng, "image/jpeg"), directory)).rejects.toThrow("type does not match");
+  const badCrc = Buffer.from(pixelPng); badCrc[badCrc.length - 1] ^= 1;
+  await expect(imageUpload(imageRequest(metadata, badCrc), directory)).rejects.toThrow("Invalid PNG");
+  await expect(imageUpload(imageRequest(metadata, pixelJpeg.subarray(0, pixelJpeg.length - 2), "image/jpeg"), directory)).rejects.toThrow("Invalid photo container");
+  const path = imagePath(directory, saved.image); writeFileSync(path, pixelJpeg.subarray(0, 40));
+  await expect(imageUpload(imageRequest(metadata, pixelJpeg, "image/jpeg"), directory)).rejects.toThrow("saved photo is damaged");
+  rmSync(path); const target = join(f.root, "outside.jpg"); writeFileSync(target, pixelJpeg); symlinkSync(target, path);
+  await expect(imageUpload(imageRequest(metadata, pixelJpeg, "image/jpeg"), directory)).rejects.toThrow("saved photo is damaged");
+  expect(readFileSync(target)).toEqual(pixelJpeg);
+  const fs = await import("node:fs"); expect(fs.readdirSync(directory)).toEqual([`${saved.image.id}.jpg`]);
+});
+
 test("acknowledges immediately, streams real items, deduplicates and resumes official history", async () => {
   const f = await fixture(); const id = selected(f.sessions).id;
   const input = { threadId: id, requestId: "phone-1", text: "Hello" };
   const accepted = f.sessions.submit(input);
   expect(accepted.acceptedRequestIds).toEqual(["phone-1"]);
   expect(accepted.threads[0].status).toBe("working");
-  expect(accepted.threads[0].messages).toEqual([{ role: "user", text: "Hello" }]);
+  expect(accepted.threads[0].messages).toMatchObject([{ role: "user", text: "Hello" }]);
   f.sessions.submit(input);
   await until(() => selected(f.sessions).status === "idle");
-  expect(selected(f.sessions).messages).toEqual([{ role: "user", text: "Hello" }, { role: "assistant", text: "Hello world" }]);
+  expect(selected(f.sessions).messages).toMatchObject([{ role: "user", text: "Hello" }, { role: "assistant", text: "Hello world" }]);
   expect(f.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
   const params = f.official().calls.find((x: any) => x.method === "thread/start").params;
   expect(params).toMatchObject({ sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review" });
@@ -225,6 +553,11 @@ test("the ongoing conversation's full history can be paged without exposing or c
   expect(initial.threads).toHaveLength(1);
   expect(initial.threads[0].id).toBe("large");
   expect(initial.acceptedRequestIds).toEqual(["old-receipt"]);
+  expect(initial.threads[0].latestAssistant).toEqual({ id: "message" });
+  expect(f.sessions.snapshot(undefined, undefined, true).threads[0].latestAssistant).toEqual({ id: "message", text: source });
+  const largeCall = await handler(new Request("http://localhost:19453/api/session?call=1"));
+  expect(largeCall.status).toBe(413);
+  expect((await largeCall.json() as any).error).toContain("response limit");
   const saved = JSON.parse(readFileSync(join(root, "session.json"), "utf8"));
   expect(saved.threads[1]).toEqual(archived);
   expect(f.official().calls.some((call: any) => call.method === "thread/resume" && call.params.threadId === "archived-codex")).toBe(false);

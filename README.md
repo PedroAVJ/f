@@ -1,18 +1,20 @@
 # Open Dot
 
-Dot is a native iPhone app backed by the Codex harness on your Mac mini.
+Dot is a native iPhone app backed by the harness on your Mac mini.
 The app is compiled from Bend using [PedroAVJ/f](https://github.com/PedroAVJ/f).
 It keeps the existing dark conversation components, glass header and pill composer.
 Bend owns UI state, layout, JSON decoding and commands. UIKit supplies native
 text input and HTTPS requests; the fork's CoreGraphics painter draws the UI.
-The Mac runs the authenticated official Codex app-server with persistent threads.
+The Mac connects to the authenticated Codex app-server and Claude Code.
+Dot keeps one ongoing conversation; the header uses the original Near avatar.
 
 The phone connects to the private Tailscale harness. Tailscale must be connected,
 and the Mac mini must stay on. Your ongoing conversation is saved on the Mac; an accepted turn continues when
-the app closes. The menu shows its full history and stops a running turn.
+the app closes. The menu searches the conversation and stops a running turn.
+Search opens the matching message in place.
 
 Keep the fork beside this repository at `../f`. The Mac needs Bun, Tailscale,
-the Codex CLI and Xcode with iOS SDKs. Sign into Codex, then build and deploy:
+the Codex CLI, Claude Code and Xcode with iOS SDKs. Sign into both providers, then build and deploy:
 
 ```sh
 cd harness && bun install --frozen-lockfile && cd ..
@@ -45,15 +47,27 @@ xcrun devicectl device process launch --device DEVICE_ID com.pedroavj.opendot.io
 
 Deploy installs `com.pedroavj.opendot.harness` as a user LaunchAgent and exposes
 loopback port 19453 through Tailscale HTTPS port 9453. Only the configured
-Tailscale owner can use it. Provider credentials stay with Codex on the Mac.
+Tailscale owner can use it. Provider credentials stay on the Mac.
 Session files live in `~/Library/Application Support/OpenDot` and logs in
 `~/Library/Logs/OpenDot`. The signed IPA is available privately at
 `/downloads/Dot.ipa` on the harness address.
 
 Codex uses the available default model from its model catalog, workspace-write
 sandbox and automatic approval review. Interactive requests this client cannot
-display are declined and reported in the conversation menu. Calls, files and
-dictation are not connected yet. Claude is not connected in this version.
+display are declined and reported in the conversation.
+
+The microphone records a retained M4A voice message. You can play it, send it,
+or retry speech recognition without rerecording it. Recognition supplies text
+context to the subscription backends; the original audio remains available for
+playback. The call button uses iPhone speech recognition and speech output in
+the same conversation. Calls run while Dot is in the foreground; backgrounding
+ends the call. The plus button picks a photo, previews it in the conversation,
+and sends the actual image with its caption when you tap Send. Images and audio
+stay private behind the same Tailscale authorization as the conversation.
+
+The harness has both provider transports connected. Mobile routing currently
+uses the stored provider, which defaults to Codex; there is no provider selector.
+Automatic routing between the two providers has not been defined yet.
 
 Run the shared client and harness checks:
 

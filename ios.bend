@@ -5,8 +5,8 @@ import ../f/bend2/std/F/ui/kit.bend as K
 import ../f/bend2/std/F/ui/tokens.bend as T
 import ./mobile.bend as M
 
-def paint(state: M.State) -> IO(Unit):
-  Native.show_canvas_in(M.f(state), K.Rendering{K.Lang.Es{}, []}, T.Scheme.Dark{})
+def paint(+state: M.State) -> IO(Unit):
+  Native.show_canvas_in(M.f(state), K.Rendering{M.lang(state), []}, T.Scheme.Dark{})
 def loop(fuel: Nat, +state: M.State) -> IO(Unit):
   match fuel:
     case 0n: IO.pure(Unit, Unit{})

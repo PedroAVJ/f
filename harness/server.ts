@@ -2,6 +2,9 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
 import { AppServer } from "./rpc.ts";
+import { ClaudeCode } from "./claude.ts";
+import { audioUpload, audioDownload, MAX_AUDIO_BODY } from "./audio.ts";
+import { imageUpload, imageDownload } from "./images.ts";
 import { Sessions, InputError, object } from "./session.ts";
 
 const MAX_BODY = 128_000;
@@ -25,14 +28,39 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
         if (!origin || ![...(local ? [`http://${host}`] : []), `https://${host}`].includes(origin)) throw new InputError("Request origin must match the app address.", 403);
+        if (url.pathname === "/api/audio") {
+          if (!request.headers.get("content-type")?.startsWith("multipart/form-data;")) throw new InputError("Use multipart/form-data for a voice message.", 415);
+          const { input, audio } = await audioUpload(request, sessions.audioDirectory());
+          return json(sessions.submitAudio(input, audio), 202);
+        }
+        if (url.pathname === "/api/image") {
+          if (!request.headers.get("content-type")?.startsWith("multipart/form-data;")) throw new InputError("Use multipart/form-data for a photo.", 415);
+          const { input, image } = await imageUpload(request, sessions.imageDirectory());
+          return json(sessions.submitImage(input, image), 202);
+        }
         if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") throw new InputError("Use application/json.", 415);
         const body = object(await readBody(request));
+        if (url.pathname === "/api/search") {
+          if (typeof body.query !== "string") throw new InputError("Search query must be text.");
+          return json(sessions.snapshot(undefined, body.query));
+        }
         if (url.pathname === "/api/turn") return json(sessions.submit(body), 202);
         if (url.pathname === "/api/stop") return json(await sessions.stop(body));
         throw new InputError("Not found.", 404);
       }
       if (url.pathname === "/health") return json(sessions.health(), sessions.isReady ? 200 : 503);
-      if (url.pathname === "/api/session") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined));
+      if (url.pathname === "/api/session") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, undefined, url.searchParams.get("call") === "1"));
+      if (url.pathname === "/api/search") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, url.searchParams.get("q") ?? ""));
+      if (url.pathname.startsWith("/api/audio/")) {
+        const id = url.pathname.slice("/api/audio/".length);
+        if (!sessions.ownsAudio(id)) throw new InputError("Voice message not found.", 404);
+        return audioDownload(sessions.audioDirectory(), id, request);
+      }
+      if (url.pathname.startsWith("/api/image/")) {
+        const id = url.pathname.slice("/api/image/".length), image = sessions.ownedImage(id);
+        if (!image) throw new InputError("Photo not found.", 404);
+        return imageDownload(sessions.imageDirectory(), image, request);
+      }
       if (url.pathname.startsWith("/api/")) throw new InputError("Not found.", 404);
       checkedPath(url.pathname);
       if (url.pathname === "/downloads/Dot.ipa") return ipaResponse(options.iosArtifact, request.method === "HEAD");
@@ -105,11 +133,12 @@ function json(value: unknown, status = 200) {
 if (import.meta.main) {
   const cwd = join(homedir(), "Developer", "Chat");
   const rpc = new AppServer([process.env.DOT_CODEX_BIN ?? join(homedir(), ".local/bin/codex"), "app-server", "--stdio"], cwd);
-  const sessions = new Sessions(rpc, join(homedir(), "Library/Application Support/OpenDot/mobile-session.json"), cwd);
+  const claude = new ClaudeCode([process.env.DOT_CLAUDE_BIN ?? join(homedir(), ".local/bin/claude")], cwd);
+  const sessions = new Sessions(rpc, join(homedir(), "Library/Application Support/OpenDot/mobile-session.json"), cwd, claude);
   const port = Number(process.env.DOT_PORT ?? "19453");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid DOT_PORT.");
   const server = Bun.serve({
-    hostname: "127.0.0.1", port, maxRequestBodySize: MAX_BODY,
+    hostname: "127.0.0.1", port, maxRequestBodySize: MAX_AUDIO_BODY,
     fetch: httpHandler(sessions, {
       allowedLogin: process.env.DOT_ALLOWED_TAILSCALE_LOGIN ?? "",
       publicHost: process.env.DOT_PUBLIC_HOST ?? "pedros-mac-mini.tail90fb4c.ts.net:9453",
@@ -119,13 +148,14 @@ if (import.meta.main) {
   const recordFailure = rpc.onFailure;
   rpc.onFailure = (error) => {
     recordFailure(error);
+    claude.close();
     server.stop(true);
     process.exit(1);
   };
   void sessions.ready.catch(() => {
-    server.stop(true); rpc.close(); process.exit(1);
+    server.stop(true); rpc.close(); claude.close(); process.exit(1);
   });
   console.log(`Open Dot listening on http://127.0.0.1:${server.port}`);
-  const shutdown = () => { server.stop(true); rpc.close(); process.exit(0); };
+  const shutdown = () => { server.stop(true); rpc.close(); claude.close(); process.exit(0); };
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
 }

@@ -124,6 +124,7 @@ try {
   cpSync(join(fork, 'bend2'), compiler, { recursive: true, filter: path => !path.includes('/node_modules') && !path.includes('/bend2/docs') });
   for (const file of files(compiler)) inputs.push({ name: 'f/bend2/' + relative(compiler, file), sha256: fileDigest(file) });
   capture(join(root, 'mobile/icon-512.png'), join(source, 'icon-512.png'), 'open-dot/mobile/icon-512.png');
+  capture(join(root, 'mobile/nearling-original.png'), join(source, 'nearling-original.png'), 'open-dot/mobile/nearling-original.png');
   const native = join(stage, 'native');
   mkdirSync(native);
   run('bun', [join(compiler, 'tool.ts'), join(source, 'ios.bend'), '-o', join(native, 'app.c')]);
@@ -143,10 +144,11 @@ try {
     const objects = join(native, platform);
     const app = join(output, 'Dot.app');
     mkdirSync(app, { recursive: true });
+    copyFileSync(join(source, 'nearling-original.png'), join(app, 'nearling-original.png'));
     mkdirSync(objects);
-    run('xcrun', [...cc, ...(/^#import /m.test(c) ? [...objc, '-fmodules-ignore-macro=main'] : []), '-std=c11', '-O2', '-DBEND_NATIVE=1', '-Dmain=bend_main', '-c', join(native, 'app.c'), '-o', join(objects, 'app.o')]);
+    run('xcrun', [...cc, ...(/^#import /m.test(c) ? [...objc, '-fmodules-ignore-macro=main'] : []), '-std=c11', '-O2', '-DBEND_NATIVE=1', '-DBEND_IOS=1', '-Dmain=bend_main', '-c', join(native, 'app.c'), '-o', join(objects, 'app.o')]);
     for (const name of ['ios_shell', 'paint']) run('xcrun', [...cc, ...objc, '-std=c11', '-O2', '-c', join(compiler, 'std/F/apple', name + '.c'), '-o', join(objects, name + '.o')]);
-    run('xcrun', [...cc, join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...['UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO'].flatMap(name => ['-framework', name]), '-o', join(app, 'Dot')]);
+    run('xcrun', [...cc, join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...['UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers'].flatMap(name => ['-framework', name]), '-o', join(app, 'Dot')]);
     const assets = join(objects, 'Assets.xcassets');
     const icon = join(assets, 'AppIcon.appiconset');
     mkdirSync(icon, { recursive: true });
@@ -165,6 +167,7 @@ try {
       CFBundleInfoDictionaryVersion: '6.0', CFBundleName: 'Dot', CFBundlePackageType: 'APPL', CFBundleShortVersionString: version, CFBundleVersion: build,
       CFBundleSupportedPlatforms: [simulator ? 'iPhoneSimulator' : 'iPhoneOS'], MinimumOSVersion: minimum, DTPlatformName: sdkName, DTSDKName: sdkName + sdkVersion,
       UIDeviceFamily: [1], UILaunchScreen: {}, UIUserInterfaceStyle: 'Dark', UIApplicationSupportsIndirectInputEvents: true,
+      NSMicrophoneUsageDescription: 'Record voice messages and talk with Near.', NSSpeechRecognitionUsageDescription: 'Understand voice messages and your speech during a call with Near.',
       UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'], BendOrigin: originURL.origin, BendSubmitLabel: 'Enviar',
     }));
     let signingMetadata: unknown = { kind: 'ad-hoc-simulator' };
@@ -180,7 +183,7 @@ try {
     run('codesign', ['--verify', '--deep', '--strict', app]);
     const appFiles = files(app).map(file => ({ name: relative(app, file), bytes: statSync(file).size, sha256: fileDigest(file) }));
     writeFileSync(join(output, 'build.json'), JSON.stringify({ bendIOS: 1, builtAt: new Date().toISOString(), target: platform, bundle, minimumOS: minimum,
-      sdk: { name: sdkName, version: sdkVersion, architecture: arch }, origin: originURL.origin, compiler: 'PedroAVJ/f Bend2 C', checkoutAtSnapshot: checkouts,
+      sdk: { name: sdkName, version: sdkVersion, architecture: arch }, origin: originURL.origin, compiler: 'PedroAVJ/f Bend2 C', defines: ['BEND_NATIVE=1', 'BEND_IOS=1'], checkoutAtSnapshot: checkouts,
       capturedInputs: inputs.sort((a, b) => a.name.localeCompare(b.name)), generatedCSha256: fileDigest(join(native, 'app.c')), appFiles, signing: signingMetadata,
       verification: { codeSignature: 'verified', installedOnDevice: false, inputTested: false },
     }, null, 2) + '\n');
