@@ -102,18 +102,23 @@ def speaker_of(t: P.UI) -> String:
     case P.Last{}: "Near"
     case P.Leaf{name, shape, w, h, align, next}: Bool.pick(String, String.starts_with(name, "listitem · Tú:"), "Tú", speaker_of(next))
     case P.Node{name, lay, w, h, align, first, next}: Bool.pick(String, String.starts_with(name, "listitem · Tú:"), "Tú", speaker_of(first))
+# Recursive branches must stop at their limit, not evaluate discarded work.
+def choose(-A: Type, condition: Bool, yes: Unit -> A, no: Unit -> A) -> A:
+  match condition:
+    case True{}: yes(Unit{})
+    case False{}: no(Unit{})
 def take_u(s: String, +n: U32) -> String:
   match s:
     case SNil{}: ""
-    case SCon{+c, t}: Bool.pick(String, U32.is_zero(n), "", SCon{c, take_u(t, U32.sub(n, 1))})
+    case SCon{+c, t}: choose(String, U32.is_zero(n), u => "", u => SCon{c, take_u(t, U32.sub(n, 1))})
 def drop_u(s: String, +n: U32) -> String:
   match s:
     case SNil{}: ""
-    case SCon{+c, +t}: Bool.pick(String, U32.is_zero(n), SCon{c, t}, drop_u(t, U32.sub(n, 1)))
+    case SCon{+c, +t}: choose(String, U32.is_zero(n), u => SCon{c, t}, u => drop_u(t, U32.sub(n, 1)))
 def index_go(h: String, +needle: String, +i: U32) -> Maybe<&2, U32>:
   match h:
     case SNil{}: None{}
-    case SCon{+c, +t}: Bool.pick(Maybe<&2, U32>, String.starts_with(SCon{c, t}, needle), Some{i}, index_go(t, needle, U32.add(i, 1)))
+    case SCon{+c, +t}: choose(Maybe<&2, U32>, String.starts_with(SCon{c, t}, needle), u => Some{i}, u => index_go(t, needle, U32.add(i, 1)))
 def found_at(at: Maybe<&2, U32>, +id: U32, +label: String, +text: String, +q: String) -> List<&2, K.Found>:
   match at:
     case None{}: []
@@ -122,7 +127,7 @@ def item_found(i: K.Item, +id: U32, +q: String) -> List<&2, K.Found>:
   match i:
     case K.Said{K.Bubble{+tree}}:
       +text = String.trim(text_of(tree))
-      Bool.pick(List<&2, K.Found>, String.is_empty(q), [K.Found{id, speaker_of(tree), "", "", text}], found_at(index_go(String.to_lower(text), String.to_lower(q), 0), id, speaker_of(tree), text, q))
+      choose(List<&2, K.Found>, String.is_empty(q), u => [K.Found{id, speaker_of(tree), "", "", text}], u => found_at(index_go(String.to_lower(text), String.to_lower(q), 0), id, speaker_of(tree), text, q))
     case _: []
 def found_go(xs: List<&2, K.Item>, +id: U32, +q: String, acc: List<&2, K.Found>) -> List<&2, K.Found>:
   match xs:
@@ -131,7 +136,7 @@ def found_go(xs: List<&2, K.Item>, +id: U32, +q: String, acc: List<&2, K.Found>)
 def first_found(xs: List<&2, K.Found>, +n: U32) -> List<&2, K.Found>:
   match xs:
     case []: []
-    case +x <> rest: Bool.pick(List<&2, K.Found>, U32.is_zero(n), [], x <> first_found(rest, U32.sub(n, 1)))
+    case +x <> rest: choose(List<&2, K.Found>, U32.is_zero(n), u => [], u => x <> first_found(rest, U32.sub(n, 1)))
 def no_found(xs: List<&2, K.Found>) -> Bool:
   match xs:
     case []: True{}

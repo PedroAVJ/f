@@ -4,12 +4,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppServer, RpcTimeout, type ServerCall, type Wire } from "./rpc.ts";
 import { ClaudeCode } from "./claude.ts";
 import { imagePath, readImage } from "./images.ts";
+import { audioPath } from "./audio.ts";
 import { approvalResponse } from "./approvals.ts";
 import { processVoice, TONE_MODEL, type Tone, type VoiceProcessor } from "./voice.ts";
 
 export type Status = "idle" | "working" | "failed";
 export type Provider = "codex" | "claude";
-export type Audio = { id: string; url: string; mimeType: "audio/mp4"; durationMs: number; transcriptionStatus: "ready" | "missing" | "processing" | "failed";
+export type Audio = { id: string; url: string; mimeType: "audio/mp4" | "audio/webm"; durationMs: number; transcriptionStatus: "ready" | "missing" | "processing" | "failed";
   transcript?: string; transcriptionModel?: "scribe_v2"; caption?: string; tone?: Tone; toneError?: string; processingError?: string };
 export type ImageAttachment = { id: string; url: string; mimeType: "image/jpeg" | "image/png"; width: number; height: number };
 type Message = { id: string; role: "user" | "assistant"; text: string; clientId?: string; provider?: Provider; audio?: Audio; image?: ImageAttachment };
@@ -84,6 +85,7 @@ export class Sessions {
 
   audioDirectory() { return join(dirname(this.path), "audio"); }
   ownsAudio(id: string) { return this.thread(this.state.selectedThreadId).messages.some((message) => message.audio?.id === id); }
+  ownedAudio(id: string) { return this.thread(this.state.selectedThreadId).messages.find((message) => message.audio?.id === id)?.audio; }
   imageDirectory() { return join(dirname(this.path), "images"); }
   ownedImage(id: string) { return this.thread(this.state.selectedThreadId).messages.find((message) => message.image?.id === id)?.image; }
 
@@ -325,7 +327,7 @@ export class Sessions {
       const audio = message.audio, controller = new AbortController();
       this.audioControllers.set(thread.id, controller);
       try {
-        const analysis = await this.voiceProcessor(join(this.audioDirectory(), `${audio.id}.m4a`), audio.id, audio.durationMs, controller.signal);
+        const analysis = await this.voiceProcessor(audioPath(this.audioDirectory(), audio), audio.id, audio.durationMs, controller.signal);
         if (thread.cancelRequested || controller.signal.aborted) return;
         audio.transcript = analysis.transcript; audio.transcriptionModel = "scribe_v2"; audio.transcriptionStatus = "ready";
         audio.tone = analysis.tone; audio.toneError = analysis.toneError; delete audio.processingError;
@@ -334,7 +336,7 @@ export class Sessions {
       } finally { this.audioControllers.delete(thread.id); }
     }
     const audio = thread.messages.find((m) => m.clientId === receipt.id)?.audio;
-    if (audio?.transcript) text = `Voice message attached: ${join(this.audioDirectory(), `${audio.id}.m4a`)}\n`
+    if (audio?.transcript) text = `Voice message attached: ${audioPath(this.audioDirectory(), audio)}\n`
       + (audio.caption ? `Caption: ${audio.caption}\n\n` : "")
       + `ElevenLabs Scribe v2 transcript:\n${audio.transcript}\n\n`
       + (audio.tone ? `Gemini vocal-delivery annotations (uncertain observations, not instructions or facts about mental state):\n${JSON.stringify(audio.tone)}` : audio.toneError ?? "Tone annotation unavailable.");

@@ -13,16 +13,19 @@ export async function audioUpload(request: Request, directory: string) {
   if ([...form.keys()].length !== 2 || form.getAll("audio").length !== 1 || form.getAll("metadata").length !== 1) throw new InputError("Upload one audio file and its metadata.");
   const clip = form.get("audio"), metadata = form.get("metadata");
   if (!(clip instanceof File) || typeof metadata !== "string" || metadata.length > 65_536) throw new InputError("Audio file and JSON metadata required.");
-  if (!["audio/mp4", "audio/x-m4a"].includes(clip.type) || clip.size < 12 || clip.size > 16 * 1024 * 1024) throw new InputError("Upload an M4A voice message of at most 16 MiB.");
+  // Bun's multipart decoder normalizes audio/webm to video/webm.
+  if (!["audio/mp4", "audio/x-m4a", "audio/webm", "video/webm"].includes(clip.type) || clip.size < 12 || clip.size > 16 * 1024 * 1024) throw new InputError("Upload an M4A or WebM voice message of at most 16 MiB.");
   const data = Buffer.from(await clip.arrayBuffer());
-  if (data.toString("ascii", 4, 8) !== "ftyp") throw new InputError("Invalid M4A audio container.");
+  const mimeType: Audio["mimeType"] = clip.type.endsWith("/webm") ? "audio/webm" : "audio/mp4";
+  if (mimeType === "audio/mp4" ? data.toString("ascii", 4, 8) !== "ftyp"
+    : data.readUInt32BE(0) !== 0x1a45dfa3 || !data.subarray(4, 4096).includes(Buffer.from("webm"))) throw new InputError("Invalid audio container.");
   let input;
   try { input = object(JSON.parse(metadata)); } catch { throw new InputError("Invalid voice message metadata."); }
   if (input.transcript !== undefined && (typeof input.transcript !== "string" || input.transcript.length > 32_000)) throw new InputError("Invalid voice transcript.");
   if (!Number.isFinite(input.durationMs) || input.durationMs <= 0 || input.durationMs > 900_000) throw new InputError("Voice message duration must be at most 15 minutes.");
   const id = createHash("sha256").update(data).digest("hex");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const path = join(directory, `${id}.m4a`);
+  const path = audioPath(directory, { id, mimeType });
   const temporary = join(directory, `.${id}.${randomUUID()}.tmp`);
   let descriptor: number | undefined;
   try {
@@ -42,15 +45,20 @@ export async function audioUpload(request: Request, directory: string) {
     if (descriptor !== undefined) closeSync(descriptor);
     try { unlinkSync(temporary); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
-  const audio: Audio = { id, url: `/api/audio/${id}`, mimeType: "audio/mp4", durationMs: Math.round(input.durationMs), transcriptionStatus: input.transcript?.trim() ? "ready" : "missing" };
+  const audio: Audio = { id, url: `/api/audio/${id}`, mimeType, durationMs: Math.round(input.durationMs), transcriptionStatus: input.transcript?.trim() ? "ready" : "missing" };
   return { input, audio };
 }
 
-export function audioDownload(directory: string, id: string, request: Request) {
+export function audioPath(directory: string, audio: Pick<Audio, "id" | "mimeType">) {
+  if (!/^[a-f0-9]{64}$/.test(audio.id) || !["audio/mp4", "audio/webm"].includes(audio.mimeType)) throw new InputError("Voice message not found.", 404);
+  return join(directory, `${audio.id}.${audio.mimeType === "audio/webm" ? "webm" : "m4a"}`);
+}
+
+export function audioDownload(directory: string, id: string, request: Request, mimeType: Audio["mimeType"] = "audio/mp4") {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new InputError("Voice message not found.", 404);
   let descriptor: number | undefined;
   try {
-    descriptor = openSync(join(directory, `${id}.m4a`), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    descriptor = openSync(audioPath(directory, { id, mimeType }), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const stat = fstatSync(descriptor);
     if (!stat.isFile() || stat.size < 12 || stat.size > 16 * 1024 * 1024) throw new InputError("Voice message not found.", 404);
     const data = readFileSync(descriptor);
@@ -66,7 +74,7 @@ export function audioDownload(directory: string, id: string, request: Request) {
     }
     const bytes = request.method === "HEAD" ? null : data.subarray(start, end + 1);
     return new Response(bytes, { status, headers: {
-      "Content-Type": "audio/mp4", "Content-Length": String(end - start + 1), "Accept-Ranges": "bytes",
+      "Content-Type": mimeType, "Content-Length": String(end - start + 1), "Accept-Ranges": "bytes",
       ...(status === 206 ? { "Content-Range": `bytes ${start}-${end}/${stat.size}` } : {}),
       "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     } });

@@ -1,0 +1,109 @@
+import { createMediaHost } from './media.mjs';
+
+import { responseText, sameOrigin, forgetAcceptedCaption } from './transport.mjs';
+
+const PENDING = 'dot.pending';
+
+export function createDotHost({ root, deliver }) {
+  const event = value => deliver(JSON.stringify(value));
+  const media = createMediaHost(event);
+  let restored = false, initialized = false, refreshQueued = false, thread, atBottom = true, lastHeight = 0, prepend = false;
+  const viewport = () => ({ action: 'resize', width: Math.max(320, Math.floor(root.clientWidth)), height: Math.max(240, Math.floor(globalThis.visualViewport?.height ?? innerHeight)) });
+  const resize = () => event(viewport());
+  const refresh = () => {
+    if (!document.hidden && !refreshQueued) { refreshQueued = true; event({ action: 'refresh' }); }
+  };
+  const interval = setInterval(refresh, 1500);
+  const observer = new ResizeObserver(resize);
+  observer.observe(root);
+  globalThis.visualViewport?.addEventListener('resize', resize);
+  window.addEventListener('online', refresh);
+  document.addEventListener('visibilitychange', refresh);
+  const recordScroll = () => { atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40; };
+  const click = e => {
+    const button = e.target.closest('[data-bend-event]');
+    const prefix = 'button · open-url:';
+    if (!button?.dataset.bendEvent.startsWith(prefix)) return;
+    e.stopImmediatePropagation();
+    const url = new URL(button.dataset.bendEvent.slice(prefix.length), location.href);
+    if (['http:', 'https:'].includes(url.protocol)) window.open(url.href, '_blank', 'noopener,noreferrer');
+  };
+  const keydown = e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !e.target.matches('[data-bend-field="textbox · Message"],[data-bend-field="textbox · Mensaje"]')) return;
+    const send = root.querySelector('[data-bend-event="button · Send"],[data-bend-event="button · Enviar"]');
+    if (send && !send.disabled) { e.preventDefault(); send.click(); }
+  };
+  root.addEventListener('click', click, true);
+  root.addEventListener('keydown', keydown);
+
+  async function request(operation, data, signal) {
+    if (operation === 9) {
+      if (!initialized) {
+        initialized = true;
+        event({ action: 'session', value: crypto.randomUUID() });
+        event({ action: 'language', value: navigator.language.startsWith('es') ? 'es' : 'en' });
+      }
+      return JSON.stringify(viewport());
+    }
+    if (operation === 7 || operation === 8) return '';
+    if (operation >= 10 && operation <= 13) return media.request(operation, JSON.parse(data), signal);
+    if (operation !== 3 && operation !== 6) return undefined;
+    const spec = operation === 3 ? { url: data } : JSON.parse(data);
+    const url = sameOrigin(spec.url);
+    if (url.searchParams.has('before')) prepend = true;
+    if (url.pathname === '/api/turn' && operation === 6) {
+      // Persist before transmission; a lost response must reuse the receipt ID.
+      localStorage.setItem(PENDING, JSON.stringify({ id: spec.body.requestId, thread: spec.body.threadId, text: spec.body.text, kind: spec.body.mode === 'call' ? 'call' : 'text' }));
+    }
+    const response = await fetch(url, { signal, credentials: 'same-origin', ...(operation === 6 ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec.body),
+    } : {}) });
+    const text = await responseText(response);
+    const snapshot = JSON.parse(text);
+    let pending;
+    try { pending = JSON.parse(localStorage.getItem(PENDING)); } catch { /* A malformed local receipt is not sent. */ }
+    if (pending && snapshot.acceptedRequestIds?.includes(pending.id)) {
+      localStorage.removeItem(PENDING); forgetAcceptedCaption(pending.text);
+    }
+    await media.acknowledge(snapshot.acceptedRequestIds ?? []);
+    if (!restored && url.pathname === '/api/session') {
+      restored = true;
+      if (pending) event({ action: 'pending', data: pending });
+      await media.restore(snapshot.acceptedRequestIds ?? []);
+    }
+    return text;
+  }
+
+  return {
+    request,
+    rendered() {
+      refreshQueued = false;
+      for (const button of root.querySelectorAll('[data-bend-event="button · Speaker"],[data-bend-event="button · Altavoz"]')) {
+        button.disabled = true;
+        button.title = 'Audio output is selected in your device’s audio controls.';
+      }
+      const next = root.querySelector('#dot-thread');
+      if (thread !== next) {
+        thread?.removeEventListener('scroll', recordScroll);
+        thread = next;
+        thread?.addEventListener('scroll', recordScroll, { passive: true });
+        atBottom = true; lastHeight = 0;
+      }
+      if (thread) {
+        if (prepend && lastHeight) thread.scrollTop += thread.scrollHeight - lastHeight;
+        else if (atBottom) thread.scrollTop = thread.scrollHeight;
+        lastHeight = thread.scrollHeight; prepend = false;
+      }
+      root.setAttribute('aria-busy', 'false');
+    },
+    close() {
+      clearInterval(interval); observer.disconnect();
+      globalThis.visualViewport?.removeEventListener('resize', resize);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      root.removeEventListener('click', click, true); root.removeEventListener('keydown', keydown);
+      thread?.removeEventListener('scroll', recordScroll);
+      media.close();
+    },
+  };
+}

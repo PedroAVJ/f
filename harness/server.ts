@@ -8,7 +8,7 @@ import { imageUpload, imageDownload } from "./images.ts";
 import { Sessions, InputError, object } from "./session.ts";
 
 const MAX_BODY = 128_000;
-export type HttpOptions = { allowedLogin: string; publicHost: string; iosArtifact?: string };
+export type HttpOptions = { allowedLogin: string; publicHost: string; iosArtifact?: string; webDirectory?: string };
 const localHost = (hostname: string) => ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 
 export function httpHandler(sessions: Sessions, options: HttpOptions) {
@@ -54,8 +54,9 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
       if (url.pathname === "/api/search") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, url.searchParams.get("q") ?? ""));
       if (url.pathname.startsWith("/api/audio/")) {
         const id = url.pathname.slice("/api/audio/".length);
-        if (!sessions.ownsAudio(id)) throw new InputError("Voice message not found.", 404);
-        return audioDownload(sessions.audioDirectory(), id, request);
+        const audio = sessions.ownedAudio(id);
+        if (!audio) throw new InputError("Voice message not found.", 404);
+        return audioDownload(sessions.audioDirectory(), id, request, audio.mimeType);
       }
       if (url.pathname.startsWith("/api/image/")) {
         const id = url.pathname.slice("/api/image/".length), image = sessions.ownedImage(id);
@@ -65,6 +66,7 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
       if (url.pathname.startsWith("/api/")) throw new InputError("Not found.", 404);
       checkedPath(url.pathname);
       if (url.pathname === "/downloads/Dot.ipa") return ipaResponse(options.iosArtifact, request.method === "HEAD");
+      if (options.webDirectory) return webResponse(options.webDirectory, url.pathname, request.method === "HEAD");
       throw new InputError("Not found.", 404);
     } catch (error) {
       if (error instanceof InputError) return json({ error: error.message }, error.status);
@@ -123,6 +125,26 @@ function ipaResponse(file: string | undefined, head: boolean) {
   }
 }
 
+function webResponse(directory: string, pathname: string, head: boolean) {
+  const name = pathname === "/" ? "index.html" : pathname.slice(1);
+  const types: Record<string, string> = { html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8", wasm: "application/wasm", png: "image/png" };
+  const extension = name.split(".").at(-1) ?? "";
+  if (!/^[a-zA-Z0-9._-]+$/.test(name) || !types[extension]) throw new InputError("Not found.", 404);
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error();
+    return new Response(head ? null : readFileSync(descriptor), { headers: {
+      "Content-Type": types[extension], "Content-Length": String(stat.size),
+      "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    } });
+  } catch { throw new InputError("Not found.", 404); }
+  finally { if (descriptor !== undefined) closeSync(descriptor); }
+}
+
 function json(value: unknown, status = 200) {
   let encoded = JSON.stringify(value);
   if (Buffer.byteLength(encoded) > 1_048_576) {
@@ -132,10 +154,11 @@ function json(value: unknown, status = 200) {
 }
 
 if (import.meta.main) {
-  const cwd = join(homedir(), "Developer", "Chat");
+  const cwd = process.env.DOT_WORKSPACE ? resolve(process.env.DOT_WORKSPACE) : join(homedir(), "Developer", "Chat");
+  const dataDirectory = process.env.DOT_DATA_DIRECTORY ? resolve(process.env.DOT_DATA_DIRECTORY) : join(homedir(), "Library/Application Support/OpenDot");
   const rpc = new AppServer([process.env.DOT_CODEX_BIN ?? join(homedir(), ".local/bin/codex"), "app-server", "--stdio"], cwd);
   const claude = new ClaudeCode([process.env.DOT_CLAUDE_BIN ?? join(homedir(), ".local/bin/claude")], cwd);
-  const sessions = new Sessions(rpc, join(homedir(), "Library/Application Support/OpenDot/mobile-session.json"), cwd, claude);
+  const sessions = new Sessions(rpc, join(dataDirectory, "mobile-session.json"), cwd, claude);
   const port = Number(process.env.DOT_PORT ?? "19453");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid DOT_PORT.");
   const server = Bun.serve({
@@ -144,6 +167,7 @@ if (import.meta.main) {
       allowedLogin: process.env.DOT_ALLOWED_TAILSCALE_LOGIN ?? "",
       publicHost: process.env.DOT_PUBLIC_HOST ?? "pedros-mac-mini.tail90fb4c.ts.net:9453",
       iosArtifact: resolve(import.meta.dir, "../dist/ios-device/Dot.ipa"),
+      webDirectory: process.env.DOT_WEB_DIRECTORY ? resolve(process.env.DOT_WEB_DIRECTORY) : resolve(import.meta.dir, "../dist/dot.web"),
     }),
   });
   const recordFailure = rpc.onFailure;

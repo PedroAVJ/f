@@ -182,3 +182,38 @@ bounds at narrow and wide window sizes, with:
 ```sh
 bun ../f/bend2/main.ts tests state
 ```
+
+## Web client
+
+`web.bend` uses the same `mobile.bend` state machine and conversation components
+as iPhone. The browser host supplies scrolling, text editing, local media drafts,
+recording, and network IO. It does not contain a second conversation implementation.
+Keep the adjacent F checkout with its application-host adapter and web-only
+Asyncify evaluator boundary.
+
+```sh
+bun script/build_web.ts
+bun script/preview_web.ts
+```
+
+The preview binds only `127.0.0.1:19454` and uses synthetic messages. It never
+starts an agent or sends media to a provider. The build produces `dist/dot.web`;
+Emscripten must be installed. The build uses `-O1` and F's pure-evaluator
+Asyncify exclusion to keep compilation bounded on the development Mac.
+Dot uses a bounded 128 MiB evaluation heap, matching its iPhone client.
+
+The harness can serve the bundle using `DOT_WEB_DIRECTORY` (default
+`dist/dot.web`). Assets and conversation endpoints share the existing
+Tailscale authorization; building the web client neither restarts the personal
+harness nor publishes it. A separate deployment needs its own authorized
+harness and data directory, not a connection to the personal conversation.
+Set `DOT_WORKSPACE`, `DOT_DATA_DIRECTORY`, `DOT_PORT`, `DOT_PUBLIC_HOST`, and
+`DOT_ALLOWED_TAILSCALE_LOGIN` for that instance before starting `harness/server.ts`.
+Its session, audio, and image files stay under `DOT_DATA_DIRECTORY`.
+
+Voice messages and photos retain their original browser draft and receipt ID
+until acknowledgment, including across reloads. Browser recordings use MP4
+where supported, otherwise WebM, with a five-minute limit. Native playback of
+browser WebM recordings has not been verified. Calls require the browser's
+speech-recognition and speech-synthesis APIs; unsupported browsers report that
+limitation. Audio output is selected through the device's controls.
