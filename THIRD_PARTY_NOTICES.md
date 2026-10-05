@@ -1,7 +1,8 @@
 # Third-party notices
 
 This repository is licensed under Apache-2.0 (`LICENSE`). F, the library it
-ships in `bend2/std/F/`, is MIT licensed: each of F's trees keeps its full
+pins as the separate [f-platform](https://github.com/PedroAVJ/f-platform)
+submodule in `bend2/std/F/`, is MIT licensed: each of F's trees keeps its full
 copyright and permission notice in the `LICENSE` beside it, and a copy of a
 module carries the `LICENSE` of its directory, or of the nearest directory
 above it that has one.

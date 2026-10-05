@@ -201,7 +201,7 @@ def add_zero(x):
 - Guide: [GUIDE.md](guide/GUIDE.md).
 - Demos: [demos/](demos), apps, servers and proofs, each with its `LAWS.bend`.
 - Base: [base.bend](bend2/base.bend), the base library.
-- F framework: explicit UI/V imports select bare bindings from the copied implementation in [bend2/std/F](bend2/std/F), with internal web compiler support. See [F.md](guide/F.md), [WEB.md](guide/WEB.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- F framework: explicit UI/V imports select bare bindings from the separately versioned [f-platform](https://github.com/PedroAVJ/f-platform) dependency at [bend2/std/F](bend2/std/F), with internal web compiler support. See [F.md](guide/F.md), [WEB.md](guide/WEB.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - Web: [WEB.md](guide/WEB.md), Wasm application execution, browser effects and generated WebGPU kernels; [demos/browser](demos/browser) is the initial UI example.
 - Paper: [BendTT: An Affine Dependent Type Theory](paper/BendTT.pdf).
 - Paper: [BendRT: A Parallel Runtime for CPUs and GPUs](paper/BendRT.pdf).
@@ -278,3 +278,5 @@ Thanks to [Ayush Somani](https://ayushsomani.me/) for reserving the
 `bend-lang` name for us.
 
 Framework extensions use explicit `import UI` and `import V` preludes. See [the framework guide](guide/F.md) and [web compilation](guide/WEB.md).
+
+Initialize the pinned platform dependency after cloning: `git submodule update --init --recursive`. Its version and source revision are recorded in `platform.lock.json`. Application repositories, including Open Dot, remain separate.
