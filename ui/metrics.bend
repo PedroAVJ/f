@@ -878,14 +878,18 @@ def widest(xs: List<&2, String>, +text_type: P.TextType) -> U32:
 # Truncate rule: the longest prefix that fits `max` px with the ellipsis,
 # measured incrementally.
 def ellipsis() -> String: "…"
+def choose_text(condition: Bool, yes: Unit -> String, no: Unit -> String) -> String:
+  match condition:
+    case True{}: yes(Unit{})
+    case False{}: no(Unit{})
 def take_fit(s: String, +max: U32, +text_type: P.TextType, +prefix: String, +prefix_ems: U32, +ell: U32) -> String:
   match s:
     case SNil{}: prefix
     case SCon{+c, rest}:
       +next_ems = U32.add(prefix_ems, advance(c, weight_in(text_type)))
-      Bool.pick(String, U32.is_le(width_ems(U32.add(next_ems, ell), text_type), max), take_fit(rest, max, text_type, prefix ++ SCon{c, SNil{}}, next_ems, ell), prefix)
+      choose_text(U32.is_le(width_ems(U32.add(next_ems, ell), text_type), max), u => take_fit(rest, max, text_type, prefix ++ SCon{c, SNil{}}, next_ems, ell), u => prefix)
 def truncate(+s: String, +max: U32, +text_type: P.TextType) -> String:
-  Bool.pick(String, U32.is_le(width(s, text_type), max), s, take_fit(s, max, text_type, "", 0, ems(ellipsis(), weight_in(text_type))) ++ ellipsis())
+  choose_text(U32.is_le(width(s, text_type), max), u => s, u => take_fit(s, max, text_type, "", 0, ems(ellipsis(), weight_in(text_type))) ++ ellipsis())
 # The longest word: the minimum width of wrapped text.
 def longest_word(+s: String, +text_type: P.TextType) -> U32:
   widest(String.split(s, Chr{32}), text_type)
