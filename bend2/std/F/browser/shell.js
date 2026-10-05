@@ -106,7 +106,7 @@ export function startBend(root, options = {}) {
   const compute = createGpuCompute(options, notify);
   const consume = (entry, id) => {
     const edit = entry.field && edits.get(entry.field);
-    if (edit?.version === entry.version) edit.delivered = id;
+    if (edit && edit.version === entry.version) edit.delivered = id;
     host?.eventConsumed?.(entry.text);
     return entry.text;
   };
