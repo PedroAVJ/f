@@ -64,13 +64,17 @@ static void ios_deliver(NSString* text, NSString* key, NSUInteger version) {
   pthread_mutex_unlock(&ios_lock);
 }
 
-// Coalesce physical refreshes and adjacent resizes; never reorder edits.
+// Coalesce physical refreshes and adjacent samples; never cross a control event.
 static void ios_action(NSDictionary* data) {
   NSString* text = ios_json(data);
   if (!text) return;
   pthread_mutex_lock(&ios_lock);
   BOOL refresh = [data[@"action"] isEqual:@"refresh"];
   BOOL resize = [data[@"action"] isEqual:@"resize"];
+  NSDictionary* voice = [data[@"action"] isEqual:@"voice"] &&
+    [data[@"data"] isKindOfClass:NSDictionary.class] ? data[@"data"] : nil;
+  NSArray* meter = [voice[@"phase"] isEqual:@"elapsed"]
+    ? @[voice[@"session"] ?: @"", voice[@"mode"] ?: @""] : nil;
   BOOL queued = NO;
   if (refresh) for (NSArray* event in ios_events) {
     if ([event[0] isEqual:text]) { queued = YES; break; }
@@ -79,7 +83,10 @@ static void ios_action(NSDictionary* data) {
   if (!atomic_load(&ios_stopped) && !queued) {
     if (resize && [last[0] hasPrefix:@"{\"action\":\"resize\","])
       ios_events[ios_events.count - 1] = @[text, @"", @0];
-    else if (ios_events.count < IOS_EVENTS) [ios_events addObject:@[text, @"", @0]];
+    else if (meter && last.count > 3 && [last[3] isEqual:meter])
+      ios_events[ios_events.count - 1] = @[text, @"", @0, meter];
+    else if (ios_events.count < IOS_EVENTS)
+      [ios_events addObject:meter ? @[text, @"", @0, meter] : @[text, @"", @0]];
   }
   pthread_cond_signal(&ios_bell);
   pthread_mutex_unlock(&ios_lock);
@@ -508,6 +515,7 @@ static NSString* ios_thread_name(NSString* name) {
 @property BOOL restoredPending;
 - (void)apply:(NSArray*)commands;
 - (void)scheme:(BOOL)dark;
+- (BOOL)canRefreshConversation;
 @end
 static BendIOSController* ios_controller;
 
@@ -548,6 +556,13 @@ static BendIOSController* ios_controller;
   self.conversationCanvas.frame = (CGRect){scrollView.contentOffset, scrollView.bounds.size};
   self.conversationCanvas.drawingOrigin = scrollView.contentOffset;
   [self.conversationCanvas setNeedsDisplay];
+}
+- (BOOL)canRefreshConversation {
+  if (!self.hasConversation) return YES;
+  UIScrollView* thread = self.conversationScroll;
+  CGFloat bottom = MAX(-thread.contentInset.top, thread.contentSize.height - thread.bounds.size.height);
+  // A latest-page snapshot replaces older messages; keep the page being read.
+  return !thread.dragging && !thread.decelerating && thread.contentOffset.y >= bottom - 24;
 }
 - (void)assetsChanged:(NSNotification*)notification { [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay]; }
 - (void)keyboard:(NSNotification*)notification {
@@ -688,6 +703,8 @@ static BendIOSController* ios_controller;
   if (self.hasConversation) {
     contentHeight = MAX(1, ceil(contentHeight));
     thread[0] = @[@"frame", @(conversation.size.width), @(contentHeight)];
+    BOOL threadChanged = ![self.conversationCanvas.commands isEqual:thread] ||
+      !CGSizeEqualToSize(self.conversationScroll.bounds.size, conversation.size);
     self.conversationCanvas.commands = thread;
     self.conversationCanvas.canvasSize = CGSizeMake(conversation.size.width, contentHeight);
 
@@ -696,10 +713,11 @@ static BendIOSController* ios_controller;
     self.conversationScroll.contentInset = UIEdgeInsetsMake(MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
     if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
       self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height));
-    [self scrollViewDidScroll:self.conversationScroll];
+    if (threadChanged) [self scrollViewDidScroll:self.conversationScroll];
   }
   NSArray* frame = ios_content_projection(chrome)[0];
   self.canvas.canvasSize = CGSizeMake([frame[1] doubleValue], [frame[2] doubleValue]);
+  BOOL chromeChanged = ![self.canvas.commands isEqual:chrome] || self.canvas.transparentBackground != self.hasConversation;
   self.canvas.commands = chrome;
   self.canvas.transparentBackground = self.hasConversation;
   NSArray* regions = bend_paint_regions(commands) ?: @[];
@@ -751,7 +769,8 @@ static BendIOSController* ios_controller;
   for (NSString* key in self.fields) if (!fields[key]) [self.fields[key] removeFromSuperview];
   for (NSString* key in self.buttons) if (!buttons[key]) [self.buttons[key] removeFromSuperview];
   self.fields = fields; self.buttons = buttons; self.painting = NO;
-  [self fitCanvas]; [self.canvas setNeedsDisplay];
+  [self fitCanvas];
+  if (chromeChanged) [self.canvas setNeedsDisplay];
   for (BendIOSEditor* field in fields.allValues)
     if (field.isFirstResponder) [self.scroll scrollRectToVisible:field.frame animated:NO];
   for (BendIOSEditor* field in fresh) if (ios_persist && !field.text.length) {
@@ -788,7 +807,7 @@ static BendIOSController* ios_controller;
 }
 @end
 
-static char* ios_canvas(const char* data, unsigned len, unsigned* status) {
+static char* ios_canvas(const char* data, unsigned len, unsigned* status, BOOL refresh) {
   NSError* error = nil;
   id commands = [NSJSONSerialization JSONObjectWithData:
     [NSData dataWithBytesNoCopy:(void*)data length:len freeWhenDone:NO] options:0 error:&error];
@@ -797,8 +816,13 @@ static char* ios_canvas(const char* data, unsigned len, unsigned* status) {
   if (!problem) for (NSArray* command in commands) if (command.count > 1 && [command[1] isEqual:@"Scroll viewport · Conversation"]) threadViewport = YES;
   if (!problem && !threadViewport) problem = bend_paint_check(ios_content_projection(commands));
   if (problem) { *status = 2; return ios_dup(problem); }
-  dispatch_sync(dispatch_get_main_queue(), ^{ [ios_controller apply:commands]; });
-  *status = 1; return ios_dup(@"");
+  __block BOOL deferred = NO;
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    deferred = refresh && ![ios_controller canRefreshConversation];
+    if (!deferred) [ios_controller apply:commands];
+  });
+  *status = deferred ? 3 : 1;
+  return ios_dup(deferred ? @"conversation refresh deferred" : @"");
 }
 
 char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned* status) {
@@ -810,7 +834,7 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
     }
     char* reply = NULL;
     if (op == 2) reply = ios_event(status);
-    else if (op == 4) reply = ios_canvas(data, len, status);
+    else if (op == 4 || op == 14) reply = ios_canvas(data, len, status, op == 14);
     else if (op == 3 || op == 6) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
       reply = text ? ios_fetch(op, text, status) : ios_dup(@"request is not UTF-8");
@@ -819,7 +843,9 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
       *status = 1; reply = ios_dup(@"");
     } else if (op == 8 && ((len == 4 && memcmp(data, "dark", 4) == 0) ||
       (len == 5 && memcmp(data, "light", 5) == 0))) {
-      dispatch_sync(dispatch_get_main_queue(), ^{ [ios_controller scheme:len == 4]; });
+      dispatch_sync(dispatch_get_main_queue(), ^{
+        if (ios_dark != (len == 4)) [ios_controller scheme:len == 4];
+      });
       *status = 1; reply = ios_dup(@"");
     } else if (op == 9) {
       id config = [NSJSONSerialization JSONObjectWithData:
@@ -898,12 +924,14 @@ static void* ios_run(void* ignored) {
   pthread_detach(thread);
   return YES;
 }
-- (void)refresh:(NSTimer*)timer { ios_action(@{@"action":@"refresh"}); }
+- (void)refresh:(NSTimer*)timer {
+  if ([ios_controller canRefreshConversation]) ios_action(@{@"action":@"refresh"});
+}
 - (void)applicationDidBecomeActive:(UIApplication*)application {
   [self.refreshTimer invalidate];
   self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(refresh:)
     userInfo:nil repeats:YES];
-  ios_action(@{@"action":@"refresh"}); [ios_controller.view setNeedsLayout];
+  [self refresh:nil]; [ios_controller.view setNeedsLayout];
 }
 - (void)applicationWillResignActive:(UIApplication*)application {
   [self.refreshTimer invalidate]; self.refreshTimer = nil;
