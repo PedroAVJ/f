@@ -12,6 +12,7 @@ extern int bend_main(int argc, char** argv);
 extern void bend_paint(CGContextRef, NSArray*, CGFloat, CGFloat);
 extern void bend_paint_overlay(CGContextRef, NSArray*, CGFloat, CGFloat);
 extern void bend_paint_clipped(CGContextRef, NSArray*, CGFloat, CGFloat);
+extern void bend_paint_clipped_overlay(CGContextRef, NSArray*, CGFloat, CGFloat);
 extern NSArray* bend_paint_regions(NSArray*);
 extern NSString* bend_paint_check(NSArray*);
 extern NSString* bend_paint_prepare(NSArray*);
@@ -465,7 +466,9 @@ static NSArray* ios_content_projection(NSArray* commands) {
     }
     if (!hide) [projected addObject:command];
   }
-  if (self.viewportOnly)
+  if (self.viewportOnly && self.transparentBackground)
+    bend_paint_clipped_overlay(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
+  else if (self.viewportOnly)
     bend_paint_clipped(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
   else if (self.transparentBackground)
     bend_paint_overlay(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
@@ -506,6 +509,9 @@ static NSString* ios_thread_name(NSString* name) {
 @property(strong) BendIOSCanvas* conversationCanvas;
 @property CGRect conversationViewport;
 @property BOOL hasConversation;
+@property BOOL messageDetail;
+@property BOOL expandedEditor;
+@property CGPoint savedConversationOffset;
 @property(strong) BendIOSCanvas* canvas;
 @property(strong) NSMutableDictionary<NSString*, BendIOSEditor*>* fields;
 @property(strong) NSMutableDictionary<NSString*, BendIOSButton*>* buttons;
@@ -558,6 +564,7 @@ static BendIOSController* ios_controller;
   [self.conversationCanvas setNeedsDisplay];
 }
 - (BOOL)canRefreshConversation {
+  if (self.messageDetail) return NO;
   if (!self.hasConversation) return YES;
   UIScrollView* thread = self.conversationScroll;
   CGFloat bottom = MAX(-thread.contentInset.top, thread.contentSize.height - thread.bounds.size.height);
@@ -630,7 +637,7 @@ static BendIOSController* ios_controller;
 }
 - (BOOL)textView:(UITextView*)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString*)text {
   NSString* submit = ios_submit_label;
-  if ([text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
+  if (!self.expandedEditor && [text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
     NSString* name = [@"button · " stringByAppendingString:submit];
     for (BendIOSButton* button in self.buttons.allValues)
       if (button.enabled && [button.eventName isEqual:name]) { ios_deliver(name, nil, 0); return NO; }
@@ -669,21 +676,33 @@ static BendIOSController* ios_controller;
 }
 - (void)apply:(NSArray*)commands {
   CGRect conversation = CGRectZero;
-  BOOL modal = NO;
-  for (NSArray* command in commands) if (command.count >= 6 && [command[0] isEqual:@"shape"]) {
-    if ([command[1] isEqual:@"Scroll viewport · Conversation"])
-      conversation = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
-    if ([command[1] isEqual:@"Scrim"]) modal = YES;
+  BOOL modal = NO, detail = NO, editor = NO;
+  for (NSArray* command in commands) {
+    if (command.count > 1 && ([command[1] isEqual:@"dialog · Edit message"] || [command[1] isEqual:@"dialog · Editar mensaje"])) editor = YES;
+    if (command.count >= 6 && [command[0] isEqual:@"shape"]) {
+      if ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"]) {
+        conversation = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+        detail = [command[1] isEqual:@"Scroll viewport · Message"];
+      }
+      if ([command[1] isEqual:@"Scrim"]) modal = YES;
+    }
   }
+  BOOL wasDetail = self.messageDetail;
+  if (detail && !wasDetail) self.savedConversationOffset = self.conversationScroll.contentOffset;
+  self.messageDetail = detail;
+  self.expandedEditor = editor;
   BOOL hadConversation = self.hasConversation;
   CGFloat oldBottom = MAX(-self.conversationScroll.contentInset.top,
     self.conversationScroll.contentSize.height - self.conversationScroll.bounds.size.height);
-  BOOL atBottom = !hadConversation || self.conversationScroll.contentOffset.y >= oldBottom - 24;
+  BOOL atBottom = !detail && (!hadConversation || self.conversationScroll.contentOffset.y >= oldBottom - 24);
   self.hasConversation = !CGRectIsEmpty(conversation);
   self.conversationViewport = conversation;
   self.conversationScroll.hidden = !self.hasConversation;
-  self.conversationScroll.userInteractionEnabled = !modal;
-  self.scroll.controlsOnly = self.hasConversation && !modal;
+  self.conversationScroll.userInteractionEnabled = !modal || detail;
+  self.scroll.controlsOnly = self.hasConversation && (!modal || detail);
+  self.conversationScroll.backgroundColor = detail ? UIColor.clearColor : self.view.backgroundColor;
+  self.conversationCanvas.transparentBackground = detail;
+  [self.view bringSubviewToFront:detail ? self.conversationScroll : self.scroll];
   self.scroll.scrollEnabled = !self.hasConversation;
   self.scroll.backgroundColor = self.hasConversation ? UIColor.clearColor : self.view.backgroundColor;
   NSMutableArray* chrome = [NSMutableArray array];
@@ -710,8 +729,11 @@ static BendIOSController* ios_controller;
 
     self.conversationScroll.frame = CGRectOffset(conversation, self.scroll.frame.origin.x, self.scroll.frame.origin.y);
     self.conversationScroll.contentSize = self.conversationCanvas.canvasSize;
-    self.conversationScroll.contentInset = UIEdgeInsetsMake(MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
-    if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
+    self.conversationScroll.contentInset = UIEdgeInsetsMake(detail ? 0 : MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
+    if (detail && !wasDetail) self.conversationScroll.contentOffset = CGPointZero;
+    else if (!detail && wasDetail) self.conversationScroll.contentOffset = CGPointMake(0,
+      MIN(MAX(-self.conversationScroll.contentInset.top, self.savedConversationOffset.y), MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height)));
+    else if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
       self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height));
     if (threadChanged) [self scrollViewDidScroll:self.conversationScroll];
   }
@@ -741,6 +763,7 @@ static BendIOSController* ios_controller;
         selection.length = MIN(selection.length, value.length - selection.location);
         field.selectedRange = selection;
       }
+      field.returnKeyType = self.expandedEditor ? UIReturnKeyDefault : (ios_submit_label.length ? UIReturnKeySend : UIReturnKeyDefault);
       field.frame = bounds; field.editable = enabled; field.selectable = enabled;
       field.userInteractionEnabled = enabled; field.textColor = field.isFirstResponder ? ios_ink() : UIColor.clearColor;
       [self.canvas addSubview:field]; fields[key] = field;
@@ -813,7 +836,7 @@ static char* ios_canvas(const char* data, unsigned len, unsigned* status, BOOL r
     [NSData dataWithBytesNoCopy:(void*)data length:len freeWhenDone:NO] options:0 error:&error];
   NSString* problem = commands == nil ? @"invalid Canvas JSON" : bend_paint_check(commands) ?: bend_paint_prepare(commands);
   BOOL threadViewport = NO;
-  if (!problem) for (NSArray* command in commands) if (command.count > 1 && [command[1] isEqual:@"Scroll viewport · Conversation"]) threadViewport = YES;
+  if (!problem) for (NSArray* command in commands) if (command.count > 1 && ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"])) threadViewport = YES;
   if (!problem && !threadViewport) problem = bend_paint_check(ios_content_projection(commands));
   if (problem) { *status = 2; return ios_dup(problem); }
   __block BOOL deferred = NO;

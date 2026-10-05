@@ -129,10 +129,11 @@ static NSData* ios_image_download(NSURL* url, unsigned* status) {
   *status = 1; return stream->body;
 }
 
-@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate>
+@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(copy) NSString* session;
 @property(copy) NSString* caption;
 @property(strong) PHPickerViewController* picker;
+@property(strong) UIImagePickerController* camera;
 @property(strong) NSProgress* loading;
 @property(strong) NSMutableSet<NSString*>* activeLoads;
 @property NSUInteger generation;
@@ -147,6 +148,45 @@ static BendIOSImage* ios_image;
   event[@"session"] = self.session ?: @""; event[@"phase"] = phase;
   ios_action(@{@"action":@"image", @"data":event});
 }
+- (void)retainPhoto:(NSData*)bytes dimensions:(NSDictionary*)dimensions {
+  if (!bytes) { [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not load this photograph.", @"No se pudo cargar esta fotografía.")}]; return; }
+  NSString* identifier = NSUUID.UUID.UUIDString;
+  NSURL* retained = ios_image_file(identifier);
+  NSMutableDictionary* metadata = [dimensions mutableCopy];
+  metadata[@"imageId"] = identifier; metadata[@"url"] = retained.absoluteString ?: @"";
+  metadata[@"mimeType"] = @"image/jpeg"; metadata[@"caption"] = self.caption ?: @"";
+  if (!retained || ![bytes writeToURL:retained options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL] || !ios_image_draft(metadata)) {
+    if (retained) [NSFileManager.defaultManager removeItemAtURL:retained error:NULL];
+    [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not save this photograph.", @"No se pudo guardar esta fotografía.")}]; return;
+  }
+  [self emit:@"selected" metadata:metadata];
+}
+- (void)imagePickerControllerDidCancel:(UIImagePickerController*)picker {
+  if (picker != self.camera) return;
+  ++self.generation; self.camera = nil;
+  [picker dismissViewControllerAnimated:YES completion:nil];
+  [self emit:@"cancelled" metadata:nil];
+}
+- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey, id>*)info {
+  if (picker != self.camera) return;
+  UIImage* image = info[UIImagePickerControllerOriginalImage];
+  NSUInteger generation = ++self.generation;
+  [picker dismissViewControllerAnimated:YES completion:nil];
+  [self emit:@"loading" metadata:nil];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    NSURL* temporary = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".jpg"]]];
+    NSData* original = image ? UIImageJPEGRepresentation(image, 0.95) : nil;
+    NSDictionary* dimensions = nil;
+    NSData* bytes = original.length <= (64u << 20) && [original writeToURL:temporary options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL]
+      ? ios_image_jpeg(temporary, &dimensions) : nil;
+    [NSFileManager.defaultManager removeItemAtURL:temporary error:NULL];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation != self.generation) return;
+      self.camera = nil;
+      [self retainPhoto:bytes dimensions:dimensions];
+    });
+  });
+}
 - (void)picker:(PHPickerViewController*)picker didFinishPicking:(NSArray<PHPickerResult*>*)results {
   if (picker != self.picker) return;
   [picker dismissViewControllerAnimated:YES completion:nil]; self.picker = nil;
@@ -160,17 +200,7 @@ static BendIOSImage* ios_image;
     dispatch_async(dispatch_get_main_queue(), ^{
       if (generation != self.generation) return;
       self.loading = nil;
-      if (!bytes) { [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not load this photograph.", @"No se pudo cargar esta fotografía.")}]; return; }
-      NSString* identifier = NSUUID.UUID.UUIDString;
-      NSURL* retained = ios_image_file(identifier);
-      NSMutableDictionary* metadata = [dimensions mutableCopy];
-      metadata[@"imageId"] = identifier; metadata[@"url"] = retained.absoluteString ?: @"";
-      metadata[@"mimeType"] = @"image/jpeg"; metadata[@"caption"] = self.caption ?: @"";
-      if (!retained || ![bytes writeToURL:retained options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL] || !ios_image_draft(metadata)) {
-        if (retained) [NSFileManager.defaultManager removeItemAtURL:retained error:NULL];
-        [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not save this photograph.", @"No se pudo guardar esta fotografía.")}]; return;
-      }
-      [self emit:@"selected" metadata:metadata];
+      [self retainPhoto:bytes dimensions:dimensions];
     });
   }];
 }
@@ -178,17 +208,43 @@ static BendIOSImage* ios_image;
   NSString* action = command[@"action"], *session = command[@"session"];
   if (![action isKindOfClass:NSString.class] || ![session isKindOfClass:NSString.class] || !session.length || session.length > 128)
     return @"image commands require an action and session";
-  if ([action isEqual:@"pick"]) {
+  if ([action isEqual:@"pick"] || [action isEqual:@"camera"]) {
     id caption = command[@"caption"] ?: @"";
     if (![caption isKindOfClass:NSString.class] || [caption lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 131072) return @"invalid image caption";
     if ([NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key]) return ios_audio_words(@"Wait for the current send receipt first.", @"Espera la confirmación del envío actual primero.");
     if ([NSUserDefaults.standardUserDefaults dictionaryForKey:ios_image_draft_key]) return ios_audio_words(@"Send or remove the current photograph first.", @"Envía o elimina la fotografía actual primero.");
-    if (self.picker || self.loading) return ios_audio_words(@"A photograph is already being selected.", @"Ya se está seleccionando una fotografía.");
+    if (self.picker || self.camera || self.loading) return ios_audio_words(@"A photograph is already being selected.", @"Ya se está seleccionando una fotografía.");
     UIViewController* presenter = nil;
     for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) if ([scene isKindOfClass:UIWindowScene.class])
       for (UIWindow* window in ((UIWindowScene*)scene).windows) if (window.isKeyWindow) presenter = window.rootViewController;
     if (!presenter.view.window || presenter.presentedViewController) return ios_audio_words(@"The photo picker is not available yet.", @"El selector de fotos aún no está disponible.");
     self.session = session; self.caption = caption;
+    if ([action isEqual:@"camera"]) {
+      if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera])
+        return ios_audio_words(@"This device has no available camera.", @"Este dispositivo no tiene una cámara disponible.");
+      if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"NSCameraUsageDescription"] length]) return @"This build is missing its camera permission description.";
+      AVAuthorizationStatus authorization = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+      if (authorization == AVAuthorizationStatusDenied || authorization == AVAuthorizationStatusRestricted)
+        return ios_audio_words(@"Allow camera access in Settings to take a photo.", @"Permite el acceso a la cámara en Ajustes para tomar una foto.");
+      self.camera = [UIImagePickerController new]; self.camera.delegate = self;
+      NSUInteger generation = ++self.generation;
+      void (^present)(BOOL) = ^(BOOL granted) {
+        if (generation != self.generation) return;
+        if (!granted || !presenter.view.window || presenter.presentedViewController) {
+          self.camera = nil;
+          [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Camera access is unavailable. Try again or check Settings.", @"No se pudo acceder a la cámara. Reintenta o revisa Ajustes.")}]; return;
+        }
+        self.camera.sourceType = UIImagePickerControllerSourceTypeCamera;
+        self.camera.mediaTypes = @[UTTypeImage.identifier];
+        [presenter.view endEditing:YES]; [presenter presentViewController:self.camera animated:YES completion:nil];
+      };
+      [self emit:@"picking" metadata:nil];
+      if (authorization == AVAuthorizationStatusAuthorized) present(YES);
+      else [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+        dispatch_async(dispatch_get_main_queue(), ^{ present(granted); });
+      }];
+      return nil;
+    }
     PHPickerConfiguration* config = [PHPickerConfiguration new]; config.filter = PHPickerFilter.imagesFilter;
     config.selectionLimit = 1; config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
     self.picker = [[PHPickerViewController alloc] initWithConfiguration:config]; self.picker.delegate = self;
@@ -230,14 +286,16 @@ static BendIOSImage* ios_image;
   if (draft[@"imageId"] && [pending[@"imageId"] isEqual:draft[@"imageId"]]) return ios_audio_words(@"This photograph is awaiting its send receipt.", @"Esta fotografía está esperando su confirmación de envío.");
   ++self.generation; [self.loading cancel]; self.loading = nil;
   [self.picker dismissViewControllerAnimated:YES completion:nil]; self.picker = nil;
+  [self.camera dismissViewControllerAnimated:YES completion:nil]; self.camera = nil;
   if (ios_clip_id(draft[@"imageId"])) [NSFileManager.defaultManager removeItemAtURL:ios_image_file(draft[@"imageId"]) error:NULL];
   [NSUserDefaults.standardUserDefaults removeObjectForKey:ios_image_draft_key]; [NSUserDefaults.standardUserDefaults synchronize];
   [self emit:@"cancelled" metadata:nil]; return nil;
 }
 - (void)background {
-  if (!self.picker && !self.loading) return;
+  if (!self.picker && !self.camera && !self.loading) return;
   ++self.generation; [self.loading cancel]; self.loading = nil;
   [self.picker dismissViewControllerAnimated:NO completion:nil]; self.picker = nil;
+  [self.camera dismissViewControllerAnimated:NO completion:nil]; self.camera = nil;
   [self emit:@"cancelled" metadata:nil];
 }
 @end
@@ -251,7 +309,7 @@ static void ios_image_edited(NSString* name, NSString* value) {
     // Once sent, the photo caption belongs to its durable receipt. Later
     // composer edits keep using the ordinary textbox cache instead.
     if (draft[@"requestId"]) return;
-    if (ios_image.picker || ios_image.loading) ios_image.caption = value;
+    if (ios_image.picker || ios_image.camera || ios_image.loading) ios_image.caption = value;
     if (ios_clip_id(draft[@"imageId"])) {
       NSMutableDictionary* edited = [draft mutableCopy]; edited[@"caption"] = value;
       ios_image_draft(edited);
