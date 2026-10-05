@@ -72,7 +72,7 @@ export function createDotHost({ root, deliver }) {
     if (url.pathname === '/api/turn' && operation === 6) {
       // Preserve the displayed review across retries as well as the receipt ID.
       let held;
-      try { held = JSON.parse(localStorage.getItem(PENDING)); } catch {}
+      try { held = JSON.parse(localStorage.getItem(PENDING)); } catch { /* Invalid saved context cannot override the displayed review. */ }
       if (displayedReview?.provider === 'bakery') {
         spec.body.reviewContext = held?.id === spec.body.requestId && Object.hasOwn(held, 'reviewContext') ? held.reviewContext : displayedReview.context;
       }
