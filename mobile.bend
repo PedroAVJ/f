@@ -788,6 +788,8 @@ def fetch_earlier(+state: State) -> IO(State):
 def refresh(+state: State, panel: Panel) -> IO(State):
   match panel:
     case Search{}: IO.pure(State, state)
+    # A session poll can wait 30 seconds offline; it must not block recording controls.
+    case Recording{}: IO.pure(State, state)
     case Jumped{index, highlighted}: IO.pure(State, State.with_panel(state, Jumped{index, False{}}))
     case _: Bool.pick(IO(State), Thread.historyIsLatest(current(state)), fetch_session(state), IO.pure(State, state))
 def photo_command(+state: State, +action: String, extra: String) -> IO(State):
@@ -863,7 +865,7 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
       Bool.pick(IO(State), is_search(State.panel(state)) && matches(label, "Cerrar", "Close"), fetch_session(State.with_panel(state, Closed{})),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Enviar", "Send") && can_send(state), send(state),
       Bool.pick(IO(State), matches(label, "Detener", "Stop") && working(state), stop(state), IO.pure(State, update(state, input))))))))))))))))))))))))))
-    case Native.Focused{label}: Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensaje", "Message"), fetch_session(update(State.with_panel(state, Closed{}), input)), IO.pure(State, update(state, input)))
+    case Native.Focused{label}: IO.pure(State, update(state, input))
     case _: IO.pure(State, update(state, input))
 def session_prefix(+state: State, +prefix: String) -> State:
   Bool.pick(State, Bool.not(String.is_empty(prefix)) && Nat.is_le(String.length(prefix), 96n), State.with_prefix(state, prefix), state)
