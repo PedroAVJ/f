@@ -2,20 +2,22 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --tag vX.Y.Z-preview.N --identity <Developer-ID-name-or-SHA1> --notary-profile <keychain-profile> [--publish]"
+  echo "usage: $0 --tag vX.Y.Z-preview.N --identity <Developer-ID-name-or-SHA1> --notary-profile <keychain-profile> [--keychain <path>] [--publish]"
 }
 tag=""
 identity=""
 notary_profile=""
+signing_keychain=""
 publish=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --tag|--identity|--notary-profile)
+    --tag|--identity|--notary-profile|--keychain)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
       case "$1" in
         --tag) tag="$2" ;;
         --identity) identity="$2" ;;
         --notary-profile) notary_profile="$2" ;;
+        --keychain) signing_keychain="$2" ;;
       esac
       shift 2 ;;
     --publish) publish=true; shift ;;
@@ -32,7 +34,9 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 
 # Apple Development and Apple Distribution signatures cannot pass this release gate.
-signing_sha="$(security find-identity -v -p codesigning | python3 -c '
+identity_args=(find-identity -v -p codesigning)
+if [ -n "$signing_keychain" ]; then identity_args+=("$signing_keychain"); fi
+signing_sha="$(security "${identity_args[@]}" | python3 -c '
 import re, sys
 matches = [(sha, name) for sha, name in re.findall(r"([A-F0-9]{40}) \"([^\"]+)\"", sys.stdin.read())
            if name.startswith("Developer ID Application:") and sys.argv[1] in (sha, name)]
@@ -70,7 +74,23 @@ app_bundle="$release_dir/Dot.app"
 ditto "$build_root/dist/mac.macos/Dot.app" "$app_bundle"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" "$app_bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%s)" "$app_bundle/Contents/Info.plist"
-codesign --force --options runtime --timestamp --sign "$signing_sha" "$app_bundle"
+signing_args=(--force --options runtime --timestamp --sign "$signing_sha")
+if [ -n "$signing_keychain" ]; then
+  signing_args+=(--keychain "$signing_keychain")
+  original_keychains="$(security list-keychains -d user)"
+  restore_args=(list-keychains -d user -s)
+  search_args=(list-keychains -d user -s "$signing_keychain")
+  while IFS= read -r chain; do
+    restore_args+=("$chain")
+    if [ "$chain" != "$signing_keychain" ]; then search_args+=("$chain"); fi
+  done < <(printf '%s\n' "$original_keychains" | sed 's/^[[:space:]]*"//;s/"$//')
+  restore_keychains() { security "${restore_args[@]}"; }
+  trap restore_keychains EXIT
+  # codesign needs the private key's keychain in the search list even with --keychain.
+  security "${search_args[@]}"
+fi
+codesign "${signing_args[@]}" "$app_bundle"
+if [ -n "$signing_keychain" ]; then restore_keychains; trap - EXIT; fi
 codesign --verify --deep --strict "$app_bundle"
 codesign --display --verbose=4 "$app_bundle" 2>"$release_dir/signature.txt"
 rg -q '^Authority=Developer ID Application:' "$release_dir/signature.txt"

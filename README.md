@@ -63,6 +63,12 @@ configure a profile with `xcrun notarytool store-credentials`. Without
 `--publish`, the script saves the verified ZIP, checksum and Apple receipts
 under `dist/`.
 
+Use `--keychain /absolute/path/to/signing.keychain-db` when the signing
+identity is in a separate, unlocked build keychain. The script temporarily
+includes it in the signing search list and restores the original list after
+signing, including on failure. The notarization profile stays in the default
+Keychain.
+
 Run the state/geometry regression, including draft retention and control
 bounds at narrow and wide window sizes, with:
 
