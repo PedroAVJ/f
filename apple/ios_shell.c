@@ -200,6 +200,8 @@ static NSData* ios_audio_download(NSURL* url, unsigned* status) {
 
 #include "ios_voice.c"
 #include "ios_media.c"
+#include "ios_files.c"
+#include "ios_notifications.c"
 
 static char* ios_audio_upload(NSString* text, unsigned* status) {
   *status = 2;
@@ -271,6 +273,7 @@ static char* ios_audio_upload(NSString* text, unsigned* status) {
     if (pending[@"requestId"] && [receipts containsObject:pending[@"requestId"]]) {
       ios_audio_acknowledged(pending);
       ios_image_acknowledged(pending);
+      ios_file_acknowledged(pending);
       [defaults removeObjectForKey:ios_pending_key]; [defaults synchronize];
     }
   }
@@ -354,6 +357,7 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
     if (pending[@"requestId"] && [receipts containsObject:pending[@"requestId"]]) {
       ios_audio_acknowledged(pending);
       ios_image_acknowledged(pending);
+      ios_file_acknowledged(pending);
       [defaults removeObjectForKey:ios_pending_key]; [defaults synchronize];
     }
   }
@@ -618,6 +622,7 @@ static BendIOSController* ios_controller;
   field.version = ++ios_edit_serial;
   ios_deliver(ios_json(@{@"action":@"field", @"name":field.name, @"value":field.text ?: @""}), field.key, field.version);
   ios_image_edited(field.name, field.text ?: @"");
+  ios_file_edited(field.name, field.text ?: @"");
   if (ios_persist) {
     NSString* key = [@"bend-input:" stringByAppendingString:field.name];
     if (field.text.length) [NSUserDefaults.standardUserDefaults setObject:field.text forKey:key];
@@ -805,9 +810,11 @@ static BendIOSController* ios_controller;
     self.restoredPending = YES;
     ios_voice_restore();
     ios_image_restore();
-    if ([ios_boot_pending[@"kind"] isEqual:@"image"] &&
+    ios_file_restore();
+    if ((([ios_boot_pending[@"kind"] isEqual:@"file"] && ios_clip_id(ios_boot_pending[@"fileId"])) ||
+         ([ios_boot_pending[@"kind"] isEqual:@"image"] && ios_clip_id(ios_boot_pending[@"imageId"]))) &&
         [ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
-        [ios_boot_pending[@"threadId"] isKindOfClass:NSString.class] && ios_clip_id(ios_boot_pending[@"imageId"])) {
+        [ios_boot_pending[@"threadId"] isKindOfClass:NSString.class]) {
       NSMutableDictionary* pending = [ios_boot_pending mutableCopy];
       pending[@"id"] = pending[@"requestId"]; pending[@"thread"] = pending[@"threadId"];
       ios_action(@{@"action":@"pending", @"data":pending});
@@ -895,6 +902,12 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
     } else if (op == 12 || op == 13) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
       reply = text ? (op == 12 ? ios_image_request(text, status) : ios_image_upload(text, status)) : ios_dup(@"request is not UTF-8");
+    } else if (op == 16 || op == 17) {
+      NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
+      reply = text ? (op == 16 ? ios_file_request(text, status) : ios_file_upload(text, status)) : ios_dup(@"request is not UTF-8");
+    } else if (op == 15 && len == 8 && memcmp(data, "settings", 8) == 0) {
+      dispatch_async(dispatch_get_main_queue(), ^{ [ios_notifications settings:ios_controller]; });
+      *status = 1; reply = ios_dup(@"");
     } else reply = ios_dup([NSString stringWithFormat:@"unsupported native operation %u", op]);
     atomic_fetch_sub(&ios_active, 1);
     return reply;
@@ -935,6 +948,7 @@ static void* ios_run(void* ignored) {
   ios_session_prefix = NSUUID.UUID.UUIDString;
   ios_action(@{@"action":@"session", @"value":ios_session_prefix});
   ios_controller = [BendIOSController new];
+  ios_notifications = [BendIOSNotifications new];
   self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
   self.window.rootViewController = ios_controller; [self.window makeKeyAndVisible];
   [ios_controller.view layoutIfNeeded];
@@ -951,19 +965,26 @@ static void* ios_run(void* ignored) {
   if ([ios_controller canRefreshConversation]) ios_action(@{@"action":@"refresh"});
 }
 - (void)applicationDidBecomeActive:(UIApplication*)application {
+  [ios_notifications active];
   [self.refreshTimer invalidate];
   self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(refresh:)
     userInfo:nil repeats:YES];
   [self refresh:nil]; [ios_controller.view setNeedsLayout];
 }
+- (void)application:(UIApplication*)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData*)deviceToken {
+  [ios_notifications registered:deviceToken];
+}
+- (void)application:(UIApplication*)application didFailToRegisterForRemoteNotificationsWithError:(NSError*)error {
+  [ios_notifications registrationFailed];
+}
 - (void)applicationWillResignActive:(UIApplication*)application {
   [self.refreshTimer invalidate]; self.refreshTimer = nil;
   [NSUserDefaults.standardUserDefaults synchronize];
 }
-- (void)applicationDidEnterBackground:(UIApplication*)application { [ios_voice background]; [ios_image background]; }
+- (void)applicationDidEnterBackground:(UIApplication*)application { [ios_voice background]; [ios_image background]; [ios_file background]; }
 - (void)applicationWillTerminate:(UIApplication*)application {
   [ios_voice background];
-  [ios_image background];
+  [ios_image background]; [ios_file background];
   atomic_store(&ios_stopped, YES);
   pthread_mutex_lock(&ios_lock); pthread_cond_broadcast(&ios_bell); pthread_mutex_unlock(&ios_lock);
   [NSUserDefaults.standardUserDefaults synchronize];
