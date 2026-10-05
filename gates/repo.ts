@@ -69,16 +69,6 @@ allow(/^bench\/checker\/[a-z]+_[0-9]+\/main\.(bend|agda|lean|thy|v)$/);
 allow(/^bench\/checker\/_pin_\/[a-z0-9_]+\.txt$/);
 allow(/^bench\/runtime\/[a-z-]+\/main\.(bend|c|lean|ts)$/);
 allow(/^bench\/runtime\/_pin_\/[a-z0-9_]+\.txt$/);
-// Open Dot is an independently versioned application in this repository.
-allow(/^apps\/open-dot\/(AGENTS\.md|README\.md|LICENSE|\.gitignore|package\.json)$/);
-allow("apps/open-dot/.codex/environments/environment.toml");
-allow(/^apps\/open-dot\/[a-z_]+\.bend$/);
-allow(/^apps\/open-dot\/(components|tests)\/[a-z_]+\.(bend|mjs)$/);
-allow(/^apps\/open-dot\/script\/[a-z_]+\.(ts|sh)$/);
-allow(/^apps\/open-dot\/harness\/([a-z-]+\.ts|\.gitignore|package\.json|tsconfig\.json|bun\.lock)$/);
-allow(/^apps\/open-dot\/harness\/tests\/[a-z.-]+\.(ts|js)$/);
-allow(/^apps\/open-dot\/web\/[a-z.-]+\.(css|mjs|html)$/);
-allow(/^apps\/open-dot\/mobile\/(icon-512\.png|icon\.svg|nearling-original\.png)$/);
 allow(/^demos\/[a-z0-9_]+\/[A-Za-z0-9_]+\.bend$/);
 allow(/^demos\/[a-z0-9_]+\/[A-Za-z_]+\.(c|sh|md)$/);
 allow(/^demos\/[a-z0-9_]+\/web\/(index\.html|main\.js|bunfig\.toml)$/);
