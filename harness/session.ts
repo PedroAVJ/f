@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppServer, RpcTimeout, type ServerCall, type Wire } from "./rpc.ts";
 import { ClaudeCode } from "./claude.ts";
 import { imagePath, readImage } from "./images.ts";
+import { approvalResponse } from "./approvals.ts";
 
 export type Status = "idle" | "working" | "failed";
 export type Provider = "codex" | "claude";
@@ -251,7 +252,7 @@ export class Sessions {
   }
 
   private threadParameters(threadId?: string) {
-    return { ...(threadId ? { threadId } : {}), model: this.model, cwd: this.cwd, sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review" };
+    return { ...(threadId ? { threadId } : {}), model: this.model, cwd: this.cwd, sandbox: "danger-full-access", approvalPolicy: "on-request", approvalsReviewer: "auto_review" };
   }
 
   private async selectModel() {
@@ -282,6 +283,7 @@ export class Sessions {
     const prompt = this.contextualPrompt(thread, receipt, text);
     const response = await this.rpc.request("turn/start", {
       threadId: thread.codexId, model: this.model, clientUserMessageId: receipt.id,
+      sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "on-request", approvalsReviewer: "auto_review",
       input: [...(prompt ? [{ type: "text", text: prompt, text_elements: [] }] : []),
         ...this.turnImages(thread, receipt).map((image) => { readImage(this.imageDirectory(), image); return { type: "localImage", path: imagePath(this.imageDirectory(), image) }; })],
     });
@@ -362,18 +364,10 @@ export class Sessions {
   }
 
   private serverRequest(call: ServerCall) {
-    const thread = this.protocolThread(call.params.threadId);
-    // Automatic review is enabled. If an action still needs interactive input,
-    // decline it rather than granting invisible permissions from a phone client.
-    if (thread) { thread.error = `Codex requested ${call.method}. Open Dot declined because this mobile client cannot review that request yet.`; this.save(); }
+    const response = approvalResponse(call);
+    if (response) { this.rpc.respond(call.id, response); return; }
     switch (call.method) {
-      case "item/commandExecution/requestApproval":
-      case "item/fileChange/requestApproval": this.rpc.respond(call.id, { decision: "decline" }); break;
-      case "item/permissions/requestApproval": this.rpc.respond(call.id, { permissions: {}, scope: "turn" }); break;
       case "item/tool/requestUserInput": this.rpc.respond(call.id, { answers: {} }); break;
-      case "mcpServer/elicitation/request": this.rpc.respond(call.id, { action: "decline" }); break;
-      case "execCommandApproval":
-      case "applyPatchApproval": this.rpc.respond(call.id, { decision: "denied" }); break;
       default: this.rpc.reject(call.id, "Open Dot does not support this interactive request.");
     }
   }

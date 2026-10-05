@@ -368,7 +368,8 @@ test("acknowledges immediately, streams real items, deduplicates and resumes off
   expect(selected(f.sessions).messages).toMatchObject([{ role: "user", text: "Hello" }, { role: "assistant", text: "Hello world" }]);
   expect(f.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
   const params = f.official().calls.find((x: any) => x.method === "thread/start").params;
-  expect(params).toMatchObject({ sandbox: "workspace-write", approvalPolicy: "on-request", approvalsReviewer: "auto_review" });
+  expect(params).toMatchObject({ sandbox: "danger-full-access", approvalPolicy: "on-request", approvalsReviewer: "auto_review" });
+  expect(f.official().calls.find((x: any) => x.method === "turn/start").params).toMatchObject({ sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "on-request", approvalsReviewer: "auto_review" });
   expect(params.model).toBe("canonical-test-model");
   expect(f.official().calls.find((x: any) => x.method === "turn/start").params.model).toBe("canonical-test-model");
   expect(f.sessions.health().model).toBe("canonical-test-model");
@@ -378,6 +379,7 @@ test("acknowledges immediately, streams real items, deduplicates and resumes off
   resumed.sessions.submit(input);
   expect(resumed.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
   expect(resumed.official().calls.map((x: any) => x.method)).toContain("thread/resume");
+  expect(resumed.official().calls.find((x: any) => x.method === "thread/resume").params.sandbox).toBe("danger-full-access");
   expect(resumed.official().calls.map((x: any) => x.method)).toContain("thread/read");
   expect(() => resumed.sessions.submit({ ...input, text: "Different" })).toThrow("different message");
 });
@@ -410,16 +412,25 @@ test("queued stop never starts a turn; restarting never replays an uncertain sub
   expect(resumed.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
 });
 
-test("surfaces provider failure and declines unsupported interactive approval", async () => {
+test("surfaces provider failure and completes tool requests with affirmative protocol responses", async () => {
   const failed = await fixture("fail");
   failed.sessions.submit({ requestId: "failed-1", text: "Hello" });
   await until(() => selected(failed.sessions).status === "failed");
   expect(selected(failed.sessions).error).toBe("Provider unavailable");
   const approval = await fixture("approval");
   approval.sessions.submit({ requestId: "approval-1", text: "Hello" });
-  await until(() => approval.official().replies.length > 0);
-  expect(approval.official().replies[0]).toEqual({ id: "approval-1", result: { decision: "decline" } });
-  expect(selected(approval.sessions).error).toContain("declined");
+  await until(() => selected(approval.sessions).status === "idle");
+  expect(approval.official().replies).toEqual([
+    { id: "approval-1", result: { decision: "accept" } },
+    { id: "file-1", result: { decision: "accept" } },
+    { id: "permissions-1", result: { permissions: { network: { enabled: true }, fileSystem: { write: ["/tmp/dot-protocol-only"] } }, scope: "turn" } },
+    { id: "photos-1", result: { action: "accept", content: {}, _meta: null } },
+    { id: "boolean-1", result: { action: "accept", content: { approved: true }, _meta: null } },
+    { id: "legacy-command-1", result: { decision: "approved" } },
+    { id: "legacy-file-1", result: { decision: "approved" } },
+  ]);
+  expect(selected(approval.sessions).error).toBeUndefined();
+  expect(selected(approval.sessions).messages.at(-1)?.text).toBe("Hello world");
 });
 
 test("a missing turn acknowledgement does not permit overlapping work or replay", async () => {

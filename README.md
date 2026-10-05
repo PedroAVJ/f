@@ -52,9 +52,11 @@ Session files live in `~/Library/Application Support/OpenDot` and logs in
 `~/Library/Logs/OpenDot`. The signed IPA is available privately at
 `/downloads/Dot.ipa` on the harness address.
 
-Codex uses the available default model from its model catalog, workspace-write
-sandbox and automatic approval review. Interactive requests this client cannot
-display are declined and reported in the conversation.
+Codex uses the available default model from its model catalog and automatic
+approval review. The owner-configured Mac runtime has full filesystem access,
+including adjacent repositories. Open Dot answers tool-access approval requests
+affirmatively for the current request or turn, including Computer Use app access.
+It does not store global permission grants.
 
 The microphone records a retained M4A voice message. You can play it, send it,
 or retry speech recognition without rerecording it. Recognition supplies text

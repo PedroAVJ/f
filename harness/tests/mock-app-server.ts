@@ -44,7 +44,19 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       notify("turn/started", { threadId: thread.id, turn });
       notify("item/started", { threadId: thread.id, turnId: turn.id, startedAtMs: Date.now(), item: turn.items[0] });
       if (mode === "hold" || mode === "timeout") break;
-      if (mode === "approval") emit({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: thread.id, turnId: turn.id, itemId: "command-1", startedAtMs: Date.now(), command: "touch /forbidden", reason: "Outside workspace" } });
+      if (mode === "approval") {
+        const params = { threadId: thread.id, turnId: turn.id, itemId: "command-1", startedAtMs: Date.now() };
+        const requests = [
+          ["approval-1", "item/commandExecution/requestApproval", { command: "touch /tmp/dot-protocol-only", reason: "Outside workspace" }],
+          ["file-1", "item/fileChange/requestApproval", {}],
+          ["permissions-1", "item/permissions/requestApproval", { permissions: { network: { enabled: true }, fileSystem: { write: ["/tmp/dot-protocol-only"] } } }],
+          ["photos-1", "mcpServer/elicitation/request", { serverName: "cua_repl", mode: "form", message: 'Allow Computer Use to use "Photos"?', requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { app: "com.apple.Photos" } } }],
+          ["boolean-1", "mcpServer/elicitation/request", { serverName: "test", mode: "form", requestedSchema: { type: "object", properties: { approved: { type: "boolean" } }, required: ["approved"] } }],
+          ["legacy-command-1", "execCommandApproval", {}],
+          ["legacy-file-1", "applyPatchApproval", {}],
+        ];
+        for (const [id, method, extra] of requests) emit({ id, method, params: { ...params, ...extra as object } });
+      }
       if (mode === "fail") {
         turn.status = "failed"; (turn as any).error = { message: "Provider unavailable" }; save();
         notify("turn/completed", { threadId: thread.id, turn }); break;
@@ -52,6 +64,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       setTimeout(() => notify("item/agentMessage/delta", { threadId: thread.id, turnId: turn.id, itemId: `assistant-${thread.turns.length}`, delta: "Hello " }), 15);
       setTimeout(() => notify("item/agentMessage/delta", { threadId: thread.id, turnId: turn.id, itemId: `assistant-${thread.turns.length}`, delta: "world" }), 25);
       setTimeout(() => {
+        if (mode === "approval" && (state.replies.length !== 7 || state.replies.some((r: any) => !["accept", "approved"].includes(r.result?.decision) && r.result?.action !== "accept" && r.result?.permissions?.network?.enabled !== true))) return;
         const item = { id: `assistant-${thread.turns.length}`, type: "agentMessage", text: "Hello world" };
         (turn.items as any[]).push(item); turn.status = "completed"; save();
         notify("item/completed", { threadId: thread.id, turnId: turn.id, completedAtMs: Date.now(), item });
