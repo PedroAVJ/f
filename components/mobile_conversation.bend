@@ -9,15 +9,13 @@ def width() -> U32: 390
 def height() -> U32: 844
 def margin() -> U32: 16
 def box(+w: U32) -> U32: U32.sub(U32.max(w, 320), U32.mul(2, margin()))
-def body_y() -> U32: 128
+def body_y() -> U32: 16
 def box_h(+h: U32) -> U32: U32.sub(U32.max(h, 240), U32.add(body_y(), 20))
 def identity_frame(coords: N.Coordinates, animation: N.Animation) -> N.Frame:
   match coords:
     case N.Coordinates{+row, +col}: N.Frame{"pet_6a757813525481918ff260a223792af6", "nearling-original.png", animation, 0, True{}, row, col, U32.mul(col, 192), U32.mul(row, 208), 192, 208, 1536, 2288}
 def identity(+animation: N.Animation) -> K.NearIdentity:
   K.identity(identity_frame(N.coordinates(animation, 0, True{}), animation))
-def header(+w: U32) -> P.UI:
-  K.header_tree(K.header(K.glass_button(K.Intent.Menu{}), identity(N.Idle{}), K.glass_button(K.Intent.Call{}), box(w)))
 
 def blocked(+name: String) -> String:
   Bool.pick(String, P.interactive(name) || String.starts_with(name, "button, disabled · "), "Blocked " ++ name, name)
@@ -50,6 +48,11 @@ def with_next(t: P.UI, next: P.UI) -> P.UI:
     case P.Last{}: next
     case P.Leaf{name, shape, w, h, align, old}: P.Leaf{name, shape, w, h, align, next}
     case P.Node{name, lay, w, h, align, first, old}: P.Node{name, lay, w, h, align, first, next}
+def attachment_layer(+files: Bool, +w: U32, +h: U32) -> P.UI:
+  +rows = K.attach_rows(Bool.pick(List<&2, K.Intent>, files, [K.Intent.Camera{}, K.Intent.Photo{}, K.Intent.Files{}], [K.Intent.Camera{}, K.Intent.Photo{}]), K.Lang.Es{}, U32.sub(K.attach_w(), 44))
+  +items = P.layout("Items", P.Vertical{}, 12, 22, K.attach_w(), 0, P.Leading{}, rows)
+  +panel = P.layout("group · Adjuntar", P.Depth{}, 0, 0, K.attach_w(), K.height(items), P.Leading{}, [K.glassy("Panel", K.attach_w(), K.height(items), P.Corner{40}, T.Backdrop.Content{}), items])
+  P.layout("Attachment chooser", P.Depth{}, 0, 0, w, h, P.Leading{}, [P.rounded("button · Cerrar", P.Fill.None{}, w, h, P.Corner{0}, P.NoStroke{}, P.Leading{}), K.placed_at("Attachments", U32.add(margin(), 9), U32.sub(h, U32.min(h, U32.add(K.height(panel), 20))), panel)])
 def photo_send(enabled: Bool, t: P.UI) -> P.UI:
   match enabled t:
     case False{} tree: tree
@@ -82,12 +85,29 @@ def scroll_thread(t: P.UI) -> P.UI:
     case P.Node{"Thread area", lay, +w, +h, align, first, next}:
       with_next(P.layout("Thread area", P.Depth{}, 0, 0, w, h, P.Leading{}, [P.rounded("Scroll viewport · Conversation", P.Fill.None{}, w, h, P.Corner{0}, P.NoStroke{}, P.Leading{}), K.aligned(scroll_content(first), P.Leading{})]), scroll_thread(next))
     case P.Node{name, lay, w, h, align, first, next}: P.Node{name, lay, w, h, align, scroll_thread(first), scroll_thread(next)}
-def conversation(+placeholder: String, +draft: String, history: List<&2, K.Item>, +focus: K.Focus, +status: String, +attachment: Bool, +disabled: Bool, +layers: List<&2, P.UI>, +w: U32, +h: U32) -> P.UI:
-  +shown = history
-  +messages = Bool.pick(K.Remote<&2, List<&2, K.Item>>, String.is_empty(status), K.Ready{shown}, K.Failed{Some{shown}})
-  +body = disable_send(photo_send(attachment && String.is_empty(draft), K.conversation_tree(K.conversation(placeholder, box(w), box_h(h), K.Settled{}, K.SettledState{messages, draft, focus, K.AttachMenu.Closed{}}))), disabled, attachment)
-  +base = P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, [K.placed_at("Body", margin(), body_y(), scroll_thread(body)), K.placed_at("Header", margin(), 16, header(w))])
-  P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, K.append_trees([Bool.pick(P.UI, has_layers(layers), inactive(base), base)], layers))
+def composer_text_width(+box: U32) -> U32: U32.sub(K.inner_of(box), 184)
+def composer_control(+label: String, drawing: S.Drawing) -> P.UI:
+  P.layout("button · " ++ label, P.Depth{}, 0, 0, 44, 44, P.Middle{}, [K.pill_container(K.ComposerSize.Compact{}, False{}, 44, 44, 0), K.glyph(drawing, 22)])
+def composer(+placeholder: String, +draft: String, +focus: K.Focus, +attachment: Bool, +disabled: Bool, +working: Bool, +box: U32) -> P.UI:
+  +cw = K.inner_of(box)
+  +tw = composer_text_width(box)
+  +empty = String.is_empty(draft)
+  +focused = K.is_focused(focus)
+  +lines = K.shown_lines(K.Lines.Growing{K.inline_line_limit()}, Bool.pick(String, empty, placeholder, draft), Bool.pick(U32, focused, U32.sub(tw, 3), tw))
+  +visible = K.last_lines(lines, K.inline_line_limit())
+  +height = K.field_height(K.count(visible))
+  +text = P.layout("Field text", P.Vertical{}, 0, 0, tw, 0, P.Middle{}, K.field_lines(visible, Bool.pick(T.TextRole, empty, K.hint(), K.ink()), focused))
+  +field = P.layout("textbox · " ++ placeholder, P.Depth{}, 0, 0, U32.add(tw, 28), height, P.Middle{}, [K.value_leaf(draft), K.pill_container(K.ComposerSize.Compact{}, focused, U32.add(tw, 28), height, 0), text])
+  +camera = Bool.pick(P.UI, working, composer_control("Detener", S.Drawing{"Stop reply", "0", "0", "2", [S.Path{"M6 6H18V18H6Z"}]}), composer_control("Cámara", K.camera()))
+  +last = Bool.pick(P.UI, Bool.not(empty) || attachment, K.button_tree(K.send_button(disabled)), composer_control("Dictar", K.mic()))
+  P.layout("group · Escribir mensaje", P.Horizontal{}, 8, 0, cw, height, P.Middle{}, [K.aligned(composer_control("Adjuntar", K.icon_or(K.intent_icon(K.Intent.Attach{}))), P.Trailing{}), field, K.aligned(camera, P.Trailing{}), K.aligned(last, P.Trailing{})])
+def conversation(+placeholder: String, +draft: String, +history: List<&2, K.Item>, +focus: K.Focus, +status: String, +attachment: Bool, +disabled: Bool, +working: Bool, +layers: List<&2, P.UI>, +w: U32, +h: U32) -> P.UI:
+  +messages = Bool.pick(K.Remote<&2, List<&2, K.Item>>, String.is_empty(status), K.Ready{history}, K.Failed{Some{history}})
+  +c = composer(placeholder, draft, focus, attachment, disabled, working, box(w))
+  +thread = K.thread_tree(K.thread(K.ThreadState{messages, 0, K.Typing.Hidden{}, 0, K.Settled{}, K.still()}, box(w)))
+  +body = P.layout("Body", P.Vertical{}, 12, 0, box(w), box_h(h), P.Leading{}, [P.layout("Thread area", P.Depth{}, 0, 0, box(w), U32.sub(box_h(h), U32.add(K.height(c), 12)), P.Leading{}, [K.aligned(thread, P.Trailing{})]), K.aligned(c, P.Middle{})])
+  +base = P.layout("Conversation", P.Depth{}, 0, 0, w, h, P.Leading{}, [K.placed_at("Body", margin(), body_y(), scroll_thread(body))])
+  P.layout("Conversation", P.Depth{}, 0, 0, w, h, P.Leading{}, K.append_trees([Bool.pick(P.UI, has_layers(layers), inactive(base), base)], layers))
 
 def text_of(t: P.UI) -> String:
   match t:
@@ -189,7 +209,7 @@ def replace_composer(t: P.UI, +composer: P.UI) -> P.UI:
     case P.Node{name, lay, w, h, align, first, next}: P.Node{blocked(name), lay, w, h, align, replace_composer(first, composer), replace_composer(next, composer)}
 def recording_view(history: List<&2, K.Item>, +elapsed_ms: U32, +phase: String, +level: U32, +error: String, +w: U32, +h: U32) -> P.UI:
   +error_h = Bool.pick(U32, String.is_empty(error), 0, 56)
-  +base = conversation("Mensaje", "", history, K.Focus.Blurred{}, "", False{}, True{}, [], w, U32.sub(h, error_h))
+  +base = conversation("Mensaje", "", history, K.Focus.Blurred{}, "", False{}, True{}, False{}, [], w, U32.sub(h, error_h))
   P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, K.append_trees([replace_composer(base, recording_composer(elapsed_ms, phase, level, box(w)))], Bool.pick(List<&2, P.UI>, String.is_empty(error), [], [K.placed_at("Recording error", margin(), U32.sub(h, 56), K.paragraph("status · Error", error, K.small_type(), K.ink(), box(w), P.Leading{}))])))
 def call_view(permission: K.Permission, slice: K.CallSlice(permission), +w: U32, +h: U32) -> P.UI:
   +controls = K.call_controls_tree(K.call_controls(permission, slice))
@@ -200,7 +220,7 @@ def call_view(permission: K.Permission, slice: K.CallSlice(permission), +w: U32,
 type Copy is Data:
   Copy{es: String, en: String}
 def copies() -> List<&2, Copy>:
-  [Copy{"Transcribiendo…", "Transcribing…"}, Copy{"Reintentar audio", "Retry audio"}, Copy{"Mensaje de voz · ", "Voice message · "}, Copy{"Foto", "Photo"}, Copy{"Quitar foto", "Remove photo"}, Copy{"Cargando foto…", "Loading photo…"}, Copy{"No se pudo cargar la foto.", "Could not load the photo."}, Copy{"No se pudo cargar", "Could not load"}, Copy{"Reintentar", "Retry"}, Copy{"Enviando…", "Sending…"}, Copy{"Near terminó sin una respuesta de voz.", "Near finished without a spoken reply."}, Copy{"Mensaje", "Message"}, Copy{"Dictar", "Voice message"}, Copy{"Dictate", "Voice message"}, Copy{"Mensaje de voz", "Voice message"}, Copy{"Buscar en la conversación", "Search conversation"}, Copy{"Buscar", "Search"}, Copy{"Recientes", "Recent"}, Copy{"Resultados", "Results"}, Copy{"Sin resultados", "No results"}, Copy{"Aún no hay mensajes", "No messages yet"}, Copy{"Conversación", "Conversation"}, Copy{"Escribir mensaje", "Write message"}, Copy{"Modelo", "Model"}, Copy{"Detener", "Stop"}, Copy{"Tú", "You"}, Copy{"Detener grabación", "Stop recording"}, Copy{"Reproducir grabación", "Play recording"}, Copy{"Enviar mensaje de voz", "Send voice message"}, Copy{"Silenciado", "Muted"}, Copy{"Llamada terminada", "Call ended"}, Copy{"Llamando a Near…", "Calling Near…"}, Copy{"Near necesita tu micrófono para hablar contigo.", "Near needs your microphone to talk with you."}, Copy{"Acepta el permiso del navegador para continuar.", "Allow microphone access on your iPhone to continue."}, Copy{"El micrófono está bloqueado. Actívalo en los ajustes del navegador.", "Microphone access is blocked. Enable it in iPhone Settings."}]
+  [Copy{"Quitar archivo", "Remove file"}, Copy{"Notificaciones", "Notifications"}, Copy{"Transcribiendo…", "Transcribing…"}, Copy{"Reintentar audio", "Retry audio"}, Copy{"Mensaje de voz · ", "Voice message · "}, Copy{"Foto", "Photo"}, Copy{"Quitar foto", "Remove photo"}, Copy{"Cargando foto…", "Loading photo…"}, Copy{"No se pudo cargar la foto.", "Could not load the photo."}, Copy{"No se pudo cargar", "Could not load"}, Copy{"Reintentar", "Retry"}, Copy{"Enviando…", "Sending…"}, Copy{"Near terminó sin una respuesta de voz.", "Near finished without a spoken reply."}, Copy{"Mensaje", "Message"}, Copy{"Dictar", "Voice message"}, Copy{"Dictate", "Voice message"}, Copy{"Mensaje de voz", "Voice message"}, Copy{"Buscar en la conversación", "Search conversation"}, Copy{"Buscar", "Search"}, Copy{"Recientes", "Recent"}, Copy{"Resultados", "Results"}, Copy{"Sin resultados", "No results"}, Copy{"Aún no hay mensajes", "No messages yet"}, Copy{"Conversación", "Conversation"}, Copy{"Escribir mensaje", "Write message"}, Copy{"Modelo", "Model"}, Copy{"Detener", "Stop"}, Copy{"Tú", "You"}, Copy{"Detener grabación", "Stop recording"}, Copy{"Reproducir grabación", "Play recording"}, Copy{"Enviar mensaje de voz", "Send voice message"}, Copy{"Silenciado", "Muted"}, Copy{"Llamada terminada", "Call ended"}, Copy{"Llamando a Near…", "Calling Near…"}, Copy{"Near necesita tu micrófono para hablar contigo.", "Near needs your microphone to talk with you."}, Copy{"Acepta el permiso del navegador para continuar.", "Allow microphone access on your iPhone to continue."}, Copy{"El micrófono está bloqueado. Actívalo en los ajustes del navegador.", "Microphone access is blocked. Enable it in iPhone Settings."}]
 def copied(xs: List<&2, Copy>, +text: String, +lang: K.Lang) -> String:
   match xs:
     case []: text
@@ -260,7 +280,7 @@ def localized_go(t: P.UI, +lang: K.Lang, +copy: Bool) -> P.UI:
     case P.Last{}: P.Last{}
     case P.Leaf{+name, shape, w, h, align, next}: P.Leaf{locale_name(name, lang), localize_shape(shape, lang, copy), w, h, align, localized_go(next, lang, copy)}
     case P.Node{+name, lay, w, h, align, +first, next}:
-      +own_copy = Bool.pick(Bool, String.starts_with(name, "button · ") || String.starts_with(name, "button, disabled · "), True{}, Bool.pick(Bool, String.starts_with(name, "listitem · ") || String.starts_with(name, "Scroll content · listitem · ") || String.eq(name, "Snippet"), False{}, Bool.pick(Bool, String.starts_with(name, "textbox · "), empty_value(first), copy)))
+      +own_copy = Bool.pick(Bool, String.starts_with(name, "button · ") || String.starts_with(name, "button, disabled · ") || String.starts_with(name, "Blocked button · ") || String.starts_with(name, "Blocked button, disabled · "), True{}, Bool.pick(Bool, String.starts_with(name, "listitem · ") || String.starts_with(name, "Scroll content · listitem · ") || String.eq(name, "Snippet"), False{}, Bool.pick(Bool, String.starts_with(name, "textbox · "), empty_value(first), copy)))
       P.Node{locale_name(name, lang), lay, w, h, align, localized_go(first, lang, own_copy), localized_go(next, lang, copy)}
 def localized(t: P.UI, lang: K.Lang) -> P.UI: localized_go(t, lang, True{})
 def view(t: P.UI) -> K.UI: K.UI.Drawn{r => localized(t, K.lang_of(r))}

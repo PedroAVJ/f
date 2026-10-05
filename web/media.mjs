@@ -49,6 +49,8 @@ export function createMediaHost(event, { maxImageBytes = 5 * 1024 * 1024 } = {})
   const urlFor = blob => { const url = URL.createObjectURL(blob); urls.add(url); return url; };
   const voice = (session, mode, phase, values = {}) => event({ action: 'voice', data: { session, mode, phase, ...values } });
   const image = (session, phase, values = {}) => event({ action: 'image', data: { session, phase, ...values } });
+  const documentEvent = (session, phase, values = {}) => event({ action: 'file', data: { session, phase, ...values } });
+  let fileEdits = Promise.resolve(), documentSession;
   const stopMicrophone = () => { microphone?.getTracks().forEach(track => track.stop()); microphone = undefined; clearInterval(recordingTimer); };
 
   async function record(spec) {
@@ -204,10 +206,11 @@ export function createMediaHost(event, { maxImageBytes = 5 * 1024 * 1024 } = {})
   }
 
   async function acknowledge(accepted) {
-    for (const kind of ['audio', 'image']) {
+    for (const kind of ['audio', 'image', 'file']) {
       const draft = await stored('readonly', store => store.get(kind));
       if (!draft?.metadata || !accepted.includes(draft.metadata.requestId)) continue;
       await stored('readwrite', store => store.delete(kind));
+      if (kind === 'file') documentSession = undefined;
       forgetAcceptedCaption(draft.metadata.text);
       event({ action: 'pending', data: { kind, id: draft.metadata.requestId,
         thread: draft.metadata.threadId, text: draft.metadata.text,
@@ -215,29 +218,74 @@ export function createMediaHost(event, { maxImageBytes = 5 * 1024 * 1024 } = {})
     }
   }
 
+  async function fileCommand(spec) {
+    if (spec.action === 'open') {
+      const url = sameOrigin(spec.url);
+      if (!/^[a-f0-9]{64}$/.test(spec.fileId) || url.pathname !== '/api/file/' + spec.fileId || url.search || url.hash) throw Error('Invalid file link.');
+      const link = document.createElement('a'); link.href = url.href; link.download = spec.name; link.rel = 'noopener'; link.click(); return;
+    }
+    const held = await stored('readonly', store => store.get('file'));
+    if (spec.action === 'cancel') {
+      if (held?.metadata?.requestId) throw Error('Check the pending send before discarding this file.');
+      picker?.remove(); await stored('readwrite', store => store.delete('file')); documentSession = undefined; return;
+    }
+    if (spec.action !== 'pick') throw Error('Unknown file action.');
+    if (held) throw Error('Send or remove the current file first.');
+    documentSession = spec.session;
+    picker?.remove(); picker = document.createElement('input'); picker.type = 'file';
+    picker.hidden = true; document.body.append(picker);
+    picker.oncancel = () => { picker.remove(); documentEvent(spec.session, 'cancelled'); };
+    picker.onchange = async () => {
+      const file = picker.files?.[0]; picker.remove();
+      if (!file) { documentEvent(spec.session, 'cancelled'); return; }
+      try {
+        if (file.size > 20 * 1024 * 1024 || !file.name || file.name.length > 255 || /[\x00-\x1f\x7f/\\]/.test(file.name) || ['.', '..'].includes(file.name)) throw Error('Choose a file of at most 20 MiB with a valid filename.');
+        const draft = { kind:'file', id:crypto.randomUUID(), session:spec.session, blob:file, name:file.name, mimeType:file.type || 'application/octet-stream', size:file.size, caption:spec.caption || '' };
+        await stored('readwrite', store => store.put(draft, 'file'));
+        documentEvent(spec.session, 'selected', { fileId:draft.id, name:draft.name, mimeType:draft.mimeType, size:draft.size });
+      } catch (error) { documentEvent(spec.session, 'error', { error:error.message }); }
+    };
+    picker.click();
+  }
+
   return {
     acknowledge,
+    edited(caption) {
+      if (!documentSession) return;
+      fileEdits = fileEdits.then(async () => {
+        try {
+          const draft = await stored('readonly', store => store.get('file'));
+          if (!draft || draft.metadata) return;
+          await stored('readwrite', store => store.put({ ...draft, caption }, 'file'));
+        } catch (error) { documentEvent(documentSession, 'error', { error:error.message }); }
+      });
+      return fileEdits;
+    },
     async request(operation, spec, signal) {
       if (operation === 10) { await voiceCommand(spec); return ''; }
       if (operation === 12) { await photoCommand(spec); return ''; }
-      const kind = operation === 11 ? 'audio' : 'image';
+      if (operation === 16) { await fileCommand(spec); return ''; }
+      const kind = operation === 17 ? 'file' : operation === 11 ? 'audio' : 'image';
+      if (kind === 'file') await fileEdits;
       const draft = await stored('readonly', store => store.get(kind));
-      if (!draft || draft.id !== (spec.body.clipId ?? spec.body.imageId)) throw Error('The media draft is no longer available.');
+      if (!draft || draft.id !== (spec.body.clipId ?? spec.body.imageId ?? spec.body.fileId)) throw Error('The media draft is no longer available.');
+      if (kind === 'file' && draft.metadata && JSON.stringify(draft.metadata) !== JSON.stringify(spec.body)) throw Error('File retries must retain their original caption and request identifier.');
       draft.metadata = spec.body;
       await stored('readwrite', store => store.put(draft, kind));
       const body = new FormData();
-      body.set(kind, draft.blob, kind === 'image' ? 'photo.jpg' : draft.blob.type === 'audio/mp4' ? 'voice.m4a' : 'voice.webm');
-      body.set('metadata', JSON.stringify(spec.body));
+      const filename = kind === 'file' ? encodeURIComponent(draft.name).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()) : kind === 'image' ? 'photo.jpg' : draft.blob.type === 'audio/mp4' ? 'voice.m4a' : 'voice.webm';
+      body.set(kind, draft.blob, filename);
+      body.set('metadata', JSON.stringify(kind === 'file' ? { ...spec.body, name:draft.name } : spec.body));
       const text = await responseText(await fetch(sameOrigin(spec.url), { method: 'POST', body, signal, credentials: 'same-origin' }));
       await acknowledge(JSON.parse(text).acceptedRequestIds ?? []);
       return text;
     },
     async restore(accepted) {
-      for (const kind of ['audio', 'image']) {
+      for (const kind of ['audio', 'image', 'file']) {
         const draft = await stored('readonly', store => store.get(kind));
         if (!draft) continue;
         if (accepted.includes(draft.metadata?.requestId)) { await stored('readwrite', store => store.delete(kind)); continue; }
-        const values = { restored: true, requestId: draft.metadata?.requestId ?? '', threadId: draft.metadata?.threadId ?? '', caption: draft.metadata?.text ?? '' };
+        const values = { restored: true, requestId: draft.metadata?.requestId ?? '', threadId: draft.metadata?.threadId ?? '', caption: draft.metadata?.text ?? draft.caption ?? '' };
         if (kind === 'audio') {
           voice(draft.session, 'message', 'recorded', { ...values, clipId: draft.id, durationMs: draft.durationMs, transcript: '' });
           if (draft.metadata) event({ action: 'pending', data: {
@@ -245,6 +293,7 @@ export function createMediaHost(event, { maxImageBytes = 5 * 1024 * 1024 } = {})
             text: draft.metadata.text, clipId: draft.id, durationMs: draft.durationMs, transcript: '',
           } });
         }
+        else if (kind === 'file') { documentSession = draft.session; documentEvent(draft.session, 'selected', { ...values, fileId:draft.id, name:draft.name, mimeType:draft.mimeType, size:draft.size }); }
         else image(draft.session, 'selected', { ...values, imageId: draft.id, width: draft.width, height: draft.height, url: urlFor(draft.blob) });
       }
     },

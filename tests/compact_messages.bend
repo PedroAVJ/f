@@ -11,7 +11,7 @@ import ./mobile.bend as Test
 def four() -> String: "one\ntwo\nthree\nfour"
 def five() -> String: "one\ntwo\nthree\nfour\nTAIL_SENTINEL"
 def history(text: String) -> App.State:
-  App.State.with_session(App.s(), App.Snapshot{[App.Thread{"thread-1", "Test", "idle", [App.Message{"long", K.Role.Near{}, text, "", 0, K.Picture{"", 0, 0, ""}, "", "", ""}], "", "", False{}, True{}, "long", ""}], "thread-1", [], "codex"})
+  App.State.with_session(App.s(), App.Snapshot{[App.Thread{"thread-1", "Test", "idle", [App.Message{"long", K.Role.Near{}, text, "", 0, K.Picture{"", 0, 0, ""}, "", "", "", App.DocumentFile{"", "", "", "", 0}}], "", "", False{}, True{}, "long", ""}], "thread-1", [], "codex"})
 def labels(t: P.UI) -> String:
   match t:
     case P.Last{}: ""
@@ -36,7 +36,7 @@ def main() -> IO(Unit):
     IO.print(Bool.show(String.contains(detail_html, "TAIL_SENTINEL")))
     IO.print(Bool.show(Bool.not(String.contains(detail_html, "id=\"dot-thread\""))))
     IO.print(Bool.show(String.contains(labels(bakery_tree), "button, disabled · Voice message")))
-    IO.print(Bool.show(String.contains(labels(bakery_tree), "button, disabled · Call Near")))
+    IO.print(Bool.show(Bool.not(String.contains(labels(bakery_tree), "Call Near"))))
     IO.print(Bool.show(String.contains(labels(bakery_tree), "button · Camera")))
     IO.print(Bool.show(Bool.not(App.can_record(bakery))))
     IO.print(Bool.show(String.contains(App.display_query(history(five())), "inlineLines=4")))

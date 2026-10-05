@@ -2,16 +2,18 @@
 
 Dot is a native iPhone app backed by the harness on your Mac mini.
 The app is compiled from Bend using [PedroAVJ/f](https://github.com/PedroAVJ/f).
-It keeps the existing dark conversation components, glass header and pill composer.
+It keeps the existing dark conversation components and glass controls.
 Bend owns UI state, layout, JSON decoding and commands. UIKit supplies native
 text input and HTTPS requests; the fork's CoreGraphics painter draws the UI.
 The Mac connects to the authenticated Codex app-server and Claude Code.
-Dot keeps one ongoing conversation; the header uses the original Near avatar.
+Dot keeps one ongoing conversation without a header. The composer has separate
+attachment, text, camera and microphone controls; typing replaces the microphone with Send.
 
 The phone connects to the private Tailscale harness. Tailscale must be connected,
 and the Mac mini must stay on. Your ongoing conversation is saved on the Mac; an accepted turn continues when
-the app closes. The menu searches the conversation and stops a running turn.
-Search opens the matching message in place.
+the app closes. While a reply is running, Stop replaces the camera control.
+The attachment control offers Camera, Photos and Files. Files keep their original
+bytes, name and caption, and an unsent file draft survives app relaunch.
 
 Keep the fork beside this repository at `../f`. The Mac needs Bun, Tailscale,
 the Codex CLI, Claude Code and Xcode with iOS SDKs. Sign into both providers, then build and deploy:
@@ -217,3 +219,101 @@ where supported, otherwise WebM, with a five-minute limit. Native playback of
 browser WebM recordings has not been verified. Calls require the browser's
 speech-recognition and speech-synthesis APIs; unsupported browsers report that
 limitation. Audio output is selected through the device's controls.
+
+## iPhone notifications
+
+The iPhone requests notification permission once, on the first active launch with
+a push-enabled build and a configured, available notification service. Denial is
+not prompted again. Alerts say that Near's
+reply is ready or that Dot needs attention; they do not include conversation
+text. Foreground alerts are suppressed. Tapping an alert returns to the existing
+conversation without clearing its draft. The harness exposes only one ongoing
+conversation: other saved threads cannot be selected, submitted, resumed, or
+stopped through the app. Notification taps therefore refresh that conversation
+rather than introducing a thread-switching route. Completion and error transitions are
+deduplicated in a private, durable outbox. Cancelling a turn does not send an alert.
+
+Background delivery requires both:
+
+- A development profile for the explicit `com.pedroavj.opendot.ios` App ID with
+  Push Notifications enabled and an `aps-environment` entitlement. Pass the
+  cached profile to `script/build_ios.ts device --profile PATH`. The build
+  preserves that entitlement only when the profile explicitly authorizes it;
+  wildcard profiles remain usable for builds without push.
+- An APNs provider key configured on the harness through `DOT_APNS_TEAM_ID`,
+  `DOT_APNS_KEY_ID`, and `DOT_APNS_KEY_FILE`. The last value points to a private
+  `.p8` file outside the repository. The key is never copied into the app.
+
+Building does not create Apple credentials, modify provisioning, install the
+app, or restart the harness. Without those prerequisites the app does not
+request notification permission. Device registrations remain behind
+the harness's existing Tailscale authorization and same-origin write checks.
+
+Attention alerts currently cover turn failures and voice messages needing a
+transcript. `Notifications.attention(requestId, threadId)` is the deduplicated
+integration point for a future interactive approval flow; it does not change
+or intercept the current approval protocol. Browser push is not implemented.
+
+Local checks use a fake push sender and the actual native payload validator:
+
+```sh
+(cd harness && bun run typecheck && bun test tests/notifications.test.ts tests/harness.test.ts)
+bun script/test_ios_notifications.ts
+bun script/build_ios.ts simulator
+```
+
+These checks do not prove delivery through APNs to a physical device. That
+requires a provisioned build, the configured provider, user permission, and a
+background completion followed by tapping the received alert.
+
+## Claude speaker and Codex worker
+
+`harness/claude-front.ts` runs the user-facing conversation on loopback port
+19455 while the existing Codex harness keeps running on 19453. It uses
+`claude-front-session.json`; it never writes the worker's `mobile-session.json`.
+The launch agent is `com.pedroavj.opendot.claude-front`. The HTTPS handler on
+port 9453 points to the front. Do not restart the worker to update the front.
+
+The initial handoff copies history and media ownership. After the HTTPS route
+has been verified, SIGUSR1 captures messages received during staging and asks
+real Claude to acknowledge the switch. New Codex output stays in the worker's
+saved conversation. Claude can read its live status and reports terminal worker
+results through genuine Claude replies. The app's Stop button stops Claude;
+Codex is stopped only by an explicit user request through the worker tool.
+
+The relay accepts no generated task text from Claude. It forwards the accepted
+user request, original media, and unsent conversation context with preserved
+roles and wording. A private immutable relay envelope keeps retries identical;
+the worker receipt ID is derived from the front request ID. A correction such
+as “I just said that” therefore carries the actual preceding exchange.
+
+Timestamped `claude-front-facts.json` records verified per-issue evidence for
+status replies; global worker activity is not proof that a feature is unfinished
+or dependent on other work. Internal completion/approval notices can read worker
+status but cannot submit or stop work without a real active user message.
+A private `claude-front-notice.json` with `id` and `prompt`, delivered with SIGHUP,
+requests a deduplicated genuine Claude notice. It never creates an assistant
+message directly or grants approval for an action.
+
+## General file attachments
+
+`POST /api/file` accepts multipart `file` and JSON `metadata` containing
+`requestId`, `threadId`, `text`, and `fileId`. Files can be any format up to
+20 MiB; the server stores exact bytes privately under their SHA-256 hash and does
+not execute them. Acknowledgments retain the existing `acceptedRequestIds`
+contract. Messages expose `file: {id, url, name, mimeType, size}`.
+
+Native clients encode the multipart filename using RFC3986 percent encoding
+and send the original filename in `metadata.name`; the server verifies that
+pair before retaining the original. This preserves quotes and Unicode despite
+Bun's multipart decoder ignoring `filename*`. Names are limited to 255 UTF-16
+code units and exclude controls, path separators, `.` and `..`. Optional
+metadata MIME/size values must match the actual part. MIME parameters are
+normalized to the base MIME type.
+
+Authenticated, owned `GET` and `HEAD /api/file/:id` return verified bytes as a
+download, never active inline HTML. Both providers receive a verified local
+file reference and the original caption. The front relays documents to the
+existing worker turn endpoint with a labeled attachment reference, so new
+uploads do not require restarting the active Codex worker. File content is
+untrusted data, not instructions.

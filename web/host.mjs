@@ -48,6 +48,8 @@ export function createDotHost({ root, deliver }) {
   };
   root.addEventListener('click', click, true);
   root.addEventListener('keydown', keydown);
+  const edited = e => { if (e.target.matches('[data-bend-field="textbox · Message"],[data-bend-field="textbox · Mensaje"]')) media.edited(e.target.value); };
+  root.addEventListener('input', edited);
 
   async function request(operation, data, signal) {
     if (operation === 9) {
@@ -60,12 +62,15 @@ export function createDotHost({ root, deliver }) {
       return JSON.stringify(viewport());
     }
     if (operation === 7 || operation === 8) return '';
-    if (operation >= 10 && operation <= 13) {
+    if (operation === 15) return navigator.language.startsWith('es')
+      ? 'Las notificaciones están disponibles en la app para iPhone.'
+      : 'Notifications are available in the iPhone app.';
+    if ((operation >= 10 && operation <= 13) || operation === 16 || operation === 17) {
       const spec = JSON.parse(data);
       // Session initialization is queued before these startup photo events.
       if (operation === 12 && spec.action === 'load' && !spec.session) spec.session = browserSession;
       const text = await media.request(operation, spec, signal);
-      if (operation === 11 || operation === 13) observeSnapshot(text);
+      if (operation === 11 || operation === 13 || operation === 17) observeSnapshot(text);
       return text;
     }
     if (operation !== 3 && operation !== 6) return undefined;
@@ -133,6 +138,7 @@ export function createDotHost({ root, deliver }) {
       window.removeEventListener('online', refresh);
       document.removeEventListener('visibilitychange', refresh);
       root.removeEventListener('click', click, true); root.removeEventListener('keydown', keydown);
+      root.removeEventListener('input', edited);
       thread?.removeEventListener('scroll', recordScroll);
       media.close();
     },

@@ -30,7 +30,7 @@ def count(xs: List<&2, App.Message>) -> U32:
 def last_text(xs: List<&2, App.Message>) -> String:
   match xs:
     case []: ""
-    case App.Message{id, role, text, audio, duration, picture, processing, requestId, caption} <> []: text
+    case App.Message{id, role, text, audio, duration, picture, processing, requestId, caption, file} <> []: text
     case x <> rest: last_text(rest)
 def tree(s: App.State) -> P.UI: K.draw(App.f(s), K.Rendering{K.Lang.Es{}, []})
 def is_spacing(mark: P.Mark) -> Bool:
@@ -70,9 +70,9 @@ def main() -> IO(Unit):
   +working = App.update(accepted, Native.Typed{"Mensaje", "Siguiente mensaje"})
   +refreshed = App.apply_reply(failed, reply("idle"), False{})
   +invalid = App.apply_reply(typed, Host.Reply{1, "{\"threads\":[{\"id\":\"thread-1\",\"status\":\"idle\",\"messages\":[{\"role\":\"system\",\"text\":\"No es un mensaje de la conversación\"}]}],\"selectedThreadId\":\"thread-1\"}"}, True{})
-  +menu = App.update(typed, Native.Clicked{"Menú"})
+  +menu = App.update(typed, Native.Clicked{"Adjuntar"})
   +selected = App.apply_reply(menu, Host.Reply{1, "{\"threads\":[{\"id\":\"thread-2\",\"title\":\"Otra conversación\",\"status\":\"idle\",\"messages\":[{\"role\":\"assistant\",\"text\":\"Otro historial\"}]}],\"selectedThreadId\":\"thread-2\"}"}, False{})
-  +history = App.State.with_panel(App.State.with_session(typed, App.Snapshot{[App.Thread{"thread-1", "Larga", "idle", [App.Message{"long", K.Role.Near{}, repeat(80n), "", 0, K.Picture{"", 0, 0, ""}, "", "", ""}], "", "", False{}, True{}, "long", repeat(80n)}], "thread-1", [], "codex"}), App.Search{})
+  +history = App.State.with_panel(App.State.with_session(typed, App.Snapshot{[App.Thread{"thread-1", "Larga", "idle", [App.Message{"long", K.Role.Near{}, repeat(80n), "", 0, K.Picture{"", 0, 0, ""}, "", "", "", App.DocumentFile{"", "", "", "", 0}}], "", "", False{}, True{}, "long", repeat(80n)}], "thread-1", [], "codex"}), App.Search{})
   +reload = App.session_prefix(App.apply_reply(App.s(), reply("idle"), False{}), "new-browser-id")
   +cached = App.update(reload, Native.Typed{"Mensaje", "  Hola, ¿qué tal?  "})
   +restored = App.restore_pending(cached, request)
@@ -104,19 +104,19 @@ def main() -> IO(Unit):
   +call_ack = App.apply_reply(call_pending, receipt_reply("call-receipt"), False{})
   +jump = App.State.with_panel(ready, App.Jumped{0, True{}})
   +photo_html = Scene.html_in(tree(photo_ready), T.Scheme.Dark{})
-  +photo_message : App.Message = App.Message{"photo-id", K.Role.Mine{}, "Exact photo caption", "", 0, K.Picture{"/api/image/photo-hash", 320, 480, "Foto"}, "", "", ""}
+  +photo_message : App.Message = App.Message{"photo-id", K.Role.Mine{}, "Exact photo caption", "", 0, K.Picture{"/api/image/photo-hash", 320, 480, "Foto"}, "", "", "", App.DocumentFile{"", "", "", "", 0}}
   +photo_tree = K.item_tree(App.message_item(photo_message, 390, [App.ImageFile{"/api/image/photo-hash", "file:///tmp/synthetic.jpg"}]))
   +voice_pending = App.pending_audio(reload, audio_pending("Voice caption"))
   +voice_edited = App.State.with_draft(voice_pending, "Newer draft")
   +voice_ack = App.pending_audio(App.State.with_draft(App.apply_reply(reload, receipt_reply("old-boot-audio-clip"), False{}), "Voice caption"), audio_pending("Voice caption"))
   +voice_newer_ack = App.pending_audio(App.State.with_draft(App.apply_reply(reload, receipt_reply("old-boot-audio-clip"), False{}), "Newer draft"), audio_pending("Voice caption"))
-  +voice_message : App.Message = App.Message{"audio-hash", K.Role.Mine{}, "Recognized words", "/api/audio/audio-hash", 1200, K.Picture{"", 0, 0, ""}, "failed", "voice-receipt", "Voice caption"}
+  +voice_message : App.Message = App.Message{"audio-hash", K.Role.Mine{}, "Recognized words", "/api/audio/audio-hash", 1200, K.Picture{"", 0, 0, ""}, "failed", "voice-receipt", "Voice caption", App.DocumentFile{"", "", "", "", 0}}
   +voice_tree = K.item_tree(App.message_item(voice_message, 390, []))
   +recording = App.State.with_panel(elapsed, App.Recording{})
   +recording_tree = tree(recording)
   +recording_html = Scene.html_in(recording_tree, T.Scheme.Dark{})
   +recorded = App.with_voice(recording, App.Voice{"recorded", "clip", 2500, "", 0})
-  +stress = C.conversation("Mensaje", "", [App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320)], K.Focus.Blurred{}, "", False{}, False{}, [], 320, 568)
+  +stress = C.conversation("Mensaje", "", [App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320)], K.Focus.Blurred{}, "", False{}, False{}, False{}, [], 320, 568)
   +stress_packet = Scene.canvas_in(stress, T.Scheme.Dark{})
   +formatted = Rich.view("One **bold** word.\n\nSee [the docs](https://example.com/docs).", 220)
   do IO<Unit>:
@@ -189,7 +189,7 @@ def main() -> IO(Unit):
     IO.print(Bool.show(String.eq(App.State.draft(invalid), App.State.draft(typed))))
     IO.print(Bool.show(String.eq(App.State.draft(App.update(menu, Native.Typed{"Mensaje", "Hidden input"})), App.State.draft(typed))))
     IO.print(Bool.show(Bool.not(String.contains(menu_html, "data-bend-field=\"textbox · Mensaje\""))))
-    IO.print(Bool.show(Bool.not(String.contains(menu_html, "button · thread:")) && Bool.not(String.contains(menu_html, "Nueva conversación")) && String.contains(menu_html, "Buscar") && Bool.not(String.contains(menu_html, "Modelo"))))
+    IO.print(Bool.show(Bool.not(String.contains(menu_html, "button · thread:")) && Bool.not(String.contains(menu_html, "Nueva conversación")) && Bool.not(String.contains(menu_html, "Buscar")) && String.contains(menu_html, "Fotos") && String.contains(menu_html, "Archivos")))
     IO.print(Bool.show(String.eq(App.State.draft(selected), App.State.draft(typed))))
     IO.print(Bool.show(String.eq(last_text(App.Thread.messages(App.current(selected))), "Otro historial")))
     IO.print(Bool.show(String.contains(Scene.html_in(tree(history), T.Scheme.Dark{}), "Buscar en la conversación")))
