@@ -21,7 +21,28 @@ async function stored(mode, operation) {
   } finally { db.close(); }
 }
 
-export function createMediaHost(event) {
+export async function preparePhoto(file, maxBytes = 5 * 1024 * 1024) {
+  if (file.size > 32 * 1024 * 1024) throw Error('Choose a photo smaller than 32 MiB.');
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement('canvas');
+    let scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+      const quality = Math.max(0.55, 0.88 - attempt * 0.08);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (!blob) throw Error('The browser could not prepare this photo.');
+      if (blob.size <= maxBytes) return { blob, width, height };
+      scale *= 0.8;
+    }
+    throw Error('The photo is too large for this app. Try a closer photo.');
+  } finally { bitmap.close(); }
+}
+
+export function createMediaHost(event, { maxImageBytes = 5 * 1024 * 1024 } = {}) {
   let recorder, recording, microphone, recordingTimer, call, recognition, speaking, player, picker;
   let closed = false, recordingGeneration = 0;
   const urls = new Set();
@@ -164,25 +185,16 @@ export function createMediaHost(event) {
     if (spec.action === 'load') {
       image(spec.session, 'loaded', { imageId: spec.imageId, url: sameOrigin(spec.url).href }); return;
     }
-    if (spec.action !== 'pick') throw Error('Unknown photo action.');
+    if (spec.action !== 'pick' && spec.action !== 'camera') throw Error('Unknown photo action.');
     picker?.remove(); picker = document.createElement('input'); picker.type = 'file'; picker.accept = 'image/*';
+    if (spec.action === 'camera') picker.capture = 'environment';
     picker.hidden = true; document.body.append(picker);
     picker.oncancel = () => { picker.remove(); image(spec.session, 'cancelled'); };
     picker.onchange = async () => {
       const file = picker.files?.[0]; picker.remove();
       if (!file) { image(spec.session, 'cancelled'); return; }
       try {
-        if (file.size > 32 * 1024 * 1024) throw Error('Choose a photo smaller than 32 MiB.');
-        const bitmap = await createImageBitmap(file);
-        let blob, width, height;
-        try {
-          const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
-          width = Math.max(1, Math.round(bitmap.width * scale)); height = Math.max(1, Math.round(bitmap.height * scale));
-          const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-          canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
-          blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
-        } finally { bitmap.close(); }
-        if (!blob || blob.size > 5 * 1024 * 1024) throw Error('The photo must fit within 5 MiB after resizing.');
+        const { blob, width, height } = await preparePhoto(file, maxImageBytes);
         const draft = { kind: 'image', id: crypto.randomUUID(), session: spec.session, blob, width, height };
         await stored('readwrite', store => store.put(draft, 'image'));
         image(spec.session, 'selected', { imageId: draft.id, url: urlFor(blob), width, height });

@@ -60,16 +60,18 @@ def boxes(xs: List<&2, P.Box>, +scroll: Bool, +id: U32) -> String:
       choose(Bool.not(Bool.xor(scrolling(box_name(box)), scroll)),
         u => S.box_at_in(box, id, T.Scheme.Dark{}) ++ control(box, id, next_value(rest)), u => "") ++ boxes(rest, scroll, U32.inc(id))
 
-def thread(+xs: List<&2, P.Box>, view: P.Box) -> String:
+def thread(+xs: List<&2, P.Box>, view: P.Box, +id: U32) -> String:
   match view:
-    case P.Box{name, mark, +x, +y, +width, +height, level, layer}:
-      "<div id=\"dot-thread\" role=\"log\" aria-label=\"Conversation\" tabindex=\"0\" style=\"position:absolute;overflow:auto;isolation:isolate;overscroll-behavior:contain;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px\"><div style=\"position:relative;min-height:100%;height:" ++ U32.show(U32.sub(bottom(xs), y)) ++ "px\"><div style=\"position:absolute;left:-" ++ U32.show(x) ++ "px;top:calc(max(0px, 100% - " ++ U32.show(U32.sub(bottom(xs), y)) ++ "px) - " ++ U32.show(y) ++ "px)\">" ++ boxes(xs, True{}, 0) ++ "</div></div></div>"
+    case P.Box{+name, mark, +x, +y, +width, +height, level, layer}:
+      +detail = String.eq(name, "Scroll viewport · Message")
+      +top = Bool.pick(String, detail, "-" ++ U32.show(y) ++ "px", "calc(max(0px, 100% - " ++ U32.show(U32.sub(bottom(xs), y)) ++ "px) - " ++ U32.show(y) ++ "px)")
+      "<div id=\"" ++ Bool.pick(String, detail, "dot-message-detail", "dot-thread") ++ "\" role=\"" ++ Bool.pick(String, detail, "region", "log") ++ "\" aria-label=\"" ++ Bool.pick(String, detail, "Message", "Conversation") ++ "\" tabindex=\"0\" style=\"position:absolute;overflow:auto;isolation:isolate;overscroll-behavior:contain;z-index:" ++ U32.show(id) ++ ";left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px\"><div style=\"position:relative;min-height:100%;height:" ++ U32.show(U32.sub(bottom(xs), y)) ++ "px\"><div style=\"position:absolute;left:-" ++ U32.show(x) ++ "px;top:" ++ top ++ "\">" ++ boxes(xs, True{}, 0) ++ "</div></div></div>"
 
 def ordered(xs: List<&2, P.Box>, +all: List<&2, P.Box>, +id: U32) -> String:
   match xs:
     case []: ""
     case +box <> +rest:
-      choose(String.eq(box_name(box), "Scroll viewport · Conversation"), u => thread(all, box),
+      choose(String.eq(box_name(box), "Scroll viewport · Conversation") || String.eq(box_name(box), "Scroll viewport · Message"), u => thread(all, box, id),
         u => choose(scrolling(box_name(box)), u => "", u => S.box_at_in(box, id, T.Scheme.Dark{}) ++ control(box, id, next_value(rest)))) ++ ordered(rest, all, U32.inc(id))
 
 def html_boxes(size: P.Size, +xs: List<&2, P.Box>) -> String:

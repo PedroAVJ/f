@@ -148,6 +148,20 @@ def search_results(+query: String, history: List<&2, K.Item>, +limit: U32) -> K.
 def search_view(+query: String, history: List<&2, K.Item>, +w: U32, +h: U32) -> P.UI:
   +inner = U32.sub(w, 40)
   K.sheet_tree(K.sheet("Buscar", K.SheetBody.Find{K.search("Buscar en la conversación", K.FieldState{query, K.Focus.Focused{}}, search_results(query, history, U32.min(8, U32.max(1, U32.div(U32.sub(U32.max(h, 160), 160), 80)))), inner)}, K.Settled{}, K.still(), w, h))
+def sheet_width(+w: U32) -> U32: Bool.pick(U32, K.is_side(K.sheet_size(w)), K.sheet_w(), w)
+def editor_view(+draft: String, +focus: K.Focus, +disabled: Bool, +w: U32, +h: U32) -> P.UI:
+  +one = K.plain(K.Lines.Growing{1}, "Mensaje", [], K.FieldState{"", focus})
+  +base = K.height(K.sheet_panel(K.is_side(K.sheet_size(w)), "Editar mensaje", K.SheetBody.Editor{one}, sheet_width(w), h))
+  +lines = U32.add(1, U32.div(U32.sub(h, base), K.line_height(K.body())))
+  disable_send(K.sheet_tree(K.sheet("Editar mensaje", K.SheetBody.Editor{K.plain(K.Lines.Growing{lines}, "Mensaje", [], K.FieldState{draft, focus})}, K.Settled{}, K.still(), w, h)), disabled, False{})
+def detail_view(+content: P.UI, +w: U32, +h: U32) -> P.UI:
+  +pw = sheet_width(w)
+  +inner = U32.sub(pw, 40)
+  +empty : K.SheetBody = K.SheetBody.Detail{K.Bubble{K.spacer("Message", 0, 0, P.Leading{})}, "", []}
+  +base = K.height(K.sheet_panel(K.is_side(K.sheet_size(w)), "Mensaje completo", empty, pw, h))
+  +room = U32.sub(h, base)
+  +scroll = P.layout("Message detail", P.Depth{}, 0, 0, inner, room, P.Leading{}, [P.rounded("Scroll viewport · Message", P.Fill.None{}, inner, room, P.Corner{0}, P.NoStroke{}, P.Leading{}), K.aligned(scroll_content(content), P.Leading{})])
+  K.sheet_tree(K.sheet("Mensaje completo", K.SheetBody.Detail{K.Bubble{scroll}, "", []}, K.Settled{}, K.still(), w, h))
 def meter_bars(n: Nat, +level: U32) -> List<&2, P.UI>:
   match n:
     case 0n: []
@@ -210,14 +224,18 @@ def copy_text(+text: String, +lang: K.Lang) -> String:
   Bool.pick(String, String.starts_with(text, "Grabando · "), K.es_en(lang, "Grabando · ", "Recording · ") ++ drop_u(text, 11),
   Bool.pick(String, String.starts_with(text, "Grabación lista · "), K.es_en(lang, "Grabación lista · ", "Recording ready · ") ++ drop_u(text, 18), action_copy(K.intents(), text, lang))))))))))))))
 def history_copy(+text: String, +lang: K.Lang) -> String:
-  Bool.pick(String, String.eq(text, "Mensajes anteriores"), K.es_en(lang, "Mensajes anteriores", "Earlier messages"), Bool.pick(String, String.eq(text, "Mensajes recientes"), K.es_en(lang, "Mensajes recientes", "Latest messages"), copy_text(text, lang)))
+  Bool.pick(String, String.eq(text, "Leer más"), K.es_en(lang, "Leer más", "Read more"),
+  Bool.pick(String, String.eq(text, "Editar mensaje"), K.es_en(lang, "Editar mensaje", "Edit message"),
+  Bool.pick(String, String.eq(text, "Mensaje completo"), K.es_en(lang, "Mensaje completo", "Full message"),
+  Bool.pick(String, String.starts_with(text, "Leer mensaje "), K.es_en(lang, "Leer mensaje ", "Read message ") ++ drop_u(text, 13),
+  Bool.pick(String, String.eq(text, "Mensajes anteriores"), K.es_en(lang, "Mensajes anteriores", "Earlier messages"), Bool.pick(String, String.eq(text, "Mensajes recientes"), K.es_en(lang, "Mensajes recientes", "Latest messages"), copy_text(text, lang)))))))
 def scroll_copy(+text: String, +lang: K.Lang) -> String:
   Bool.pick(String, String.starts_with(text, "scroll:"), "scroll:" ++ history_copy(drop_u(text, 7), lang), history_copy(text, lang))
 def locale_name(+name: String, +lang: K.Lang) -> String:
   Bool.pick(String, String.starts_with(name, "button, disabled · "), "button, disabled · " ++ scroll_copy(drop_u(name, 19), lang),
   Bool.pick(String, String.starts_with(name, "button · "), "button · " ++ scroll_copy(drop_u(name, 9), lang),
   Bool.pick(String, String.starts_with(name, "textbox · "), "textbox · " ++ copy_text(drop_u(name, 10), lang),
-  Bool.pick(String, String.starts_with(name, "heading · "), "heading · " ++ copy_text(drop_u(name, 10), lang),
+  Bool.pick(String, String.starts_with(name, "heading · "), "heading · " ++ history_copy(drop_u(name, 10), lang),
   Bool.pick(String, String.starts_with(name, "dialog · "), "dialog · " ++ scroll_copy(drop_u(name, 9), lang),
   Bool.pick(String, String.starts_with(name, "group · "), "group · " ++ copy_text(drop_u(name, 8), lang),
   Bool.pick(String, String.starts_with(name, "status · "), "status · " ++ scroll_copy(drop_u(name, 9), lang), name)))))))

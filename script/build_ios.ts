@@ -167,6 +167,7 @@ try {
       CFBundleInfoDictionaryVersion: '6.0', CFBundleName: 'Dot', CFBundlePackageType: 'APPL', CFBundleShortVersionString: version, CFBundleVersion: build,
       CFBundleSupportedPlatforms: [simulator ? 'iPhoneSimulator' : 'iPhoneOS'], MinimumOSVersion: minimum, DTPlatformName: sdkName, DTSDKName: sdkName + sdkVersion,
       UIDeviceFamily: [1], UILaunchScreen: {}, UIUserInterfaceStyle: 'Dark', UIApplicationSupportsIndirectInputEvents: true,
+      NSCameraUsageDescription: 'Take a photo to send to Near.',
       NSMicrophoneUsageDescription: 'Record voice messages and talk with Near.', NSSpeechRecognitionUsageDescription: 'Understand voice messages and your speech during a call with Near.',
       UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'], BendOrigin: originURL.origin, BendSubmitLabel: 'Enviar',
     }));

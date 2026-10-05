@@ -6,8 +6,17 @@ const PENDING = 'dot.pending';
 
 export function createDotHost({ root, deliver }) {
   const event = value => deliver(JSON.stringify(value));
-  const media = createMediaHost(event);
+  const imageLimit = Number(root.dataset.maxImageBytes);
+  const media = createMediaHost(event, {
+    maxImageBytes: Number.isSafeInteger(imageLimit) && imageLimit >= 65536 && imageLimit <= 5 * 1024 * 1024 ? imageLimit : undefined,
+  });
   let restored = false, initialized = false, refreshQueued = false, thread, atBottom = true, lastHeight = 0, prepend = false;
+  let displayedReview, pendingReview;
+  const observeSnapshot = text => {
+    const snapshot = JSON.parse(text);
+    pendingReview = { provider: snapshot.provider, context: snapshot.reviewContext ?? null };
+    return snapshot;
+  };
   const viewport = () => ({ action: 'resize', width: Math.max(320, Math.floor(root.clientWidth)), height: Math.max(240, Math.floor(globalThis.visualViewport?.height ?? innerHeight)) });
   const resize = () => event(viewport());
   const refresh = () => {
@@ -30,6 +39,7 @@ export function createDotHost({ root, deliver }) {
   };
   const keydown = e => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !e.target.matches('[data-bend-field="textbox · Message"],[data-bend-field="textbox · Mensaje"]')) return;
+    if (root.querySelector('[data-bend-event="button · Close"],[data-bend-event="button · Cerrar"]')) return;
     const send = root.querySelector('[data-bend-event="button · Send"],[data-bend-event="button · Enviar"]');
     if (send && !send.disabled) { e.preventDefault(); send.click(); }
   };
@@ -46,20 +56,29 @@ export function createDotHost({ root, deliver }) {
       return JSON.stringify(viewport());
     }
     if (operation === 7 || operation === 8) return '';
-    if (operation >= 10 && operation <= 13) return media.request(operation, JSON.parse(data), signal);
+    if (operation >= 10 && operation <= 13) {
+      const text = await media.request(operation, JSON.parse(data), signal);
+      if (operation === 11 || operation === 13) observeSnapshot(text);
+      return text;
+    }
     if (operation !== 3 && operation !== 6) return undefined;
     const spec = operation === 3 ? { url: data } : JSON.parse(data);
     const url = sameOrigin(spec.url);
     if (url.searchParams.has('before')) prepend = true;
     if (url.pathname === '/api/turn' && operation === 6) {
-      // Persist before transmission; a lost response must reuse the receipt ID.
-      localStorage.setItem(PENDING, JSON.stringify({ id: spec.body.requestId, thread: spec.body.threadId, text: spec.body.text, kind: spec.body.mode === 'call' ? 'call' : 'text' }));
+      // Preserve the displayed review across retries as well as the receipt ID.
+      let held;
+      try { held = JSON.parse(localStorage.getItem(PENDING)); } catch {}
+      if (displayedReview?.provider === 'bakery') {
+        spec.body.reviewContext = held?.id === spec.body.requestId && Object.hasOwn(held, 'reviewContext') ? held.reviewContext : displayedReview.context;
+      }
+      localStorage.setItem(PENDING, JSON.stringify({ id: spec.body.requestId, thread: spec.body.threadId, text: spec.body.text, kind: spec.body.mode === 'call' ? 'call' : 'text', ...(displayedReview?.provider === 'bakery' ? { reviewContext: spec.body.reviewContext } : {}) }));
     }
     const response = await fetch(url, { signal, credentials: 'same-origin', ...(operation === 6 ? {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec.body),
     } : {}) });
     const text = await responseText(response);
-    const snapshot = JSON.parse(text);
+    const snapshot = observeSnapshot(text);
     let pending;
     try { pending = JSON.parse(localStorage.getItem(PENDING)); } catch { /* A malformed local receipt is not sent. */ }
     if (pending && snapshot.acceptedRequestIds?.includes(pending.id)) {
@@ -77,6 +96,7 @@ export function createDotHost({ root, deliver }) {
   return {
     request,
     rendered() {
+      if (pendingReview) { displayedReview = pendingReview; pendingReview = undefined; }
       refreshQueued = false;
       for (const button of root.querySelectorAll('[data-bend-event="button · Speaker"],[data-bend-event="button · Altavoz"]')) {
         button.disabled = true;

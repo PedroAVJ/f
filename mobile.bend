@@ -28,6 +28,8 @@ type Panel is Data:
   Closed{}
   Menu{}
   Search{}
+  Editor{}
+  Detail{index: U32}
   Jumped{index: U32, highlighted: Bool}
   Recording{}
   Calling{}
@@ -113,6 +115,9 @@ def Snapshot.threads(value: Snapshot) -> List<&2, Thread>:
 def Snapshot.selected(value: Snapshot) -> String:
   match value:
     case Snapshot{threads, selected, accepted, provider}: selected
+def Snapshot.provider(value: Snapshot) -> String:
+  match value:
+    case Snapshot{threads, selected, accepted, provider}: provider
 def Snapshot.accepted(value: Snapshot) -> List<&2, String>:
   match value:
     case Snapshot{threads, selected, accepted, provider}: accepted
@@ -310,8 +315,9 @@ def is_closed(panel: Panel) -> Bool:
     case Closed{}: True{}
     case Jumped{index, highlighted}: True{}
     case _: False{}
+def voice_supported(+state: State) -> Bool: Bool.not(String.eq(Snapshot.provider(State.session(state)), "bakery"))
 def can_record(+state: State) -> Bool:
-  is_closed(State.panel(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state))
+  voice_supported(state) && is_closed(State.panel(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state))
 def field(+value: J.Json, key: String) -> String: J.text(J.get(value, key))
 def boolean_field(value: Maybe<&2, J.Json>, otherwise: Bool) -> Bool:
   match value:
@@ -368,11 +374,11 @@ def thread_lines(+id: String, title: String, +status: String, error: String, bef
     case Done{history}:
       Bool.pick(Result<&2, &2, String, Thread>, Bool.not(String.is_empty(id)) &&
         (String.eq(status, "idle") || String.eq(status, "working") || String.eq(status, "running") || String.eq(status, "failed") || String.eq(status, "error")),
-        Done{Thread{id, title, status, history, error, before, more, latest, replyId, replyText}}, Fail{"La conversación del Mac mini no es válida."})
+        Done{Thread{id, title, status, history, error, before, more, latest, replyId, replyText}}, Fail{"La conversación del servidor no es válida."})
 def thread_messages(id: String, title: String, status: String, error: String, before: String, more: Bool, latest: Bool, replyId: String, replyText: String, value: Maybe<&2, J.Json>) -> Result<&2, &2, String, Thread>:
   match value:
     case Some{J.Array{xs}}: thread_lines(id, title, status, error, before, more, latest, replyId, replyText, lines(xs))
-    case _: Fail{"La conversación del Mac mini no es válida."}
+    case _: Fail{"La conversación del servidor no es válida."}
 def latest_field(value: Maybe<&2, J.Json>, key: String) -> String:
   match value:
     case Some{v}: field(v, key)
@@ -408,7 +414,7 @@ def snapshot_threads(+id: String, result: Result<&2, &2, String, List<&2, Thread
 def snapshot_field(id: String, value: Maybe<&2, J.Json>) -> Result<&2, &2, String, Snapshot>:
   match value:
     case Some{J.Array{xs}}: snapshot_threads(id, parse_threads(xs))
-    case _: Fail{"El Mac mini devolvió una respuesta no válida."}
+    case _: Fail{"El servidor devolvió una respuesta no válida."}
 def accepted_tail(text: String, result: Result<&2, &2, String, List<&2, String>>) -> Result<&2, &2, String, List<&2, String>>:
   match result:
     case Done{xs}: Done{text <> xs}
@@ -417,12 +423,12 @@ def accepted_strings(values: List<&2, J.Json>) -> Result<&2, &2, String, List<&2
   match values:
     case []: Done{[]}
     case J.Text{text} <> rest: accepted_tail(text, accepted_strings(rest))
-    case _: Fail{"Los recibos del Mac mini no son válidos."}
+    case _: Fail{"Los recibos del servidor no son válidos."}
 def accepted_field(value: Maybe<&2, J.Json>) -> Result<&2, &2, String, List<&2, String>>:
   match value:
     case None{}: Done{[]}
     case Some{J.Array{xs}}: accepted_strings(xs)
-    case _: Fail{"Los recibos del Mac mini no son válidos."}
+    case _: Fail{"Los recibos del servidor no son válidos."}
 def snapshot_receipts(session: Snapshot, result: Result<&2, &2, String, List<&2, String>>) -> Result<&2, &2, String, Snapshot>:
   match session:
     case Snapshot{threads, selected, old, provider}:
@@ -437,13 +443,13 @@ def snapshot_provider(result: Result<&2, &2, String, Snapshot>, +provider: Strin
   match result:
     case Fail{e}: Fail{e}
     case Done{Snapshot{threads, selected, accepted, old}}:
-      Done{Snapshot{threads, selected, accepted, Bool.pick(String, String.eq(provider, "claude"), "claude", "codex")}}
+      Done{Snapshot{threads, selected, accepted, Bool.pick(String, String.eq(provider, "bakery"), "bakery", Bool.pick(String, String.eq(provider, "claude"), "claude", "codex"))}}
 def decoded_snapshot(+value: J.Json) -> Result<&2, &2, String, Snapshot>:
   snapshot_provider(snapshot_ack(snapshot_field(field(value, "selectedThreadId"), J.get(value, "threads")), accepted_field(J.get(value, "acceptedRequestIds"))), field(value, "provider"))
 def snapshot_json(result: Result<&1, &1, String, J.Json>) -> Result<&2, &2, String, Snapshot>:
   match result:
     case Done{value}: decoded_snapshot(value)
-    case Fail{e}: Fail{"El Mac mini devolvió una respuesta no válida."}
+    case Fail{e}: Fail{"El servidor devolvió una respuesta no válida."}
 def decode_snapshot(raw: String) -> Result<&2, &2, String, Snapshot>:
   snapshot_json(J.read(raw))
 def failed(state: State, error: String) -> State:
@@ -514,7 +520,7 @@ def apply_reply(+state: State, reply: Host.Reply, +sent: Bool) -> State:
   match reply:
     case Host.Reply{1, +data}: decoded_reply(state, decode_snapshot(data), sent)
     case Host.Reply{status, +data}:
-      failed(state, Bool.pick(String, String.is_empty(data), "No se pudo conectar con tu Mac mini. Reintenta el envío.", String.take(data, 240n)))
+      failed(state, Bool.pick(String, String.is_empty(data), "No se pudo conectar con el servidor. Reintenta el envío.", String.take(data, 240n)))
 def resized(state: State, +w: U32, +h: U32) -> State:
   State.with_height(State.with_width(state, U32.max(w, 320)), U32.max(h, 240))
 def is_search(panel: Panel) -> Bool:
@@ -529,21 +535,36 @@ def is_calling(panel: Panel) -> Bool:
   match panel:
     case Calling{}: True{}
     case _: False{}
+def is_editor(panel: Panel) -> Bool:
+  match panel:
+    case Editor{}: True{}
+    case _: False{}
+def is_detail(panel: Panel) -> Bool:
+  match panel:
+    case Detail{index}: True{}
+    case _: False{}
+def draft_capped(+draft: String, +w: U32) -> Bool:
+  K.composer_capped(draft, K.composer_w(C.box(w)))
+def edited_draft(+state: State, +draft: String) -> State:
+  State.with_panel(State.with_draft(state, draft), Bool.pick(Panel, is_editor(State.panel(state)) || draft_capped(draft, State.width(state)), Editor{}, State.panel(state)))
+def message_index(+label: String) -> U32:
+  U32.sub(read_number(U32.read(String.drop(label, 13n))), 1)
 def matches(+label: String, es: String, en: String) -> Bool: String.eq(label, es) || String.eq(label, en)
 def clicked(+state: State, +label: String) -> State:
+  Bool.pick(State, is_closed(State.panel(state)) && (String.starts_with(label, "Leer mensaje ") || String.starts_with(label, "Read message ")), State.with_panel(state, Detail{message_index(label)}),
   Bool.pick(State, matches(label, "Menú", "Menu"), State.with_panel(state, Menu{}),
   Bool.pick(State, matches(label, "Cerrar", "Close"), State.with_panel(state, Closed{}),
   Bool.pick(State, matches(label, "Buscar", "Search"), State.with_panel(state, Search{}),
-  state)))
+  state))))
 def update(+state: State, input: Native.Input) -> State:
   match input:
     case Native.Resized{w, h}: resized(state, w, h)
     case Native.Clicked{label}: clicked(state, label)
     case Native.Typed{label, +value}:
-      Bool.pick(State, is_closed(State.panel(state)) && matches(label, "Mensaje", "Message"), State.with_draft(state, value),
+      Bool.pick(State, (is_closed(State.panel(state)) || is_editor(State.panel(state))) && matches(label, "Mensaje", "Message"), edited_draft(state, value),
       Bool.pick(State, is_search(State.panel(state)), with_query(state, value), state))
     case Native.Focused{label}:
-      Bool.pick(State, is_closed(State.panel(state)) && matches(label, "Mensaje", "Message"), State.with_focus(state, K.Focus.Focused{}), state)
+      Bool.pick(State, (is_closed(State.panel(state)) || is_editor(State.panel(state))) && matches(label, "Mensaje", "Message"), edited_draft(State.with_focus(state, K.Focus.Focused{}), State.draft(state)), state)
     case Native.Blurred{label}:
       Bool.pick(State, matches(label, "Mensaje", "Message"), State.with_focus(state, K.Focus.Blurred{}), state)
     case _: state
@@ -594,6 +615,32 @@ def message_items(xs: List<&2, Message>, +w: U32, +files: List<&2, ImageFile>) -
   match xs:
     case []: []
     case message <> rest: message_item(message, w, files) <> message_items(rest, w, files)
+def inline_text_item(+role: K.Role, +text: String, +index: U32, +w: U32) -> K.Item:
+  +max = K.text_max(K.content_width(C.box(w)))
+  +rows = Rich.rows(text, max)
+  +long = U32.is_gt(Rich.row_count(rows), K.inline_line_limit())
+  +more = K.renamed(K.button_tree(K.say(K.ButtonKind.Quiet{}, "Leer más")), "button · Leer mensaje " ++ U32.show(U32.add(index, 1)))
+  +preview = P.layout("Message text", P.Vertical{}, 0, 0, 0, 0, P.Leading{}, Rich.first_rows(rows, K.inline_line_limit()))
+  +content = Bool.pick(P.UI, long, P.layout("Message preview", P.Vertical{}, 4, 0, 0, 0, P.Leading{}, [preview, more]), preview)
+  K.Said{K.Bubble{K.renamed(K.pill(role_align(role), Bool.pick(T.SurfaceRole, is_mine(role), T.SurfaceRole.Mine{}, T.SurfaceRole.Surface{}), content, P.NoStroke{}), "listitem · " ++ role_label(role) ++ ": " ++ Bool.pick(String, long, C.text_of(preview), text))}}
+def inline_caption(+item: K.Item, +text: String, +role: K.Role, +index: U32, +w: U32) -> K.Item:
+  match item:
+    case K.Said{+bubble}:
+      Bool.pick(K.Item, String.is_empty(text), item, K.Said{K.Bubble{P.layout("listitem · " ++ role_label(role), P.Vertical{}, 8, 0, 0, 0, role_align(role), [K.aligned(K.bubble_tree(bubble), role_align(role)), K.aligned(K.item_tree(inline_text_item(role, text, index, w)), role_align(role))])}})
+    case _: item
+def inline_message(message: Message, +index: U32, +w: U32, +files: List<&2, ImageFile>) -> K.Item:
+  match message:
+    case Message{+id, +role, +text, +audio, duration, +picture, processing, requestId, caption}:
+      Bool.pick(K.Item, String.is_empty(picture_asset(picture)), Bool.pick(K.Item, String.is_empty(audio), inline_text_item(role, text, index, w), inline_caption(audio_item(id, role, duration, processing, requestId), caption, role, index, w)), inline_caption(picture_item(role, picture, files, w), text, role, index, w))
+def inline_items_go(xs: List<&2, Message>, +index: U32, +w: U32, +files: List<&2, ImageFile>) -> List<&2, K.Item>:
+  match xs:
+    case []: []
+    case message <> rest: inline_message(message, index, w, files) <> inline_items_go(rest, U32.add(index, 1), w, files)
+def inline_items(xs: List<&2, Message>, w: U32, files: List<&2, ImageFile>) -> List<&2, K.Item>: inline_items_go(xs, 0, w, files)
+def detail_item(xs: List<&2, Message>, +index: U32, +w: U32, +files: List<&2, ImageFile>) -> P.UI:
+  match xs:
+    case []: K.spacer("Message", 0, 0, P.Leading{})
+    case message <> rest: C.choose(P.UI, U32.is_zero(index), u => K.item_tree(message_item(message, w, files)), u => detail_item(rest, U32.sub(index, 1), w, files))
 def panel_layers(panel: Panel, +state: State, +w: U32, +h: U32) -> List<&2, P.UI>:
   match panel:
     case Notice{text}: [C.dialog("Near", [K.paragraph("Notice", text, K.body(), K.ink(), U32.sub(C.dialog_w(w), 32), P.Leading{})], w, h)]
@@ -601,12 +648,13 @@ def panel_layers(panel: Panel, +state: State, +w: U32, +h: U32) -> List<&2, P.UI
     case Menu{}: [C.dialog("Near", K.append_trees([K.button_tree(K.act(K.ButtonKind.Quiet{}, K.Intent.Search{}, K.Form.Text{}))], Bool.pick(List<&2, P.UI>, working(state), [K.button_tree(K.say(K.ButtonKind.Quiet{}, "Detener"))], [])), w, h)]
     case _: []
 def panel_tree(+state: State) -> List<&2, P.UI>: panel_layers(State.panel(state), state, State.width(state), State.height(state))
-def jump_items(xs: List<&2, Message>, +index: U32, +highlighted: Bool, +w: U32, +files: List<&2, ImageFile>) -> List<&2, K.Item>:
+def jump_items_go(xs: List<&2, Message>, +index: U32, +cursor: U32, +highlighted: Bool, +w: U32, +files: List<&2, ImageFile>) -> List<&2, K.Item>:
   match xs:
     case []: []
     case message <> rest:
-      +item = message_item(message, w, files)
-      Bool.pick(List<&2, K.Item>, U32.is_zero(index), [Bool.pick(K.Item, highlighted, K.marked(item, 0), item)], item <> jump_items(rest, U32.sub(index, 1), highlighted, w, files))
+      +item = inline_message(message, cursor, w, files)
+      Bool.pick(List<&2, K.Item>, U32.is_zero(index), [Bool.pick(K.Item, highlighted, K.marked(item, 0), item)], item <> jump_items_go(rest, U32.sub(index, 1), U32.add(cursor, 1), highlighted, w, files))
+def jump_items(xs: List<&2, Message>, index: U32, highlighted: Bool, w: U32, files: List<&2, ImageFile>) -> List<&2, K.Item>: jump_items_go(xs, index, 0, highlighted, w, files)
 def photo_items(value: Photo, +w: U32, +h: U32) -> List<&2, K.Item>:
   match value:
     case Photo{+phase, id, +asset, width, height, requestId}:
@@ -617,12 +665,22 @@ def history_controls(+thread: Thread, +items: List<&2, K.Item>) -> List<&2, K.It
   K.append_items(Bool.pick(List<&2, K.Item>, Thread.historyHasMore(thread), [older], []), K.append_items(items, Bool.pick(List<&2, K.Item>, Thread.historyIsLatest(thread), [], [latest])))
 def panel_view(+state: State, panel: Panel, history: List<&2, Message>) -> K.UI:
   match panel:
+    case Editor{}: C.view(C.editor_view(State.draft(state), State.focus(state), Bool.not(can_send(state)), State.width(state), State.height(state)))
+    case Detail{index}: C.view(C.detail_view(detail_item(history, index, State.width(state), image_files(state)), State.width(state), State.height(state)))
     case Search{}: C.view(C.search_view(query(state), message_items(history, State.width(state), image_files(state)), State.width(state), State.height(state)))
     case Jumped{index, highlighted}: C.view(C.conversation(placeholder(), State.draft(state), jump_items(history, index, highlighted, State.width(state), image_files(state)), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), [], State.width(state), State.height(state)))
-    case Recording{}: C.view(C.recording_view(message_items(history, State.width(state), image_files(state)), voice_duration(state), voice_phase(state), voice_level(voice(state)), State.error(state), State.width(state), State.height(state)))
+    case Recording{}: C.view(C.recording_view(inline_items(history, State.width(state), image_files(state)), voice_duration(state), voice_phase(state), voice_level(voice(state)), State.error(state), State.width(state), State.height(state)))
     case Calling{}: C.view(call_tree(state))
-    case _: C.view(C.conversation(placeholder(), State.draft(state), K.append_items(history_controls(current(state), message_items(history, State.width(state), image_files(state))), K.append_items(photo_items(photo(state), State.width(state), State.height(state)), Bool.pick(List<&2, K.Item>, working(state), [K.Waiting{K.still_indicator()}], []))), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), panel_tree(state), State.width(state), State.height(state)))
-def f(+state: State) -> K.UI: panel_view(state, State.panel(state), Thread.messages(current(state)))
+    case _: C.view(C.conversation(placeholder(), State.draft(state), K.append_items(history_controls(current(state), inline_items(history, State.width(state), image_files(state))), K.append_items(photo_items(photo(state), State.width(state), State.height(state)), Bool.pick(List<&2, K.Item>, working(state), [K.Waiting{K.still_indicator()}], []))), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), panel_tree(state), State.width(state), State.height(state)))
+def available_control(+name: String, +voice: Bool) -> String:
+  Bool.pick(String, Bool.not(voice) && (String.eq(name, "button · Dictar") || String.eq(name, "button · Mensaje de voz") || String.eq(name, "button · Voice message") || String.eq(name, "button · Llamar a Near") || String.eq(name, "button · Call Near")), "button, disabled · " ++ String.drop(name, 9n), name)
+def capability_tree(tree: P.UI, +voice: Bool) -> P.UI:
+  match tree:
+    case P.Last{}: P.Last{}
+    case P.Leaf{name, shape, w, h, align, next}: P.Leaf{available_control(name, voice), shape, w, h, align, capability_tree(next, voice)}
+    case P.Node{name, lay, w, h, align, first, next}: P.Node{available_control(name, voice), lay, w, h, align, capability_tree(first, voice), capability_tree(next, voice)}
+def f(+state: State) -> K.UI:
+  K.UI.Drawn{r => capability_tree(K.draw(panel_view(state, State.panel(state), Thread.messages(current(state))), r), voice_supported(state))}
 def request_pending(pending: Maybe<&2, Request>, +state: State, +text: String, +thread: String) -> Request:
   match pending:
     case Some{+request}:
@@ -662,8 +720,16 @@ def load_pictures(xs: List<&2, Message>, state: State) -> IO(State):
     case []: IO.pure(State, state)
     case Message{id, role, text, audio, duration, picture, processing, requestId, caption} <> rest: IO.bind(State, State, load_picture(state, picture_asset(picture)), next => load_pictures(rest, next))
 def session_media(+state: State) -> IO(State): load_pictures(Thread.messages(current(state)), state)
+def assistant_lines(xs: List<&2, Message>, +max: U32, previous: U32) -> U32:
+  match xs:
+    case []: previous
+    case Message{id, role, text, audio, duration, picture, processing, requestId, caption} <> rest:
+      assistant_lines(rest, max, Bool.pick(U32, is_mine(role), previous, Rich.lines(text, max)))
+def display_query(+state: State) -> String:
+  +max = K.text_max(K.content_width(C.box(State.width(state))))
+  "inlineLines=" ++ U32.show(K.inline_line_limit()) ++ "&messageWidth=" ++ U32.show(max) ++ "&assistantLines=" ++ U32.show(assistant_lines(Thread.messages(current(state)), max, 0))
 def fetch_session(+state: State) -> IO(State):
-  IO.bind(Host.Reply, State, Host.fetch(Bool.pick(String, is_calling(State.panel(state)), "/api/session?call=1", "/api/session")), reply => IO.bind(State, State, after_call_reply(apply_reply(state, reply, False{})), next => session_media(next)))
+  IO.bind(Host.Reply, State, Host.fetch("/api/session?" ++ display_query(state) ++ Bool.pick(String, is_calling(State.panel(state)), "&call=1", "")), reply => IO.bind(State, State, after_call_reply(apply_reply(state, reply, False{})), next => session_media(next)))
 def send_text(+state: State) -> IO(State):
   +request = request_for(state)
   +prepared = prepare(state, request)
@@ -788,14 +854,24 @@ def fetch_earlier(+state: State) -> IO(State):
 def refresh(+state: State, panel: Panel) -> IO(State):
   match panel:
     case Search{}: IO.pure(State, state)
+    case Detail{index}: IO.pure(State, state)
     # A session poll can wait 30 seconds offline; it must not block recording controls.
     case Recording{}: IO.pure(State, state)
     case Jumped{index, highlighted}: IO.pure(State, State.with_panel(state, Jumped{index, False{}}))
     case _: Bool.pick(IO(State), Thread.historyIsLatest(current(state)), fetch_session(state), IO.pure(State, state))
+def image_selection_failed(state: State, value: Photo) -> State:
+  match value:
+    case Photo{phase, +id, asset, width, height, requestId}: with_photo(state, Bool.pick(Photo, String.is_empty(id), Photo{"idle", "", "", 0, 0, ""}, Photo{"selected", id, asset, width, height, requestId}))
+def photo_command_reply(+state: State, reply: Host.Reply) -> IO(State):
+  match reply:
+    case Host.Reply{1, data}: IO.pure(State, state)
+    case Host.Reply{status, data}: IO.pure(State, State.with_error(image_selection_failed(state, photo(state)), data))
 def photo_command(+state: State, +action: String, extra: String) -> IO(State):
-  IO.bind(Host.Reply, State, Host.request(12, "{\"action\":" ++ J.quote(action) ++ ",\"session\":" ++ J.quote(physical(state)) ++ extra ++ "}"), reply => command_reply(state, reply))
+  IO.bind(Host.Reply, State, Host.request(12, "{\"action\":" ++ J.quote(action) ++ ",\"session\":" ++ J.quote(physical(state)) ++ extra ++ "}"), reply => photo_command_reply(state, reply))
 def pick_photo(+state: State) -> IO(State):
   photo_command(with_photo(new_physical(state, "photo"), Photo{"picking", "", "", 0, 0, ""}), "pick", ",\"caption\":" ++ J.quote(State.draft(state)))
+def take_photo(+state: State) -> IO(State):
+  photo_command(with_photo(new_physical(state, "photo"), Photo{"picking", "", "", 0, 0, ""}), "camera", ",\"caption\":" ++ J.quote(State.draft(state)))
 def cancelled_photo(+state: State, reply: Host.Reply) -> IO(State):
   match reply:
     case Host.Reply{1, data}: IO.pure(State, with_photo(state, Photo{"idle", "", "", 0, 0, ""}))
@@ -841,16 +917,18 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
   match input:
     case Native.Typed{label, +value}: Bool.pick(IO(State), is_search(State.panel(state)), fetch_search(with_query(state, value)), IO.pure(State, update(state, input)))
     case Native.Clicked{+label}:
+      Bool.pick(IO(State), (is_editor(State.panel(state)) || is_detail(State.panel(state))) && matches(label, "Cerrar", "Close"), IO.pure(State, close_panel(state)),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensajes anteriores", "Earlier messages") && Thread.historyHasMore(current(state)), fetch_earlier(state),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensajes recientes", "Latest messages"), fetch_session(state),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Adjuntar", "Attach") && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), pick_photo(state),
+      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Cámara", "Camera") && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), take_photo(state),
       Bool.pick(IO(State), matches(label, "Quitar foto", "Remove photo") && photo_ready(state), cancel_photo(state),
       Bool.pick(IO(State), is_search(State.panel(state)) && (String.starts_with(label, "Ir al mensaje ") || String.starts_with(label, "Go to message ")), IO.pure(State, State.with_panel(state, Jumped{found_index(label), True{}})),
       Bool.pick(IO(State), matches(label, "Reintentar carga", "Retry loading") || matches(label, "Cerrar", "Close"), reload(state),
       Bool.pick(IO(State), is_recovery(State.panel(state)) && matches(label, "Reintentar envío", "Retry sending"), retry_call_pending(state, State.pending(state)),
       Bool.pick(IO(State), String.starts_with(label, "play:"), play_found(state, find_message(Thread.messages(current(state)), String.drop(label, 5n))),
       Bool.pick(IO(State), matches(label, "Mensaje de voz", "Voice message") && can_record(state), start_record(state),
-      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Llamar a Near", "Call Near") && Bool.not(working(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), start_call(state),
+      Bool.pick(IO(State), voice_supported(state) && is_closed(State.panel(state)) && matches(label, "Llamar a Near", "Call Near") && Bool.not(working(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), start_call(state),
       Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Detener grabación", "Stop recording"), command(state, "record-stop", ""),
       Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Enviar mensaje de voz", "Send voice message") && (String.eq(voice_phase(state), "recorded") || String.eq(voice_phase(state), "recording")), send_voice(state),
       Bool.pick(IO(State), is_closed(State.panel(state)) && String.starts_with(label, "retry-audio:") && Bool.not(working(state)), retry_audio(state, String.drop(label, 12n)),
@@ -863,8 +941,8 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
       Bool.pick(IO(State), is_calling(State.panel(state)) && matches(label, "Quitar altavoz", "Speaker off"), command(state, "speaker", ",\"enabled\":false"),
       Bool.pick(IO(State), matches(label, "Buscar", "Search"), fetch_search(State.with_panel(state, Search{})),
       Bool.pick(IO(State), is_search(State.panel(state)) && matches(label, "Cerrar", "Close"), fetch_session(State.with_panel(state, Closed{})),
-      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Enviar", "Send") && can_send(state), send(state),
-      Bool.pick(IO(State), matches(label, "Detener", "Stop") && working(state), stop(state), IO.pure(State, update(state, input))))))))))))))))))))))))))
+      Bool.pick(IO(State), (is_closed(State.panel(state)) || is_editor(State.panel(state))) && matches(label, "Enviar", "Send") && can_send(state), send(close_panel(state)),
+      Bool.pick(IO(State), matches(label, "Detener", "Stop") && working(state), stop(state), IO.pure(State, update(state, input))))))))))))))))))))))))))))
     case Native.Focused{label}: IO.pure(State, update(state, input))
     case _: IO.pure(State, update(state, input))
 def session_prefix(+state: State, +prefix: String) -> State:
@@ -873,9 +951,6 @@ def image_loaded(+state: State, +value: J.Json) -> State:
   with_files(state, ImageFile{"/api/image/" ++ field(value, "imageId"), field(value, "url")} <> image_files(state))
 def image_load_failed(+state: State, +value: J.Json) -> State:
   with_files(state, ImageFile{"/api/image/" ++ field(value, "imageId"), "error:" ++ field(value, "error")} <> image_files(state))
-def image_selection_failed(state: State, value: Photo) -> State:
-  match value:
-    case Photo{phase, +id, asset, width, height, requestId}: with_photo(state, Bool.pick(Photo, String.is_empty(id), Photo{"idle", "", "", 0, 0, ""}, Photo{"selected", id, asset, width, height, requestId}))
 def restored_image_request(+state: State, +value: J.Json) -> State:
   Bool.pick(State, Bool.not(String.is_empty(field(value, "requestId"))) && Bool.not(String.is_empty(field(value, "threadId"))) && Bool.not(has_pending(State.pending(state))),
     State.with_pending(state, Some{Request{field(value, "requestId"), field(value, "threadId"), field(value, "caption"), "image"}}), state)

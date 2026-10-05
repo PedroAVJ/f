@@ -138,5 +138,20 @@ def wrap(xs: List<&2, Token>, state: Wrap, +max: U32) -> Wrap:
 def finish(state: Wrap) -> List<&2, P.UI>:
   match state:
     case Wrap{line, +width, +lines}: reverse_trees(Bool.pick(List<&2, P.UI>, U32.is_zero(width), lines, row(line) <> lines), [])
+def rows(+text: String, +max: U32) -> List<&2, P.UI>:
+  finish(wrap(bounded(tokens(text), max), Wrap{[], 0, []}, max))
+def take_rows(xs: List<&2, P.UI>, done: Bool, +limit: U32) -> List<&2, P.UI>:
+  match xs done:
+    case _ True{}: []
+    case Nil{} False{}: []
+    case Con{row, rest} False{}: row <> take_rows(rest, U32.is_zero(U32.sub(limit, 1)), U32.sub(limit, 1))
+def first_rows(xs: List<&2, P.UI>, +limit: U32) -> List<&2, P.UI>: take_rows(xs, U32.is_zero(limit), limit)
+def row_count(xs: List<&2, P.UI>) -> U32:
+  match xs:
+    case []: 0
+    case row <> rest: U32.add(1, row_count(rest))
+def lines(+text: String, +max: U32) -> U32: row_count(rows(text, max))
+def preview(text: String, max: U32, limit: U32) -> P.UI:
+  P.layout("Message text", P.Vertical{}, 0, 0, 0, 0, P.Leading{}, first_rows(rows(text, max), limit))
 def view(+text: String, +max: U32) -> P.UI:
-  P.layout("Message text", P.Vertical{}, 0, 0, 0, 0, P.Leading{}, finish(wrap(bounded(tokens(text), max), Wrap{[], 0, []}, max)))
+  P.layout("Message text", P.Vertical{}, 0, 0, 0, 0, P.Leading{}, rows(text, max))

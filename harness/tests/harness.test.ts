@@ -41,6 +41,37 @@ const selected = (sessions: Sessions) => {
   const snapshot = sessions.snapshot(); return snapshot.threads.find((t) => t.id === snapshot.selectedThreadId)!;
 };
 
+test("measured inline overflow reaches Codex starts and follow-ups without changing stored user text", async () => {
+  const f = await fixture("hold");
+  f.sessions.observeDisplay(new URLSearchParams({ inlineLines: "4", messageWidth: "212", assistantLines: "9" }));
+  f.sessions.submit({ requestId: "display-first", text: "First question" });
+  await until(() => !!f.official().calls.find((call: any) => call.method === "turn/start"));
+  f.sessions.submit({ requestId: "display-followup", text: "Second question" });
+  await until(() => !!f.official().calls.find((call: any) => call.method === "turn/steer"));
+  for (const method of ["turn/start", "turn/steer"]) {
+    const text = f.official().calls.find((call: any) => call.method === method).params.input[0].text;
+    expect(text).toContain("up to 4 rendered lines at 212px");
+    expect(text).toContain("9 rendered lines and exceeds that limit");
+    expect(text).toEndWith(method === "turn/start" ? "First question" : "Second question");
+  }
+  expect(selected(f.sessions).messages.filter(message => message.role === "user").map(message => message.text)).toEqual(["First question", "Second question"]);
+});
+
+test("session polls validate display feedback and carry its budget into Claude", async () => {
+  const f = await fixture("complete", undefined, 2_000, "complete");
+  const handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "localhost" });
+  expect((await handler(new Request("http://localhost/api/session?inlineLines=4&messageWidth=212&assistantLines=3"))).status).toBe(200);
+  expect((await handler(new Request("http://localhost/api/session?inlineLines=4&messageWidth=NaN&assistantLines=9"))).status).toBe(400);
+  expect((await handler(new Request("http://localhost/api/session?inlineLines=4&messageWidth=212&assistantLines=-1"))).status).toBe(400);
+  f.sessions.setProvider({ provider: "claude" });
+  f.sessions.submit({ requestId: "display-claude", text: "Latest question" });
+  await until(() => selected(f.sessions).status === "idle");
+  const text = JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8")).calls[0].input.message.content;
+  expect(text).toContain("up to 4 rendered lines at 212px");
+  expect(text).toContain("3 rendered lines and fits that limit");
+  expect(text).toEndWith("Latest question");
+});
+
 test("Claude and Codex share one durable conversation, hand off context and pin deduplicated provider receipts", async () => {
   const f = await fixture("complete", undefined, 2_000, "complete");
   f.sessions.submit({ requestId: "first-codex", text: "Hello" });

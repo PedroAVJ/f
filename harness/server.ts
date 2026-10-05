@@ -50,7 +50,10 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
         throw new InputError("Not found.", 404);
       }
       if (url.pathname === "/health") return json(sessions.health(), sessions.isReady ? 200 : 503);
-      if (url.pathname === "/api/session") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, undefined, url.searchParams.get("call") === "1"));
+      if (url.pathname === "/api/session") {
+        sessions.observeDisplay(url.searchParams);
+        return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, undefined, url.searchParams.get("call") === "1"));
+      }
       if (url.pathname === "/api/search") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, url.searchParams.get("q") ?? ""));
       if (url.pathname.startsWith("/api/audio/")) {
         const id = url.pathname.slice("/api/audio/".length);

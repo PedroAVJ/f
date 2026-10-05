@@ -36,6 +36,7 @@ export class Sessions {
   private audioControllers = new Map<string, AbortController>();
   private connectionError?: string;
   private model?: string;
+  private display?: { inlineLines: number; messageWidth: number; assistantLines: number };
   isReady = false;
 
   constructor(readonly rpc: AppServer, private path: string, private cwd: string, readonly claude?: ClaudeCode, private voiceProcessor: VoiceProcessor = processVoice) {
@@ -81,6 +82,26 @@ export class Sessions {
       provider: this.provider(),
       acceptedRequestIds: this.state.requests.filter((receipt) => receipt.threadId === this.state.selectedThreadId).slice(-1000).map((receipt) => receipt.id),
     };
+  }
+
+  observeDisplay(query: URLSearchParams) {
+    if (!query.has("inlineLines")) return;
+    const inlineLines = Number(query.get("inlineLines"));
+    const messageWidth = Number(query.get("messageWidth"));
+    const assistantLines = Number(query.get("assistantLines"));
+    if (inlineLines !== 4 || !Number.isInteger(messageWidth) || messageWidth < 24 || messageWidth > 4096
+      || !query.has("assistantLines") || !Number.isInteger(assistantLines) || assistantLines < 0 || assistantLines > 100_000) {
+      throw new InputError("Invalid display metrics.");
+    }
+    this.display = { inlineLines, messageWidth, assistantLines };
+  }
+
+  private displayPrompt(text: string) {
+    if (!this.display) return text;
+    const { inlineLines, messageWidth, assistantLines } = this.display;
+    const previous = assistantLines === 0 ? "No assistant text has been measured in the current view."
+      : `The most recent visible assistant message segment uses ${assistantLines} rendered lines and ${assistantLines > inlineLines ? "exceeds" : "fits"} that limit.`;
+    return `Open Dot display context: messages show up to ${inlineLines} rendered lines at ${messageWidth}px text width, then Read more opens the retained text. ${previous} Answer the exact question first and keep routine replies within this inline budget when possible. Expand only when requested or needed for a complete answer. This is a visual limit, not a character or storage limit; never omit necessary information to meet it. Do not mention this display context.\n\n${text}`;
   }
 
   audioDirectory() { return join(dirname(this.path), "audio"); }
@@ -349,7 +370,7 @@ export class Sessions {
     if (thread.cancelRequested) return this.cancelQueued(thread, receipt);
     for (let attempt = 0; attempt < 2; attempt++) {
       const expected = thread.turnId;
-      const prompt = expected ? text : this.contextualPrompt(thread, receipt, text);
+      const prompt = this.displayPrompt(expected ? text : this.contextualPrompt(thread, receipt, text));
       const input = [...(prompt ? [{ type: "text", text: prompt, text_elements: [] }] : []),
         ...this.turnImages(thread, receipt).map((image) => { readImage(this.imageDirectory(), image); return { type: "localImage", path: imagePath(this.imageDirectory(), image) }; })];
       receipt.phase = "dispatching"; this.save();
@@ -504,7 +525,7 @@ export class Sessions {
     this.save();
     const result = await this.claude.run({
       sessionId: thread.claudeId, requestUuid: receipt.claudeRequestUuid,
-      resume: thread.claudeStarted ?? false, prompt: this.contextualPrompt(thread, receipt, text),
+      resume: thread.claudeStarted ?? false, prompt: this.displayPrompt(this.contextualPrompt(thread, receipt, text)),
       images: this.turnImages(thread, receipt).map((image) => ({ mimeType: image.mimeType, data: readImage(this.imageDirectory(), image).toString("base64") })),
       acknowledged: () => { thread.claudeStarted = true; thread.turnId = receipt.claudeRequestUuid; this.save(); if (thread.cancelRequested) this.claude?.cancel(); },
       text: (id, content, append) => {

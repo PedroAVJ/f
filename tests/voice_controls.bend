@@ -31,7 +31,12 @@ def main() -> IO(Unit):
     IO.print(Bool.show(String.eq(App.State.error(failed), "invalid Canvas JSON")))
     IO.print(Bool.show(String.eq(App.State.error(timedout), "request timeout")))
     IO.print(Bool.show(Bool.not(App.Thread.historyIsLatest(App.current(deferred)))))
+    +camera : App.State <- App.take_photo(ready)
+    IO.print(Bool.show(Bool.not(App.has_photo(camera))))
+    IO.print(Bool.show(Bool.not(String.is_empty(App.State.error(camera)))))
 
+#| True
+#| True
 #| True
 #| True
 #| True
