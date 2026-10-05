@@ -1135,6 +1135,9 @@ void bend_paint_overlay(CGContextRef cg, NSArray* commands, CGFloat width, CGFlo
 void bend_paint_clipped(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
   bp_paint(cg, commands, width, height, YES, YES);
 }
+void bend_paint_clipped_overlay(CGContextRef cg, NSArray* commands, CGFloat width, CGFloat height) {
+  bp_paint(cg, commands, width, height, NO, YES);
+}
 // The paint as a PNG (BEND_SNAPSHOT, tests): width x height points (the
 // frame's size when zero) at a scale.
 BOOL bend_paint_png(NSArray* commands, CGFloat width, CGFloat height, CGFloat scale, NSString* path) {

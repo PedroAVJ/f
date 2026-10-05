@@ -773,11 +773,31 @@ def is_single(lines: Lines) -> Bool:
 def field_height(+n: U32) -> U32: U32.max(44, U32.add(U32.mul(n, line_height(body())), 28))
 def text_width(+width: U32, +accessories: List<&2, S.Drawing>) -> U32:
   U32.sub(U32.sub(U32.max(width, U32.add(64, accessories_width(accessories))), 32), accessories_width(accessories))
+# Native text inputs preserve line breaks and wrap long unbroken identifiers.
+def input_word_chunks(s: String, +max: U32, +part: String, +acc: List<&2, String>) -> List<&2, String>:
+  match s:
+    case SNil{}: M.reverse(Bool.pick(List<&2, String>, String.is_empty(part), acc, part <> acc), [])
+    case SCon{+c, rest}:
+      +next = part ++ SCon{c, ""}
+      +full = Bool.not(String.is_empty(part)) && U32.is_gt(M.width(next, body()), max)
+      input_word_chunks(rest, max, Bool.pick(String, full, SCon{c, ""}, next), Bool.pick(List<&2, String>, full, part <> acc, acc))
+def input_words(xs: List<&2, String>, +max: U32) -> List<&2, String>:
+  match xs:
+    case []: []
+    case word <> rest: List.append(&2, String, input_word_chunks(word, max, "", []), input_words(rest, max))
+def input_paragraphs(xs: List<&2, String>, +max: U32) -> List<&2, String>:
+  match xs:
+    case []: []
+    case line <> rest:
+      +wrapped = M.finish(M.wrap(input_words(String.split(line, Chr{32}), max), M.Wrap{"", 0, []}, max, body()))
+      List.append(&2, String, Bool.pick(List<&2, String>, U32.is_zero(count(wrapped)), [""], wrapped), input_paragraphs(rest, max))
+def input_lines(text: String, max: U32) -> List<&2, String>:
+  input_paragraphs(String.split(text, Chr{10}), max)
 # All lines of the shown text (draft, or placeholder when empty).
 def shown_lines(+lines: Lines, +shown: String, +tw: U32) -> List<&2, String>:
-  Bool.pick(List<&2, String>, is_single(lines), [M.truncate(shown, tw, body())], M.lines(shown, tw, body()))
+  Bool.pick(List<&2, String>, is_single(lines), [M.truncate(shown, tw, body())], input_lines(shown, tw))
 def growth(+lines: Lines, +draft: String, +tw: U32) -> Growth:
-  Bool.pick(Growth, Bool.and(Bool.not(is_single(lines)), U32.is_gt(count(M.lines(draft, tw, body())), cap_of(lines))), Growth.Capped{}, Growth.Fits{})
+  Bool.pick(Growth, Bool.and(Bool.not(is_single(lines)), U32.is_gt(count(input_lines(draft, tw)), cap_of(lines))), Growth.Capped{}, Growth.Fits{})
 def is_capped(g: Growth) -> Bool:
   match g:
     case Growth.Capped{}: True{}
@@ -1108,10 +1128,9 @@ def trees_width(xs: List<&2, P.UI>, +gap: U32) -> U32:
   match xs:
     case Nil{}: 0
     case Con{x, rest}: U32.add(U32.add(width(x), gap), trees_width(rest, gap))
-# The text's width: the pill less its 44pt buttons and their gaps (three
-# with Send, two without).
-def pill_text_width(+box: U32) -> U32: U32.sub(U32.max(box, 168), 144)
-def text_width_for(+box: U32, +send: Bool) -> U32: Bool.pick(U32, send, pill_text_width(box), U32.sub(U32.max(box, 168), 96))
+# The text shares the pill with Attach, Camera, Dictate, and optional Send.
+def pill_text_width(+box: U32) -> U32: U32.sub(U32.max(box, 216), 192)
+def text_width_for(+box: U32, +send: Bool) -> U32: Bool.pick(U32, send, pill_text_width(box), U32.sub(U32.max(box, 216), 144))
 # The pill's container: Glass over Base (Compact) or Field with the Edge
 # (Regular); the Accent line when focused; the Shadow when Capped.
 def pill_effects(+size: ComposerSize, +blur: U32) -> List<&2, P.Effect>:
@@ -1139,16 +1158,18 @@ def composer(markup: FieldMarkup, +size: ComposerSize, +box: U32) -> Composer:
         P.layout("Row", P.Horizontal{}, 4, 0, box, h, P.Leading{}, Con{
           aligned(button_tree(plus_button()), button_align),
           Con{P.layout(named(A11yRole.Textbox{}, placeholder), P.Depth{}, 0, 0, tw, h, P.Middle{}, [value_leaf(draft), aligned(text, P.Middle{})]),
-          Con{aligned(button_tree(mic_button()), button_align), send_slot(send, empty, button_align)}}})])
+          Con{aligned(button_tree(act(ButtonKind.Plain{}, Intent.Camera{}, Form.Icon{})), button_align),
+          Con{aligned(button_tree(mic_button()), button_align), send_slot(send, empty, button_align)}}}})])
       Composer{P.layout(named(A11yRole.Group{}, "Escribir mensaje"), P.Vertical{}, 0, 0, box, 0, P.Leading{}, [pill])}
 def composer_tree(c: Composer) -> P.UI:
   match c:
     case Composer{tree}: tree
 # Capped: the draft passes the cap (the App opens the Editor sheet then).
-def composer_capped(+draft: String, +box: U32) -> Bool: is_capped(growth(Lines.Growing{4}, draft, pill_text_width(box)))
-# Range: the three buttons and the text's minimum; unbounded width.
+def inline_line_limit() -> U32: 4
+def composer_capped(+draft: String, +box: U32) -> Bool: is_capped(growth(Lines.Growing{inline_line_limit()}, draft, pill_text_width(box)))
+# Range: the four buttons and the text's minimum; unbounded width.
 def composer_range(+lines: Lines, +text: String) -> Range:
-  Range{U32.add(144, U32.max(M.width(M.ellipsis(), body()), rule_min(text, text_rule(lines), body()))), 0, 44, field_height(cap_of(lines))}
+  Range{U32.add(192, U32.max(M.width(M.ellipsis(), body()), rule_min(text, text_rule(lines), body()))), 0, 44, field_height(cap_of(lines))}
 
 # The attach panel (opened by the +): a large rounded Glass panel over
 # Content, left-aligned over the composer, one row per way to attach:
@@ -1465,7 +1486,7 @@ def attach_layer(menu: AttachMenu, +box: U32, +box_h: U32) -> List<&2, P.UI>:
 # The box height goes to the composer first; the thread area takes the rest.
 def body_tree(+placeholder: String, +box: U32, +box_h: U32, messages: Remote<&2, List<&2, Item>>, motion: Transit<&2, Pose>, +m: Moment, draft: String, focus: Focus, menu: AttachMenu) -> P.UI:
   +inner = inner_of(box)
-  +c = composer_tree(composer(FieldMarkup{Lines.Growing{4}, placeholder, [], FieldState{draft, focus}, Settled{}, m}, composer_size(box), composer_w(box)))
+  +c = composer_tree(composer(FieldMarkup{Lines.Growing{inline_line_limit()}, placeholder, [], FieldState{draft, focus}, Settled{}, m}, composer_size(box), composer_w(box)))
   P.layout("Layers", P.Depth{}, 0, 0, box, box_h, P.Leading{}, Con{P.layout("Body", P.Vertical{}, 12, 0, box, box_h, P.Leading{}, [
     P.layout("Thread area", P.Depth{}, 0, 0, box, U32.sub(box_h, U32.add(height(c), 12)), P.Leading{}, [aligned(thread_tree(thread(ThreadState{messages, 0, Typing.Hidden{}, 0, motion, m}, box)), P.Trailing{})]),
     aligned(c, P.Middle{})]), attach_layer(menu, box, box_h)})
@@ -1667,7 +1688,7 @@ def newest(+xs: List<&2, Item>, +box: U32, +h: U32) -> List<&2, Item>:
     case Con{+x, +rest}: Bool.pick(List<&2, Item>, U32.is_le(thread_height(Con{x, rest}, box), h), Con{x, rest}, newest(rest, box, h))
 # The thread's room inside a Conversation box: the box less the composer.
 def composer_height(+placeholder: String, +box: U32, draft: String, focus: Focus, menu: AttachMenu) -> U32:
-  height(composer_tree(composer(FieldMarkup{Lines.Growing{4}, placeholder, [], FieldState{draft, focus}, Settled{}, still()}, composer_size(box), composer_w(box))))
+  height(composer_tree(composer(FieldMarkup{Lines.Growing{inline_line_limit()}, placeholder, [], FieldState{draft, focus}, Settled{}, still()}, composer_size(box), composer_w(box))))
 def thread_room(+placeholder: String, +box: U32, +box_h: U32, draft: String, focus: Focus, menu: AttachMenu) -> U32:
   +c = U32.add(composer_height(placeholder, box, draft, focus, menu), 12)
   Bool.pick(U32, U32.is_lt(box_h, c), 0, U32.sub(box_h, c))
