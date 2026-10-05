@@ -1,21 +1,18 @@
 # Open Dot
 
-Dot is an installable phone app backed by the Codex harness on your Mac mini.
-The phone UI is compiled from Bend using [PedroAVJ/f](https://github.com/PedroAVJ/f).
+Dot is a native iPhone app backed by the Codex harness on your Mac mini.
+The app is compiled from Bend using [PedroAVJ/f](https://github.com/PedroAVJ/f).
 It keeps the existing dark conversation components, glass header and pill composer.
-Bend owns the UI state, layout, JSON decoding and commands. The browser supplies
-input, HTTPS requests and rendering; the Mac runs the authenticated official
-Codex app-server with persistent threads.
+Bend owns UI state, layout, JSON decoding and commands. UIKit supplies native
+text input and HTTPS requests; the fork's CoreGraphics painter draws the UI.
+The Mac runs the authenticated official Codex app-server with persistent threads.
 
-Open the private Tailscale address in Safari, then choose Share → Add to Home
-Screen → Open as Web App. Tailscale must be connected on the phone. This is a
-Safari home-screen app; it does not require TestFlight or an Apple submission.
-The Mac mini must stay on and connected. Conversations are saved on the Mac;
-an accepted turn continues when the phone app closes. The menu opens previous
-threads, creates a new conversation, shows full history and stops a running turn.
+The phone connects to the private Tailscale harness. Tailscale must be connected,
+and the Mac mini must stay on. Your ongoing conversation is saved on the Mac; an accepted turn continues when
+the app closes. The menu shows its full history and stops a running turn.
 
-Install Bun, Tailscale and the Codex CLI on the Mac, sign into Codex,
-and keep the fork beside this repository at `../f`. Build and deploy with the fork:
+Keep the fork beside this repository at `../f`. The Mac needs Bun, Tailscale,
+the Codex CLI and Xcode with iOS SDKs. Sign into Codex, then build and deploy:
 
 ```sh
 cd harness && bun install --frozen-lockfile && cd ..
@@ -23,31 +20,47 @@ bun ../f/bend2/main.ts system build
 bun ../f/bend2/main.ts system deploy
 ```
 
-`system.bend` runs the mobile build and deployment adapters through the fork's
-Process effect. Build compiles `mobile.bend` to JavaScript with the fork and
-packages `dist/mobile`. Its worker adapter supplies the browser host effects.
+Build produces `dist/ios-simulator/Dot.app`, `dist/ios-device/Dot.app` and
+`dist/ios-device/Dot.ipa`. It compiles `ios.bend` through the fork's C compiler,
+links the fork's UIKit host and unchanged painter, and signs locally using an
+existing development identity and provisioning profile. It freezes the sources
+and records their hashes in each target's `build.json`. It does not register
+devices or upload to Apple. The development IPA installs only on devices already
+registered in its embedded profile; downloading it does not install it.
+
+For a simulator build without a signing profile:
+
+```sh
+bun script/build_ios.ts simulator
+xcrun simctl install booted dist/ios-simulator/Dot.app
+xcrun simctl launch booted com.pedroavj.opendot.ios
+```
+
+For a connected registered iPhone, use its identifier from `xcrun devicectl list devices`:
+
+```sh
+xcrun devicectl device install app --device DEVICE_ID dist/ios-device/Dot.app
+xcrun devicectl device process launch --device DEVICE_ID com.pedroavj.opendot.ios
+```
+
 Deploy installs `com.pedroavj.opendot.harness` as a user LaunchAgent and exposes
-loopback port 19453 through Tailscale HTTPS port 9453. It prints the phone URL.
-Only the configured Tailscale owner can use the remote service. Provider
-credentials stay with Codex on the Mac; they are never sent to the phone.
+loopback port 19453 through Tailscale HTTPS port 9453. Only the configured
+Tailscale owner can use it. Provider credentials stay with Codex on the Mac.
 Session files live in `~/Library/Application Support/OpenDot` and logs in
-`~/Library/Logs/OpenDot`.
+`~/Library/Logs/OpenDot`. The signed IPA is available privately at
+`/downloads/Dot.ipa` on the harness address.
 
-Codex uses the available default model from its model catalog, workspace-write sandbox and automatic
-approval review. Interactive requests this client cannot display are declined
-and reported in the conversation menu. Calls, files and dictation are not
-connected yet. Claude is not connected in this mobile version.
+Codex uses the available default model from its model catalog, workspace-write
+sandbox and automatic approval review. Interactive requests this client cannot
+display are declined and reported in the conversation menu. Calls, files and
+dictation are not connected yet. Claude is not connected in this version.
 
-Run the client and harness checks:
+Run the shared client and harness checks:
 
 ```sh
 bun ../f/bend2/main.ts tests mobile
 cd harness && bun run typecheck && bun test
 ```
-
-The small browser adapter adds viewport/refresh events to the fork's generated
-shell and keeps draft storage in sync with Bend's rendered input. It does not
-implement a second UI or alter the fork's source files.
 
 ## Earlier macOS milestone
 

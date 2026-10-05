@@ -1,11 +1,11 @@
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
-import { realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
 import { AppServer } from "./rpc.ts";
 import { Sessions, InputError, object } from "./session.ts";
 
 const MAX_BODY = 128_000;
-export type HttpOptions = { allowedLogin: string; publicHost: string; staticRoot: string };
+export type HttpOptions = { allowedLogin: string; publicHost: string; iosArtifact?: string };
 const localHost = (hostname: string) => ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 
 export function httpHandler(sessions: Sessions, options: HttpOptions) {
@@ -28,15 +28,15 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
         if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") throw new InputError("Use application/json.", 415);
         const body = object(await readBody(request));
         if (url.pathname === "/api/turn") return json(sessions.submit(body), 202);
-        if (url.pathname === "/api/new") return json(sessions.newThread(), 201);
         if (url.pathname === "/api/stop") return json(await sessions.stop(body));
-        if (url.pathname === "/api/select") return json(sessions.select(body));
         throw new InputError("Not found.", 404);
       }
       if (url.pathname === "/health") return json(sessions.health(), sessions.isReady ? 200 : 503);
       if (url.pathname === "/api/session") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined));
       if (url.pathname.startsWith("/api/")) throw new InputError("Not found.", 404);
-      return staticResponse(url.pathname, options.staticRoot, request.method === "HEAD");
+      checkedPath(url.pathname);
+      if (url.pathname === "/downloads/Dot.ipa") return ipaResponse(options.iosArtifact, request.method === "HEAD");
+      throw new InputError("Not found.", 404);
     } catch (error) {
       if (error instanceof InputError) return json({ error: error.message }, error.status);
       return json({ error: "Open Dot could not complete the request." }, 500);
@@ -63,21 +63,35 @@ async function readBody(request: Request): Promise<unknown> {
   catch { throw new InputError("Invalid JSON body."); }
 }
 
-function staticResponse(pathname: string, root: string, head: boolean) {
+function checkedPath(pathname: string) {
   let decoded: string;
   try { decoded = decodeURIComponent(pathname); } catch { throw new InputError("Invalid path."); }
   if (decoded.includes("\0") || decoded.includes("\\") || decoded.split("/").includes("..")) throw new InputError("Invalid path.", 403);
-  let actualRoot: string, file: string;
+  return decoded;
+}
+
+function ipaResponse(file: string | undefined, head: boolean) {
+  if (!file) throw new InputError("Not found.", 404);
+  let descriptor: number | undefined;
   try {
-    actualRoot = realpathSync(root);
-    file = realpathSync(resolve(actualRoot, `.${decoded === "/" ? "/index.html" : decoded}`));
-    if (!file.startsWith(actualRoot + sep) || !statSync(file).isFile()) throw new InputError("Not found.", 404);
-  } catch (error) {
-    if (error instanceof InputError) throw error;
+    if (!lstatSync(dirname(file)).isDirectory()) throw new InputError("Not found.", 404);
+    // Keep the opened file stable if the artifact filename is replaced.
+    descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new InputError("Not found.", 404);
+    const bytes = head ? null : readFileSync(descriptor);
+    return new Response(bytes, { headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": 'attachment; filename="Dot.ipa"',
+      "Content-Length": String(bytes?.byteLength ?? stat.size),
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    } });
+  } catch {
     throw new InputError("Not found.", 404);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
-  const asset = Bun.file(file);
-  return new Response(head ? null : asset, { headers: { "Content-Type": asset.type, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache" } });
 }
 
 function json(value: unknown, status = 200) {
@@ -99,7 +113,7 @@ if (import.meta.main) {
     fetch: httpHandler(sessions, {
       allowedLogin: process.env.DOT_ALLOWED_TAILSCALE_LOGIN ?? "",
       publicHost: process.env.DOT_PUBLIC_HOST ?? "pedros-mac-mini.tail90fb4c.ts.net:9453",
-      staticRoot: process.env.DOT_STATIC_ROOT ?? resolve(import.meta.dir, "../dist/mobile"),
+      iosArtifact: resolve(import.meta.dir, "../dist/ios-device/Dot.ipa"),
     }),
   });
   const recordFailure = rpc.onFailure;

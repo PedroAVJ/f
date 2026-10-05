@@ -1,9 +1,0 @@
-:root { color-scheme: dark; background: #000; color: #fafafa; font-family: system-ui; }
-* { box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
-body { margin: 0; }
-#stage { position: fixed; top: var(--dot-top, 0px); left: 0; width: 100%; height: var(--dot-height, 100dvh); overflow-y: auto; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-#app { width: 100%; min-height: calc(var(--dot-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
-#app button:focus-visible, #app input:focus-visible { outline: 2px solid #fafafa !important; outline-offset: 3px; border-radius: 12px; } /* anti-slop-allow: the generated input has inline outline:none; keyboard focus must override it. */
-#app button, #app input { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-#runtime-error { position: fixed; inset: auto 16px 16px; padding: 16px; margin: 0; border: 1px solid #b4b4b4; border-radius: 16px; background: #242526; overflow-wrap: anywhere; }

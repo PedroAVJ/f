@@ -28,7 +28,8 @@ export class Sessions {
     if (existsSync(path)) {
       const state = JSON.parse(readFileSync(path, "utf8"));
       if (state.version !== 1 || !Array.isArray(state.threads) || !Array.isArray(state.requests)
-        || !state.threads.every((t: Thread) => typeof t.id === "string" && Array.isArray(t.messages))) {
+        || !state.threads.every((t: Thread) => typeof t.id === "string" && Array.isArray(t.messages))
+        || typeof state.selectedThreadId !== "string" || !state.threads.some((t: Thread) => t.id === state.selectedThreadId)) {
         throw new Error("Open Dot session file is invalid; preserve it before recovery.");
       }
       this.state = state;
@@ -46,21 +47,19 @@ export class Sessions {
 
   snapshot(before?: string) {
     if (before !== undefined && !/^(0|[1-9][0-9]{0,14})$/.test(before)) throw new InputError("Invalid history cursor.");
+    const { id, title, status, messages, error } = this.thread(this.state.selectedThreadId);
+    const parts = messages.flatMap(({ role, text }) => historyChunks(text).map((part) => ({ role, text: part })));
+    const end = before === undefined ? parts.length : Number(before);
+    if (end > parts.length) throw new InputError("History cursor is no longer available.");
+    const start = Math.max(0, end - 4);
     return {
-      threads: this.state.threads.map(({ id, title, status, messages, error }) => {
-        if (id !== this.state.selectedThreadId) return { id, title, status, messages: [], ...(error ? { error } : {}) };
-        const parts = messages.flatMap(({ role, text }) => historyChunks(text).map((part) => ({ role, text: part })));
-        const end = before === undefined ? parts.length : Number(before);
-        if (end > parts.length) throw new InputError("History cursor is no longer available.");
-        const start = Math.max(0, end - 4);
-        return {
-          id, title, status, messages: parts.slice(start, end), ...(error ? { error } : {}),
-          historyHasMore: start > 0, historyIsLatest: before === undefined,
-          ...(start > 0 ? { historyBefore: String(start) } : {}),
-        };
-      }),
+      threads: [{
+        id, title, status, messages: parts.slice(start, end), ...(error ? { error } : {}),
+        historyHasMore: start > 0, historyIsLatest: before === undefined,
+        ...(start > 0 ? { historyBefore: String(start) } : {}),
+      }],
       selectedThreadId: this.state.selectedThreadId,
-      acceptedRequestIds: this.state.requests.slice(-1000).map((receipt) => receipt.id),
+      acceptedRequestIds: this.state.requests.filter((receipt) => receipt.threadId === this.state.selectedThreadId).slice(-1000).map((receipt) => receipt.id),
     };
   }
 
@@ -68,43 +67,27 @@ export class Sessions {
     return { status: this.connectionError ? "failed" : this.isReady ? "ok" : "connecting", runtime: "codex-app-server", ...(this.model ? { model: this.model } : {}), ...(this.connectionError ? { error: this.connectionError } : {}) };
   }
 
-  newThread() {
-    if (this.state.threads.length >= 100) throw new InputError("Open Dot has reached its 100 conversation limit.", 409);
-    const thread = this.emptyThread();
-    this.state.threads.push(thread); this.state.selectedThreadId = thread.id;
-    this.save(); return this.snapshot();
-  }
-
-  select(input: unknown) {
-    const request = object(input);
-    if (typeof request.threadId !== "string") throw new InputError("threadId is required.");
-    const thread = this.thread(request.threadId);
-    this.state.selectedThreadId = thread.id; this.save();
-    return this.snapshot();
-  }
-
   submit(input: unknown) {
     const request = object(input);
     if (typeof request.text !== "string" || !request.text.trim() || request.text.length > 32_000) throw new InputError("Enter a message of at most 32,000 characters.");
     if (typeof request.requestId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(request.requestId)) throw new InputError("A valid requestId is required.");
     if (request.threadId !== undefined && typeof request.threadId !== "string") throw new InputError("Invalid threadId.");
+    const thread = this.thread(request.threadId ?? this.state.selectedThreadId);
     const text = request.text.trim();
     const hash = createHash("sha256").update(JSON.stringify([request.threadId ?? null, text])).digest("hex");
     const previous = this.state.requests.find((r) => r.id === request.requestId);
     if (previous) {
       if (previous.hash !== hash) throw new InputError("This requestId was already used for a different message.", 409);
-      this.state.selectedThreadId = previous.threadId;
-      this.save();
+      if (previous.threadId !== thread.id) throw new InputError("This requestId belongs to another saved conversation.", 409);
       return this.snapshot();
     }
     if (!this.isReady || !this.rpc.isReady || this.connectionError) throw new InputError(this.connectionError ?? "Codex is connecting. Try again in a moment.", 503);
-    const thread = this.thread(request.threadId ?? this.state.selectedThreadId);
     if (thread.status === "working" || thread.turnId || this.active.has(thread.id)) throw new InputError("This conversation is still working. Stop it or wait before sending another message.", 409);
     if (thread.messages.length === 0) thread.title = text.slice(0, 70);
     thread.messages.push({ id: `client:${request.requestId}`, clientId: request.requestId, role: "user", text });
     thread.status = "working"; delete thread.error; delete thread.cancelRequested; delete thread.turnId;
     const receipt: Receipt = { id: request.requestId, hash, threadId: thread.id, phase: "queued" };
-    this.state.requests.push(receipt); this.state.selectedThreadId = thread.id;
+    this.state.requests.push(receipt);
     this.save();
     this.active.add(thread.id);
     // The Mac owns the work after this durable receipt. HTTP disconnects and
@@ -131,13 +114,17 @@ export class Sessions {
     return this.snapshot();
   }
 
-  private emptyThread(): Thread { return { id: randomUUID(), title: "Nueva conversación", status: "idle", messages: [] }; }
+  private emptyThread(): Thread { return { id: randomUUID(), title: "Conversación", status: "idle", messages: [] }; }
   private thread(id: string): Thread {
+    if (id !== this.state.selectedThreadId) throw new InputError("Only the ongoing conversation is available.", 404);
     const thread = this.state.threads.find((t) => t.id === id);
     if (!thread) throw new InputError("Conversation not found.", 404);
     return thread;
   }
-  private protocolThread(id: unknown) { return this.state.threads.find((t) => t.codexId === id); }
+  private protocolThread(id: unknown) {
+    const thread = this.thread(this.state.selectedThreadId);
+    return thread.codexId && thread.codexId === id ? thread : undefined;
+  }
 
   private save() {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
@@ -149,13 +136,12 @@ export class Sessions {
   private async recover() {
     await this.rpc.ready;
     await this.selectModel();
-    for (const thread of this.state.threads) {
-      if (!thread.codexId) {
-        if (thread.status === "working") {
-          thread.status = "failed"; thread.error = "The harness restarted before Codex acknowledged this message. It was not resent.";
-        }
-        continue;
+    const thread = this.thread(this.state.selectedThreadId);
+    if (!thread.codexId) {
+      if (thread.status === "working") {
+        thread.status = "failed"; thread.error = "The harness restarted before Codex acknowledged this message. It was not resent.";
       }
+    } else {
       try {
         await this.rpc.request("thread/resume", this.threadParameters(thread.codexId));
         const response = await this.rpc.request("thread/read", { threadId: thread.codexId, includeTurns: true });
@@ -164,11 +150,11 @@ export class Sessions {
       } catch (error) {
         thread.status = "failed"; thread.error = error instanceof Error ? error.message : "Could not resume conversation.";
       }
-      this.save();
     }
     // Persisted receipts remain deduplicated across harness restarts. Never
     // automatically replay a message whose submission outcome is uncertain.
     for (const receipt of this.state.requests) {
+      if (receipt.threadId !== this.state.selectedThreadId) continue;
       if (receipt.phase === "queued" || receipt.phase === "submitted") {
         const thread = this.thread(receipt.threadId);
         if (thread.status !== "working") receipt.phase = "failed";
@@ -306,7 +292,8 @@ export class Sessions {
   private failConnection(message: string) {
     this.isReady = false;
     this.connectionError = message;
-    for (const thread of this.state.threads) { thread.status = "failed"; thread.error = message; }
+    const thread = this.thread(this.state.selectedThreadId);
+    thread.status = "failed"; thread.error = message;
     this.save();
   }
 }

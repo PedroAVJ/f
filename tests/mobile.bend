@@ -83,7 +83,7 @@ def main() -> IO(Unit):
     IO.print(Bool.show(String.eq(App.State.draft(invalid), App.State.draft(typed))))
     IO.print(Bool.show(String.eq(App.State.draft(App.update(menu, Native.Typed{"Mensaje", "Hidden input"})), App.State.draft(typed))))
     IO.print(Bool.show(Bool.not(String.contains(menu_html, "data-bend-field=\"textbox · Mensaje\""))))
-    IO.print(Bool.show(String.contains(menu_html, "button · thread:thread-1")))
+    IO.print(Bool.show(Bool.not(String.contains(menu_html, "button · thread:")) && Bool.not(String.contains(menu_html, "Nueva conversación")) && String.contains(menu_html, "Ver conversación")))
     IO.print(Bool.show(String.eq(App.State.draft(selected), App.State.draft(typed))))
     IO.print(Bool.show(String.eq(last_text(App.Thread.messages(App.current(selected))), "Otro historial")))
     IO.print(Bool.show(String.contains(Scene.html_in(tree(history), T.Scheme.Dark{}), "TAIL_SENTINEL")))

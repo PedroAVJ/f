@@ -1,7 +1,6 @@
 import Base
 
-# The mobile deployment needs a persistent Codex subprocess, beyond V's static
-# Web server. The fork's Process effect runs the app's build/deploy adapters.
+# The phone bundle and persistent Mac harness use the fork's Process effect.
 def finished(result: Result<&1, &1, U32 & String, U32 & (String & String)>) -> IO(Unit):
   match result:
     case Fail{(code, message)}: IO.die(Unit, U32.max(code, 1), message)
@@ -15,7 +14,7 @@ def run(script: String) -> IO(Unit):
     Process.run("/bin/bash", [script], "", 1048576, 600000), finished)
 def command(args: List<String>) -> IO(Unit):
   match args:
-    case "build" <> Nil{}: run("./script/build_mobile.sh")
+    case "build" <> Nil{}: run("./script/build_ios.sh")
     case "deploy" <> Nil{}: run("./script/deploy_mobile.sh")
     case _: IO.die(Unit, 2, "usage: bend system build | deploy")
 def invoked(args: List<String>) -> IO(Unit):

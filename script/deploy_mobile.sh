@@ -4,7 +4,7 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 ts=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 [ -x "$ts" ] || { echo 'Tailscale is required on the Mac mini.' >&2; exit 1; }
-[ -f dist/mobile/index.html ] || { echo 'Run ./script/build_mobile.sh first.' >&2; exit 1; }
+[ -f dist/ios-device/Dot.ipa ] || { echo 'Run ./script/build_ios.sh first.' >&2; exit 1; }
 bun_bin="$(command -v bun)"
 codex_bin="$(command -v codex)"
 ts_status="$(TAILSCALE_BE_CLI=1 "$ts" status --json)"
@@ -43,7 +43,6 @@ config = {
         "DOT_ALLOWED_TAILSCALE_LOGIN": os.environ["DOT_LOGIN"],
         "DOT_PUBLIC_HOST": os.environ["DOT_DNS"] + ":9453",
         "DOT_CODEX_BIN": os.environ["DOT_CODEX"],
-        "DOT_STATIC_ROOT": str(Path(os.environ["DOT_REPO"]) / "dist/mobile"),
         "DOT_PORT": "19453",
         "PATH": str(Path.home()/".local/bin") + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
     },

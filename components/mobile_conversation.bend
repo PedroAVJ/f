@@ -54,12 +54,6 @@ def has_layers(xs: List<&2, P.UI>) -> Bool:
     case []: False{}
     case _: True{}
 def dialog_w(+w: U32) -> U32: U32.min(480, box(w))
-def named_button(t: P.UI, +label: String) -> P.UI:
-  match t:
-    case P.Node{name, lay, w, h, align, first, next}: P.Node{"button · " ++ label, lay, w, h, align, first, next}
-    case other: other
-def thread_button(id: String, +title: String, +w: U32) -> P.UI:
-  named_button(K.button_tree(K.say(K.ButtonKind.Quiet{}, M.truncate(Bool.pick(String, String.is_empty(title), "Conversación", title), U32.sub(dialog_w(w), 68), K.label_type()))), "thread:" ++ id)
 def history_view(history: List<&2, K.Line>, +more: Bool, latest: Bool, +w: U32, +h: U32) -> P.UI:
   +inner = K.content_width(box(w))
   +thread = K.thread_tree(K.thread(K.calm(K.Ready{items(history, w)}, K.Typing.Hidden{}), inner))

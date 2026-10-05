@@ -1,10 +1,8 @@
 import UI
 import ../f/bend2/std/F/browser/input.bend as Native
 import ../f/bend2/std/F/browser/host.bend as Host
-import ../f/bend2/std/F/browser/scene.bend as Scene
 import ../f/bend2/std/F/ui/kit.bend as K
 import ../f/bend2/std/F/ui/primitives.bend as P
-import ../f/bend2/std/F/ui/tokens.bend as T
 import ../f/bend2/std/F/ai/wire_json.bend as J
 import ./components/mobile_conversation.bend as C
 
@@ -133,7 +131,6 @@ def State.with_error(state: State, value: String) -> State:
 
 def s() -> State:
   State{Snapshot{[], "", []}, "", K.Focus.Blurred{}, Closed{}, C.width(), C.height(), "", 1, None{}, False{}, "Conectando con tu Mac mini…"}
-def scheme() -> T.Scheme: T.Scheme.Dark{}
 def placeholder() -> String: "Mensaje"
 def selected_in(xs: List<&2, Thread>, +id: String) -> Maybe<&2, Thread>:
   match xs:
@@ -324,22 +321,15 @@ def status(+state: State) -> String:
   Bool.pick(String, Bool.not(State.online(state)), "Sin conexión con tu Mac mini",
   Bool.pick(String, Bool.not(String.is_empty(State.error(state))), "Error · Abre el menú para verlo",
     Bool.pick(String, working(state), "Codex está trabajando…", "Codex · Mac mini"))))
-def thread_buttons(threads: List<&2, Thread>, +w: U32) -> List<&2, P.UI>:
-  match threads:
-    case []: []
-    case Thread{id, title, status, messages, error, before, more, latest} <> rest: C.thread_button(id, title, w) <> thread_buttons(rest, w)
 def panel_layers(panel: Panel, +state: State, +w: U32, +h: U32) -> List<&2, P.UI>:
   match panel:
     case Closed{}: []
     case History{}: []
     case Notice{text}: [C.dialog("Dot", [K.paragraph("Notice", text, K.body(), K.ink(), U32.sub(C.dialog_w(w), 32), P.Leading{})], w, h)]
     case Menu{}:
-      [C.dialog("Dot", K.append_trees([
-        K.button_tree(K.say(K.ButtonKind.Quiet{}, "Nueva conversación")),
-        K.button_tree(K.say(K.ButtonKind.Quiet{}, "Ver conversación"))],
+      [C.dialog("Dot", K.append_trees([K.button_tree(K.say(K.ButtonKind.Quiet{}, "Ver conversación"))],
         K.append_trees(Bool.pick(List<&2, P.UI>, working(state), [K.button_tree(K.say(K.ButtonKind.Quiet{}, "Detener"))], []),
-          K.append_trees(thread_buttons(Snapshot.threads(State.session(state)), w),
-            Bool.pick(List<&2, P.UI>, String.is_empty(State.error(state)), [], [K.paragraph("Error", State.error(state), K.small_type(), K.ink(), U32.sub(C.dialog_w(w), 32), P.Leading{})])))), w, h)]
+          Bool.pick(List<&2, P.UI>, String.is_empty(State.error(state)), [], [K.paragraph("Error", State.error(state), K.small_type(), K.ink(), U32.sub(C.dialog_w(w), 32), P.Leading{})]))), w, h)]
 def panel_tree(+state: State) -> List<&2, P.UI>:
   panel_layers(State.panel(state), state, State.width(state), State.height(state))
 def panel_view(+state: State, panel: Panel, history: List<&2, K.Line>) -> K.UI:
@@ -372,20 +362,16 @@ def send(+state: State) -> IO(State):
   +request = request_for(state)
   +prepared = prepare(state, request)
   IO.bind(Host.Reply, State, Host.post(turn_body(request)), reply => IO.pure(State, apply_reply(prepared, reply, True{})))
-def command(+state: State, +label: String) -> IO(State):
+def stop(+state: State) -> IO(State):
   +closed = State.with_panel(state, Closed{})
-  Bool.pick(IO(State), String.eq(label, "Nueva conversación"),
-    IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/new\",\"body\":{}}"), reply => IO.pure(State, apply_reply(closed, reply, False{}))),
-    Bool.pick(IO(State), String.starts_with(label, "thread:"),
-      IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/select\",\"body\":{\"threadId\":" ++ J.quote(String.drop(label, 7n)) ++ "}}"), reply => IO.pure(State, apply_reply(closed, reply, False{}))),
-      IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/stop\",\"body\":{\"threadId\":" ++ J.quote(Thread.id(current(state))) ++ "}}"), reply => IO.pure(State, apply_reply(closed, reply, False{})))))
+  IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/stop\",\"body\":{\"threadId\":" ++ J.quote(Thread.id(current(state))) ++ "}}"), reply => IO.pure(State, apply_reply(closed, reply, False{})))
 def input_step(+state: State, +input: Native.Input) -> IO(State):
   match input:
     case Native.Clicked{+label}:
       Bool.pick(IO(State), is_history(State.panel(state)) && String.eq(label, "Cerrar"), fetch_session(State.with_panel(state, Closed{})),
       Bool.pick(IO(State), is_history(State.panel(state)) && (String.eq(label, "Recientes") || (String.eq(label, "Anteriores") && Thread.historyHasMore(current(state)))), fetch_history(state, label),
       Bool.pick(IO(State), is_closed(State.panel(state)) && String.eq(label, "Enviar") && can_send(state), send(state),
-      Bool.pick(IO(State), is_menu(State.panel(state)) && (String.eq(label, "Nueva conversación") || String.starts_with(label, "thread:") || (String.eq(label, "Detener") && working(state))), command(state, label), IO.pure(State, update(state, input))))))
+      Bool.pick(IO(State), is_menu(State.panel(state)) && String.eq(label, "Detener") && working(state), stop(state), IO.pure(State, update(state, input))))))
     case _: IO.pure(State, update(state, input))
 def session_prefix(+state: State, +prefix: String) -> State:
   Bool.pick(State, Bool.not(String.is_empty(prefix)) && Nat.is_le(String.length(prefix), 96n), State.with_prefix(state, prefix), state)
@@ -401,17 +387,3 @@ def event_step(+state: State, +reply: Host.Reply) -> IO(State):
   match reply:
     case Host.Reply{1, +data}: event_json(state, reply, J.read(data))
     case _: IO.pure(State, failed(state, "No se pudo leer una acción del teléfono."))
-def loop(fuel: Nat, +state: State) -> IO(Unit):
-  match fuel:
-    case 0n: IO.pure(Unit, Unit{})
-    case 1n+n:
-      do IO<Unit>:
-        painted : Host.Reply <- Host.render(Scene.html_in(K.draw(f(state), K.Rendering{K.Lang.Es{}, []}), scheme()))
-        event : Host.Reply <- Host.event()
-        next : State <- event_step(state, event)
-        loop(n, next)
-def main() -> IO(Unit):
-  do IO<Unit>:
-    painted : Host.Reply <- Host.render(Scene.html_in(K.draw(f(s()), K.Rendering{K.Lang.Es{}, []}), scheme()))
-    state : State <- fetch_session(s())
-    loop(4294967295n, state)
