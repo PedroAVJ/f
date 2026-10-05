@@ -69,7 +69,7 @@ mkdir -p "$build_root" "$release_dir/work/f"
 # Build committed snapshots so unrelated local fork edits cannot enter a release.
 git archive "$source_commit" | tar -x -C "$build_root"
 git -C ../f archive "$fork_commit" | tar -x -C "$release_dir/work/f"
-(cd "$build_root" && BEND="$release_dir/work/f/bend2/main.ts" bun ../f/bend2/main.ts system build)
+(cd "$build_root" && BEND="$release_dir/work/f/bend2/main.ts" bun ../f/bend2/main.ts macos_system build)
 app_bundle="$release_dir/Dot.app"
 ditto "$build_root/dist/mac.macos/Dot.app" "$app_bundle"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" "$app_bundle/Contents/Info.plist"

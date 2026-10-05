@@ -5,8 +5,8 @@ mode="${1:-run}"
 case "$mode" in run|--verify|--logs|--debug) ;; *) echo "usage: $0 [--verify|--logs|--debug]" >&2; exit 2 ;; esac
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
-bun ../f/bend2/main.ts system build
-bun ../f/bend2/main.ts system deploy
+bun ../f/bend2/main.ts macos_system build
+bun ../f/bend2/main.ts macos_system deploy
 app_bundle="$HOME/Applications/Dot.app"
 app_pid="$(lsappinfo info -only pid com.pedro.open-dot.mac 2>/dev/null | sed -n 's/.*"pid"=\([0-9][0-9]*\).*/\1/p')"
 if [ -n "$app_pid" ]; then
