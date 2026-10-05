@@ -87,7 +87,8 @@ print(json.dumps({k:p.get(k) for k in ['UUID','Name','Platform','TeamIdentifier'
       if (!profile.Platform?.includes('iOS') || !profile.ProvisionedDeviceCount || profile.ProvisionsAllDevices || e['get-task-allow'] !== true || new Date(profile.ExpirationDate).getTime() <= Date.now() || !team || !prefix || !certificate || !match(e['application-identifier'] ?? '', appID)) continue;
       if (!e['keychain-access-groups']?.some((group: string) => match(group, appID))) continue;
       return { path, uuid: profile.UUID, name: profile.Name, expires: profile.ExpirationDate, team, appID, certificate, devices: profile.ProvisionedDeviceCount,
-        entitlements: { 'application-identifier': appID, 'com.apple.developer.team-identifier': team, 'get-task-allow': true, 'keychain-access-groups': [appID] } };
+        entitlements: { 'application-identifier': appID, 'com.apple.developer.team-identifier': team, 'get-task-allow': true, 'keychain-access-groups': [appID],
+          ...(e['application-identifier'] === appID && ['development', 'production'].includes(e['aps-environment']) ? { 'aps-environment': e['aps-environment'] } : {}) } };
     } catch (problem) {
       if (flags['--profile']) throw new Error('Could not decode --profile as a cached development profile.', { cause: problem });
     }
@@ -148,7 +149,7 @@ try {
     mkdirSync(objects);
     run('xcrun', [...cc, ...(/^#import /m.test(c) ? [...objc, '-fmodules-ignore-macro=main'] : []), '-std=c11', '-O2', '-DBEND_NATIVE=1', '-DBEND_IOS=1', '-Dmain=bend_main', '-c', join(native, 'app.c'), '-o', join(objects, 'app.o')]);
     for (const name of ['ios_shell', 'paint']) run('xcrun', [...cc, ...objc, '-std=c11', '-O2', '-c', join(compiler, 'std/F/apple', name + '.c'), '-o', join(objects, name + '.o')]);
-    run('xcrun', [...cc, join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...['UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers'].flatMap(name => ['-framework', name]), '-o', join(app, 'Dot')]);
+    run('xcrun', [...cc, join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...['UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers', 'UserNotifications'].flatMap(name => ['-framework', name]), '-o', join(app, 'Dot')]);
     const assets = join(objects, 'Assets.xcassets');
     const icon = join(assets, 'AppIcon.appiconset');
     mkdirSync(icon, { recursive: true });
@@ -170,6 +171,7 @@ try {
       NSCameraUsageDescription: 'Take a photo to send to Near.',
       NSMicrophoneUsageDescription: 'Record voice messages and talk with Near.', NSSpeechRecognitionUsageDescription: 'Understand voice messages and your speech during a call with Near.',
       UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'], BendOrigin: originURL.origin, BendSubmitLabel: 'Enviar',
+      BendAPNSEnvironment: signing?.entitlements['aps-environment'] ?? '',
     }));
     let signingMetadata: unknown = { kind: 'ad-hoc-simulator' };
     if (simulator) run('codesign', ['--force', '--timestamp=none', '--sign', '-', app]);

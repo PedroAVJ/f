@@ -5,10 +5,13 @@ import { AppServer } from "./rpc.ts";
 import { ClaudeCode } from "./claude.ts";
 import { audioUpload, audioDownload, MAX_AUDIO_BODY } from "./audio.ts";
 import { imageUpload, imageDownload } from "./images.ts";
+import { fileUpload, fileDownload, MAX_FILE_BODY } from "./files.ts";
 import { Sessions, InputError, object } from "./session.ts";
+import { Notifications } from "./notifications.ts";
+import { configuredPushSender } from "./apns.ts";
 
 const MAX_BODY = 128_000;
-export type HttpOptions = { allowedLogin: string; publicHost: string; iosArtifact?: string; webDirectory?: string };
+export type HttpOptions = { allowedLogin: string; publicHost: string; iosArtifact?: string; webDirectory?: string; notifications?: Notifications };
 const localHost = (hostname: string) => ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 
 export function httpHandler(sessions: Sessions, options: HttpOptions) {
@@ -28,6 +31,11 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
         if (!origin || ![...(local ? [`http://${host}`] : []), `https://${host}`].includes(origin)) throw new InputError("Request origin must match the app address.", 403);
+        if (url.pathname === "/api/file") {
+          if (!request.headers.get("content-type")?.startsWith("multipart/form-data;")) throw new InputError("Use multipart/form-data for a file.", 415);
+          const { input, file } = await fileUpload(request, sessions.fileDirectory());
+          return json(sessions.submitFile(input, file), 202);
+        }
         if (url.pathname === "/api/audio") {
           if (!request.headers.get("content-type")?.startsWith("multipart/form-data;")) throw new InputError("Use multipart/form-data for a voice message.", 415);
           const { input, audio } = await audioUpload(request, sessions.audioDirectory());
@@ -40,6 +48,11 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
         }
         if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") throw new InputError("Use application/json.", 415);
         const body = object(await readBody(request));
+        if (url.pathname === "/api/notifications/device") {
+          if (!options.notifications) throw new InputError("Notifications are not available.", 503);
+          try { return json(options.notifications.register(body)); }
+          catch { throw new InputError("Invalid notification registration."); }
+        }
         if (url.pathname === "/api/search") {
           if (typeof body.query !== "string") throw new InputError("Search query must be text.");
           return json(sessions.snapshot(undefined, body.query));
@@ -50,11 +63,17 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
         throw new InputError("Not found.", 404);
       }
       if (url.pathname === "/health") return json(sessions.health(), sessions.isReady ? 200 : 503);
+      if (url.pathname === "/api/notifications/status") return json(options.notifications?.status() ?? { available: false, configured: false });
       if (url.pathname === "/api/session") {
         sessions.observeDisplay(url.searchParams);
         return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, undefined, url.searchParams.get("call") === "1"));
       }
       if (url.pathname === "/api/search") return json(sessions.snapshot(url.searchParams.get("before") ?? undefined, url.searchParams.get("q") ?? ""));
+      if (url.pathname.startsWith("/api/file/")) {
+        const file = sessions.ownedFile(url.pathname.slice("/api/file/".length));
+        if (!file) throw new InputError("File not found.", 404);
+        return fileDownload(sessions.fileDirectory(), file, request);
+      }
       if (url.pathname.startsWith("/api/audio/")) {
         const id = url.pathname.slice("/api/audio/".length);
         const audio = sessions.ownedAudio(id);
@@ -162,28 +181,35 @@ if (import.meta.main) {
   const rpc = new AppServer([process.env.DOT_CODEX_BIN ?? join(homedir(), ".local/bin/codex"), "app-server", "--stdio"], cwd);
   const claude = new ClaudeCode([process.env.DOT_CLAUDE_BIN ?? join(homedir(), ".local/bin/claude")], cwd);
   const sessions = new Sessions(rpc, join(dataDirectory, "mobile-session.json"), cwd, claude);
+  let notifications: Notifications | undefined;
+  try {
+    notifications = new Notifications(join(dataDirectory, "notifications.json"), configuredPushSender());
+    sessions.observeNotifications((observation) => notifications!.observe(observation));
+  } catch { console.error("Dot notifications are unavailable; conversation service is unchanged."); }
   const port = Number(process.env.DOT_PORT ?? "19453");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid DOT_PORT.");
   const server = Bun.serve({
-    hostname: "127.0.0.1", port, maxRequestBodySize: MAX_AUDIO_BODY,
+    hostname: "127.0.0.1", port, maxRequestBodySize: Math.max(MAX_AUDIO_BODY, MAX_FILE_BODY),
     fetch: httpHandler(sessions, {
       allowedLogin: process.env.DOT_ALLOWED_TAILSCALE_LOGIN ?? "",
       publicHost: process.env.DOT_PUBLIC_HOST ?? "pedros-mac-mini.tail90fb4c.ts.net:9453",
       iosArtifact: resolve(import.meta.dir, "../dist/ios-device/Dot.ipa"),
       webDirectory: process.env.DOT_WEB_DIRECTORY ? resolve(process.env.DOT_WEB_DIRECTORY) : resolve(import.meta.dir, "../dist/dot.web"),
+      notifications,
     }),
   });
   const recordFailure = rpc.onFailure;
   rpc.onFailure = (error) => {
     recordFailure(error);
+    notifications?.close();
     claude.close();
     server.stop(true);
     process.exit(1);
   };
   void sessions.ready.catch(() => {
-    server.stop(true); rpc.close(); claude.close(); process.exit(1);
+    notifications?.close(); server.stop(true); rpc.close(); claude.close(); process.exit(1);
   });
   console.log(`Open Dot listening on http://127.0.0.1:${server.port}`);
-  const shutdown = () => { server.stop(true); rpc.close(); claude.close(); process.exit(0); };
+  const shutdown = () => { notifications?.close(); server.stop(true); rpc.close(); claude.close(); process.exit(0); };
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
 }

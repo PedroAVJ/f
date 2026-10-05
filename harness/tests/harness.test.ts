@@ -10,6 +10,8 @@ import { type VoiceProcessor, TONE_MODEL, parseTone } from "../voice.ts";
 import { httpHandler } from "../server.ts";
 import { audioUpload, audioDownload } from "../audio.ts";
 import { imageUpload, imagePath, readImage } from "../images.ts";
+import { Notifications } from "../notifications.ts";
+import type { PushNotice } from "../apns.ts";
 
 const pixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64");
 const pixelJpeg = Buffer.from("/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAAaADAAQAAAABAAAAAQAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAAQABAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICAwICAwUDAwMFBgUFBQUGCAYGBgYGCAoICAgICAgKCgoKCgoKCgwMDAwMDA4ODg4ODw8PDw8PDw8PD//bAEMBAgICBAQEBwQEBxALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/dAAQAAf/aAAwDAQACEQMRAD8A+L6KKK/lM/38P//Z", "base64");
@@ -40,6 +42,25 @@ async function until(check: () => boolean) {
 const selected = (sessions: Sessions) => {
   const snapshot = sessions.snapshot(); return snapshot.threads.find((t) => t.id === snapshot.selectedThreadId)!;
 };
+
+test("saved provider completion emits one notification without exposing reply content", async () => {
+  const f = await fixture("complete");
+  const delivered: PushNotice[] = [];
+  const notices = new Notifications(join(f.root, "notifications.json"), {
+    async send(_device, notice) { delivered.push(notice); return "sent"; }, close() {},
+  });
+  try {
+    notices.register({ deviceId: "86d9e0a8-0b81-49e0-b3d4-1b06a7e7909c", enabled: true,
+      token: "a".repeat(64), environment: "development", language: "en" });
+    f.sessions.observeNotifications((observation) => notices.observe(observation));
+    f.sessions.submit({ requestId: "notification-turn", text: "Private user text" });
+    await until(() => selected(f.sessions).status === "idle");
+    await notices.flush();
+    expect(delivered).toHaveLength(1); expect(delivered[0].kind).toBe("completed");
+    expect(JSON.stringify(delivered)).not.toContain("Private user text");
+    expect(JSON.stringify(delivered)).not.toContain("Hello world");
+  } finally { notices.close(); }
+});
 
 test("measured inline overflow reaches Codex starts and follow-ups without changing stored user text", async () => {
   const f = await fixture("hold");
