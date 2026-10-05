@@ -107,6 +107,7 @@ export function startBend(root, options = {}) {
   const consume = (entry, id) => {
     const edit = entry.field && edits.get(entry.field);
     if (edit?.version === entry.version) edit.delivered = id;
+    host?.eventConsumed?.(entry.text);
     return entry.text;
   };
   const deliver = (text, field, version) => {
