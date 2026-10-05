@@ -1,8 +1,8 @@
 #import <UserNotifications/UserNotifications.h>
 
-static NSString* const ios_notifications_enabled = @"dot-notifications-enabled";
-static NSString* const ios_notifications_prompted = @"dot-notifications-prompted";
-static NSString* const ios_notifications_device = @"dot-notifications-device";
+static NSString* ios_notifications_enabled = @"dot-notifications-enabled";
+static NSString* ios_notifications_prompted = @"dot-notifications-prompted";
+static NSString* ios_notifications_device = @"dot-notifications-device";
 
 static BOOL ios_notification_payload(NSDictionary* userInfo) {
   id dot = userInfo[@"dot"];
@@ -15,6 +15,10 @@ static BOOL ios_notification_payload(NSDictionary* userInfo) {
 
 @interface BendIOSNotifications : NSObject <UNUserNotificationCenterDelegate, NSURLSessionTaskDelegate>
 @property(strong) NSString* token;
+@property(strong) NSURL* origin;
+@property(copy) NSString* enabledKey;
+@property(copy) NSString* promptedKey;
+@property(copy) NSString* deviceKey;
 @property(strong) NSString* device;
 @property(strong) NSString* environment;
 @property(strong) NSString* registrationError;
@@ -31,10 +35,14 @@ static BendIOSNotifications* ios_notifications;
 @implementation BendIOSNotifications
 - (instancetype)init {
   if (!(self = [super init])) return nil;
-  self.device = [NSUserDefaults.standardUserDefaults stringForKey:ios_notifications_device];
+  self.origin = ios_origin;
+  self.enabledKey = ios_notifications_enabled;
+  self.promptedKey = ios_notifications_prompted;
+  self.deviceKey = ios_notifications_device;
+  self.device = [NSUserDefaults.standardUserDefaults stringForKey:self.deviceKey];
   if (![[NSUUID alloc] initWithUUIDString:self.device ?: @""]) {
     self.device = NSUUID.UUID.UUIDString;
-    [NSUserDefaults.standardUserDefaults setObject:self.device forKey:ios_notifications_device];
+    [NSUserDefaults.standardUserDefaults setObject:self.device forKey:self.deviceKey];
   }
   self.environment = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendAPNSEnvironment"] ?: @"";
   NSURLSessionConfiguration* config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
@@ -51,16 +59,17 @@ static BendIOSNotifications* ios_notifications;
   willPerformHTTPRedirection:(NSHTTPURLResponse*)response newRequest:(NSURLRequest*)request
   completionHandler:(void (^)(NSURLRequest*))complete { complete(nil); }
 - (void)request:(NSString*)path body:(NSDictionary*)body completion:(void (^)(NSDictionary*))completion {
-  NSURL* url = [NSURL URLWithString:path relativeToURL:ios_origin].absoluteURL;
-  if (!ios_same_origin(url)) { if (completion) completion(nil); return; }
+  NSURL* url = [NSURL URLWithString:path relativeToURL:self.origin].absoluteURL;
+  if (self != ios_notifications || ![url.scheme.lowercaseString isEqual:self.origin.scheme.lowercaseString] || ![url.host.lowercaseString isEqual:self.origin.host.lowercaseString] || ![ios_port(url) isEqual:ios_port(self.origin)] || url.user.length || url.password.length) { if (completion) completion(nil); return; }
   NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
   if (body) {
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setValue:ios_origin.absoluteString forHTTPHeaderField:@"Origin"];
+    [request setValue:self.origin.absoluteString forHTTPHeaderField:@"Origin"];
     request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
   }
   [[self.session dataTaskWithRequest:request completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+    if (self != ios_notifications) return;
     NSHTTPURLResponse* http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse*)response : nil;
     id result = !error && http.statusCode >= 200 && http.statusCode < 300 && data.length <= 16384
       ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
@@ -78,22 +87,24 @@ static BendIOSNotifications* ios_notifications;
   }];
 }
 - (void)active {
+  if (self != ios_notifications) return;
   [UNUserNotificationCenter.currentNotificationCenter setBadgeCount:0 withCompletionHandler:nil];
   [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings* settings) {
     dispatch_async(dispatch_get_main_queue(), ^{
+      if (self != ios_notifications) return;
       BOOL allowed = settings.authorizationStatus == UNAuthorizationStatusAuthorized || settings.authorizationStatus == UNAuthorizationStatusProvisional;
-      if ([NSUserDefaults.standardUserDefaults boolForKey:ios_notifications_enabled] && allowed && self.pushBuild)
+      if ([NSUserDefaults.standardUserDefaults boolForKey:self.enabledKey] && allowed && self.pushBuild)
         [UIApplication.sharedApplication registerForRemoteNotifications];
       else [self registerDevice:NO];
       if (self.pushBuild && settings.authorizationStatus == UNAuthorizationStatusNotDetermined &&
-          ![NSUserDefaults.standardUserDefaults boolForKey:ios_notifications_prompted] && !self.checkingPrompt) {
+          ![NSUserDefaults.standardUserDefaults boolForKey:self.promptedKey] && !self.checkingPrompt) {
         self.checkingPrompt = YES;
         [self request:@"/api/notifications/status" body:nil completion:^(NSDictionary* remote) {
           self.checkingPrompt = NO;
           if ([remote[@"configured"] boolValue] && [remote[@"available"] boolValue] &&
               UIApplication.sharedApplication.applicationState == UIApplicationStateActive &&
-              ![NSUserDefaults.standardUserDefaults boolForKey:ios_notifications_prompted]) {
-            [NSUserDefaults.standardUserDefaults setBool:YES forKey:ios_notifications_prompted];
+              ![NSUserDefaults.standardUserDefaults boolForKey:self.promptedKey]) {
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:self.promptedKey];
             [self enable];
           }
         }];
@@ -106,17 +117,20 @@ static BendIOSNotifications* ios_notifications;
   NSMutableString* value = [NSMutableString stringWithCapacity:token.length * 2];
   for (NSUInteger index = 0; index < token.length; index++) [value appendFormat:@"%02x", bytes[index]];
   self.token = value; self.registrationError = nil;
-  if ([NSUserDefaults.standardUserDefaults boolForKey:ios_notifications_enabled]) [self registerDevice:YES];
+  if ([NSUserDefaults.standardUserDefaults boolForKey:self.enabledKey]) [self registerDevice:YES];
 }
 - (void)registrationFailed {
   self.registrationError = [self text:@"Background notifications could not connect. Reopen Dot to retry."
     spanish:@"No se pudieron conectar las notificaciones. Vuelve a abrir Dot para reintentar."];
 }
 - (void)enable {
+  if (self != ios_notifications) return;
   [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
     completionHandler:^(BOOL granted, NSError* error) {
+      if (self != ios_notifications) return;
       dispatch_async(dispatch_get_main_queue(), ^{
-        [NSUserDefaults.standardUserDefaults setBool:granted forKey:ios_notifications_enabled];
+        if (self != ios_notifications) return;
+        [NSUserDefaults.standardUserDefaults setBool:granted forKey:self.enabledKey];
         if (granted) [self active]; else [self registerDevice:NO];
       });
     }];
@@ -124,9 +138,10 @@ static BendIOSNotifications* ios_notifications;
 - (void)settings:(UIViewController*)controller {
   [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings* settings) {
     dispatch_async(dispatch_get_main_queue(), ^{
+      if (self != ios_notifications) return;
       [self request:@"/api/notifications/status" body:nil completion:^(NSDictionary* remote) {
         if (controller.presentedViewController) return;
-        BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:ios_notifications_enabled];
+        BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:self.enabledKey];
         BOOL denied = settings.authorizationStatus == UNAuthorizationStatusDenied;
         NSString* message = [self text:@"Get an alert when Near’s reply is ready or Dot needs your attention. No alerts while you’re using Dot."
           spanish:@"Recibe un aviso cuando la respuesta de Near esté lista o Dot necesite tu atención. Sin avisos mientras usas Dot."];
@@ -143,8 +158,9 @@ static BendIOSNotifications* ios_notifications;
         }]];
         else [sheet addAction:[UIAlertAction actionWithTitle:enabled ? [self text:@"Turn Off" spanish:@"Desactivar"] : [self text:@"Allow Notifications" spanish:@"Permitir notificaciones"]
           style:UIAlertActionStyleDefault handler:^(UIAlertAction* action) {
+            if (self != ios_notifications) return;
             if (enabled) {
-              [NSUserDefaults.standardUserDefaults setBool:NO forKey:ios_notifications_enabled];
+              [NSUserDefaults.standardUserDefaults setBool:NO forKey:self.enabledKey];
               [self registerDevice:NO];
               [UIApplication.sharedApplication unregisterForRemoteNotifications];
               [UNUserNotificationCenter.currentNotificationCenter removeAllDeliveredNotifications];

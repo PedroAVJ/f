@@ -1,6 +1,6 @@
 // Document bytes remain private and retained until their send receipt arrives.
 #define IOS_FILE_LIMIT (20u << 20)
-static NSString* const ios_file_draft_key = @"bend-file-draft";
+static NSString* ios_file_draft_key = @"bend-file-draft";
 
 static BOOL ios_file_name(NSString* name) {
   if (![name isKindOfClass:NSString.class] || !name.length || name.length > 255 ||
@@ -23,6 +23,7 @@ static BOOL ios_file_metadata(NSDictionary* value) {
 static NSURL* ios_file_url(NSString* identifier, NSString* name) {
   if ((!ios_clip_id(identifier) && !ios_image_hash(identifier)) || !ios_file_name(name)) return nil;
   NSURL* directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+  directory = ios_scoped_directory(directory);
   directory = [[directory URLByAppendingPathComponent:@"BendFiles" isDirectory:YES] URLByAppendingPathComponent:identifier isDirectory:YES];
   if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES
       attributes:@{NSFileProtectionKey:NSFileProtectionCompleteUntilFirstUserAuthentication} error:NULL]) return nil;

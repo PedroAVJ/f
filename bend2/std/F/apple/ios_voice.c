@@ -5,7 +5,7 @@
 
 #define IOS_AUDIO_LIMIT (16u << 20)
 #define IOS_AUDIO_SECONDS 300
-static NSString* const ios_audio_draft_key = @"bend-audio-draft";
+static NSString* ios_audio_draft_key = @"bend-audio-draft";
 
 static NSString* ios_audio_words(NSString* english, NSString* spanish) {
   return [NSLocale.preferredLanguages.firstObject.lowercaseString hasPrefix:@"es"] ? spanish : english;
@@ -42,6 +42,7 @@ static NSURL* ios_audio_file(NSString* clip, BOOL partial) {
   if (partial ? !ios_clip_id(clip) : !ios_audio_cache_id(clip)) return nil;
   NSURL* directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
     inDomains:NSUserDomainMask].firstObject;
+  directory = ios_scoped_directory(directory);
   directory = [directory URLByAppendingPathComponent:@"BendAudio" isDirectory:YES];
   NSError* error = nil;
   if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES

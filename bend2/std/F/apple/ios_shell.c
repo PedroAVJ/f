@@ -21,8 +21,17 @@ extern void bend_paint_set_dark(BOOL);
 #define IOS_LIMIT 1048576
 #define IOS_EVENTS 256
 #define IOS_ACTIVE 64
-static NSString* const ios_pending_key = @"dot-pending-request";
+static NSString* ios_pending_key = @"dot-pending-request";
 static NSURL* ios_origin;
+static NSString* ios_connection_id;
+static NSString* ios_storage_scope;
+static NSArray* ios_connections;
+static NSString* ios_scoped_key(NSString* key) {
+  return ios_storage_scope.length ? [NSString stringWithFormat:@"%@.%@", key, ios_storage_scope] : key;
+}
+static NSURL* ios_scoped_directory(NSURL* directory) {
+  return ios_storage_scope.length ? [[directory URLByAppendingPathComponent:@"BendConnections" isDirectory:YES] URLByAppendingPathComponent:ios_storage_scope isDirectory:YES] : directory;
+}
 static NSDictionary* ios_boot_pending;
 static BOOL ios_persist = YES;
 static BOOL ios_dark;
@@ -301,15 +310,20 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
   NSURL* url = [NSURL URLWithString:href relativeToURL:ios_origin].absoluteURL;
   if (!ios_same_origin(url)) return ios_dup(@"requests require the configured HTTPS origin");
   NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+  BOOL uiAction = op == 6 && [url.path isEqual:@"/api/ui/action"] && !url.query.length && !url.fragment.length;
   if (op == 6 && payload[@"requestId"] != nil) {
     if (![payload[@"requestId"] isKindOfClass:NSString.class] ||
         ![payload[@"threadId"] isKindOfClass:NSString.class] ||
-        ![payload[@"text"] isKindOfClass:NSString.class])
+        (!uiAction && ![payload[@"text"] isKindOfClass:NSString.class]))
       return ios_dup(@"invalid durable request");
     // This write precedes transport; a crash or lost reply can reuse its id.
     @synchronized(defaults) {
-      NSMutableDictionary* pending = [payload mutableCopy];
-      if ([payload[@"mode"] isEqual:@"call"]) pending[@"kind"] = @"call";
+      NSMutableDictionary* pending = uiAction ? [@{
+        @"requestId":payload[@"requestId"], @"threadId":payload[@"threadId"],
+        @"id":payload[@"requestId"], @"thread":payload[@"threadId"],
+        @"text":[[NSString alloc] initWithData:post encoding:NSUTF8StringEncoding], @"kind":@"ui"
+      } mutableCopy] : [payload mutableCopy];
+      if (!uiAction && [payload[@"mode"] isEqual:@"call"]) pending[@"kind"] = @"call";
       [defaults setObject:pending forKey:ios_pending_key];
       if (![defaults synchronize] || ![[defaults dictionaryForKey:ios_pending_key] isEqual:pending])
         return ios_dup(@"No se pudo guardar el envío en este dispositivo.");
@@ -348,6 +362,18 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
   if (code < 200 || code > 299) {
     NSString* problem = [decoded isKindOfClass:NSDictionary.class] &&
       [decoded[@"error"] isKindOfClass:NSString.class] ? decoded[@"error"] : nil;
+    NSString* rejected = [decoded isKindOfClass:NSDictionary.class] &&
+      [decoded[@"rejectedRequestId"] isKindOfClass:NSString.class] ? decoded[@"rejectedRequestId"] : nil;
+    if (uiAction && code >= 400 && code < 500 && [rejected isEqual:payload[@"requestId"]]) {
+      @synchronized(defaults) {
+        NSDictionary* pending = [defaults dictionaryForKey:ios_pending_key];
+        if ([pending[@"kind"] isEqual:@"ui"] && [pending[@"requestId"] isEqual:rejected]) {
+          [defaults removeObjectForKey:ios_pending_key];
+          if ([defaults synchronize]) ios_action(@{@"action":@"ui-rejected", @"requestId":rejected, @"error":problem ?: @"Action rejected."});
+          else { [defaults setObject:pending forKey:ios_pending_key]; [defaults synchronize]; }
+        }
+      }
+    }
     return ios_dup(problem.length ? problem : [NSString stringWithFormat:@"HTTP %ld", (long)code]);
   }
   NSArray* receipts = [decoded isKindOfClass:NSDictionary.class] &&
@@ -388,13 +414,13 @@ static CGRect ios_rect(NSDictionary* region) {
     [region[@"w"] doubleValue], [region[@"h"] doubleValue]);
 }
 static BOOL ios_enabled(NSDictionary* region) {
-  return region[@"enabled"] == nil || [region[@"enabled"] boolValue];
+  return ![region[@"name"] hasPrefix:@"textbox, disabled · "] && (region[@"enabled"] == nil || [region[@"enabled"] boolValue]);
 }
 static BOOL ios_textbox(NSDictionary* region) {
-  return [region[@"kind"] isEqual:@"textbox"] || [region[@"name"] hasPrefix:@"textbox · "];
+  return [region[@"kind"] isEqual:@"textbox"] || [region[@"name"] hasPrefix:@"textbox · "] || [region[@"name"] hasPrefix:@"textbox, disabled · "];
 }
 static BOOL ios_field_proxy(NSDictionary* region, NSArray* regions) {
-  if (![region[@"kind"] isEqual:@"field"] || ![region[@"name"] isEqual:@"Field text"]) return NO;
+  if (![region[@"kind"] isEqual:@"field"] || (![region[@"name"] isEqual:@"Field text"] && ![region[@"name"] isEqual:@"Scroll content · Field text"])) return NO;
   // Field text is the drawn child of F's textbox, not a second control.
   // Native editor hit testing owns this area; sheet/button order stays intact.
   for (NSDictionary* owner in regions)
@@ -435,10 +461,10 @@ static NSArray* ios_content_projection(NSArray* commands) {
 - (void)drawRect:(CGRect)rect {
   if (!self.commands) return;
   NSMutableArray* fields = [NSMutableArray array], *editing = [NSMutableArray array];
-  for (UIView* child in self.subviews) if ([child isKindOfClass:BendIOSEditor.class]) {
+  for (UIView* child in (self.viewportOnly ? self.superview.subviews : self.subviews)) if ([child isKindOfClass:BendIOSEditor.class]) {
     BendIOSEditor* editor = (BendIOSEditor*)child;
-    [fields addObject:[NSValue valueWithCGRect:editor.frame]];
-    if (editor.isFirstResponder && editor.text.length) [editing addObject:[NSValue valueWithCGRect:editor.frame]];
+    [fields addObject:[NSValue valueWithCGRect:[self convertRect:editor.bounds fromView:editor]]];
+    if (editor.isFirstResponder && editor.text.length) [editing addObject:[NSValue valueWithCGRect:[self convertRect:editor.bounds fromView:editor]]];
   }
   NSMutableArray* projected = [NSMutableArray arrayWithCapacity:self.commands.count];
   for (NSArray* source in self.commands) {
@@ -460,7 +486,7 @@ static NSArray* ios_content_projection(NSArray* commands) {
     BOOL hide = NO;
     if (command.count >= 7 && [command[0] isEqual:@"shape"] && [command[6] isKindOfClass:NSArray.class]) {
       NSArray* shape = command[6];
-      BOOL caret = [command[1] isEqual:@"Caret"];
+      BOOL caret = [command[1] isEqual:@"Caret"] || [command[1] isEqual:@"Scroll content · Caret"];
       if (caret || (shape.count && [shape[0] isEqual:@"text"])) {
         CGRect bounds = CGRectMake([command[2] doubleValue], [command[3] doubleValue],
           [command[4] doubleValue], [command[5] doubleValue]);
@@ -497,10 +523,10 @@ static BOOL ios_thread_command(NSArray* command) {
   if (command.count < 6 || (![command[0] isEqual:@"shape"] && ![command[0] isEqual:@"region"])) return NO;
   NSString* name = command[1];
   return [name hasPrefix:@"Scroll content · "] || [name hasPrefix:@"button · scroll:"] ||
-    [name hasPrefix:@"button, disabled · scroll:"];
+    [name hasPrefix:@"button, disabled · scroll:"] || [name hasPrefix:@"textbox · scroll:"] || [name hasPrefix:@"textbox, disabled · scroll:"];
 }
 static NSString* ios_thread_name(NSString* name) {
-  for (NSString* prefix in @[@"button · ", @"button, disabled · "]) {
+  for (NSString* prefix in @[@"button · ", @"button, disabled · ", @"textbox · ", @"textbox, disabled · "]) {
     NSString* tagged = [prefix stringByAppendingString:@"scroll:"];
     if ([name hasPrefix:tagged]) return [prefix stringByAppendingString:[name substringFromIndex:tagged.length]];
   }
@@ -513,6 +539,7 @@ static NSString* ios_thread_name(NSString* name) {
 @property(strong) BendIOSCanvas* conversationCanvas;
 @property CGRect conversationViewport;
 @property BOOL hasConversation;
+@property BOOL connectionList;
 @property BOOL messageDetail;
 @property BOOL expandedEditor;
 @property CGPoint savedConversationOffset;
@@ -624,7 +651,7 @@ static BendIOSController* ios_controller;
   ios_image_edited(field.name, field.text ?: @"");
   ios_file_edited(field.name, field.text ?: @"");
   if (ios_persist) {
-    NSString* key = [@"bend-input:" stringByAppendingString:field.name];
+    NSString* key = ios_scoped_key([@"bend-input:" stringByAppendingString:field.name]);
     if (field.text.length) [NSUserDefaults.standardUserDefaults setObject:field.text forKey:key];
     else [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
   }
@@ -632,17 +659,17 @@ static BendIOSController* ios_controller;
 - (void)textViewDidChange:(UITextView*)textView { [self edited:(BendIOSEditor*)textView]; }
 - (void)textViewDidBeginEditing:(UITextView*)textView {
   BendIOSEditor* field = (BendIOSEditor*)textView;
-  field.textColor = ios_ink(); [self.canvas setNeedsDisplay];
+  field.textColor = ios_ink(); [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay];
   if (!self.painting) ios_deliver(ios_json(@{@"action":@"focus", @"name":field.name}), nil, 0);
 }
 - (void)textViewDidEndEditing:(UITextView*)textView {
   BendIOSEditor* field = (BendIOSEditor*)textView;
-  field.textColor = UIColor.clearColor; [self.canvas setNeedsDisplay];
+  field.textColor = UIColor.clearColor; [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay];
   if (!self.painting) ios_deliver(ios_json(@{@"action":@"blur", @"name":field.name}), nil, 0);
 }
 - (BOOL)textView:(UITextView*)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString*)text {
   NSString* submit = ios_submit_label;
-  if (!self.expandedEditor && [text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
+  if (textView.superview == self.canvas && !self.expandedEditor && [text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
     NSString* name = [@"button · " stringByAppendingString:submit];
     for (BendIOSButton* button in self.buttons.allValues)
       if (button.enabled && [button.eventName isEqual:name]) { ios_deliver(name, nil, 0); return NO; }
@@ -681,25 +708,28 @@ static BendIOSController* ios_controller;
 }
 - (void)apply:(NSArray*)commands {
   CGRect conversation = CGRectZero;
-  BOOL modal = NO, detail = NO, editor = NO;
+  BOOL modal = NO, detail = NO, editor = NO, list = NO;
   for (NSArray* command in commands) {
     if (command.count > 1 && ([command[1] isEqual:@"dialog · Edit message"] || [command[1] isEqual:@"dialog · Editar mensaje"])) editor = YES;
     if (command.count >= 6 && [command[0] isEqual:@"shape"]) {
-      if ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"]) {
+      if ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"] || [command[1] isEqual:@"Scroll viewport · Dots"]) {
         conversation = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
         detail = [command[1] isEqual:@"Scroll viewport · Message"];
+        list = [command[1] isEqual:@"Scroll viewport · Dots"];
       }
       if ([command[1] isEqual:@"Scrim"]) modal = YES;
     }
   }
   BOOL wasDetail = self.messageDetail;
-  if (detail && !wasDetail) self.savedConversationOffset = self.conversationScroll.contentOffset;
+  BOOL wasList = self.connectionList;
+  self.connectionList = list;
+  if ((detail || list) && !wasDetail && !wasList) self.savedConversationOffset = self.conversationScroll.contentOffset;
   self.messageDetail = detail;
   self.expandedEditor = editor;
   BOOL hadConversation = self.hasConversation;
   CGFloat oldBottom = MAX(-self.conversationScroll.contentInset.top,
     self.conversationScroll.contentSize.height - self.conversationScroll.bounds.size.height);
-  BOOL atBottom = !detail && (!hadConversation || self.conversationScroll.contentOffset.y >= oldBottom - 24);
+  BOOL atBottom = !detail && !list && (!hadConversation || self.conversationScroll.contentOffset.y >= oldBottom - 24);
   self.hasConversation = !CGRectIsEmpty(conversation);
   self.conversationViewport = conversation;
   self.conversationScroll.hidden = !self.hasConversation;
@@ -734,9 +764,9 @@ static BendIOSController* ios_controller;
 
     self.conversationScroll.frame = CGRectOffset(conversation, self.scroll.frame.origin.x, self.scroll.frame.origin.y);
     self.conversationScroll.contentSize = self.conversationCanvas.canvasSize;
-    self.conversationScroll.contentInset = UIEdgeInsetsMake(detail ? 0 : MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
-    if (detail && !wasDetail) self.conversationScroll.contentOffset = CGPointZero;
-    else if (!detail && wasDetail) self.conversationScroll.contentOffset = CGPointMake(0,
+    self.conversationScroll.contentInset = UIEdgeInsetsMake((detail || list) ? 0 : MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
+    if ((list && !wasList) || (detail && !wasDetail)) self.conversationScroll.contentOffset = CGPointZero;
+    else if (!detail && !list && (wasDetail || wasList)) self.conversationScroll.contentOffset = CGPointMake(0,
       MIN(MAX(-self.conversationScroll.contentInset.top, self.savedConversationOffset.y), MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height)));
     else if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
       self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height));
@@ -754,13 +784,19 @@ static BendIOSController* ios_controller;
   for (NSDictionary* region in regions) {
     if (ios_field_proxy(region, regions)) continue;
     NSString* name = [region[@"name"] isKindOfClass:NSString.class] ? region[@"name"] : @"";
-    NSUInteger occurrence = [seen countForObject:name]; [seen addObject:name];
-    NSString* key = occurrence ? [NSString stringWithFormat:@"%@#%lu", name, (unsigned long)occurrence] : name;
+    NSString* event = region[@"event"] ?: name;
+    NSString* eventName = ios_thread_name(event);
+    BOOL inConversation = self.hasConversation && ![eventName isEqual:event];
+    if (ios_textbox(region) && [eventName hasPrefix:@"textbox, disabled · "])
+      eventName = [@"textbox · " stringByAppendingString:[eventName substringFromIndex:20]];
+    NSString* identity = ios_textbox(region) ? eventName : name;
+    NSUInteger occurrence = [seen countForObject:identity]; [seen addObject:identity];
+    NSString* key = occurrence ? [NSString stringWithFormat:@"%@#%lu", identity, (unsigned long)occurrence] : identity;
     CGRect bounds = ios_rect(region); BOOL enabled = ios_enabled(region);
     if (ios_textbox(region)) {
       NSString* value = [region[@"value"] isKindOfClass:NSString.class] ? region[@"value"] : nil;
       BendIOSEditor* field = self.fields[key];
-      if (!field) { field = [self field:name key:key]; field.text = value ?: @""; [fresh addObject:field]; }
+      if (!field) { field = [self field:eventName key:key]; field.text = value ?: @""; [fresh addObject:field]; }
       else if (value && field.markedTextRange == nil && ios_has_read(key, field.version) && ![field.text isEqual:value]) {
         NSRange selection = field.selectedRange;
         field.text = value;
@@ -768,13 +804,15 @@ static BendIOSController* ios_controller;
         selection.length = MIN(selection.length, value.length - selection.location);
         field.selectedRange = selection;
       }
-      field.returnKeyType = self.expandedEditor ? UIReturnKeyDefault : (ios_submit_label.length ? UIReturnKeySend : UIReturnKeyDefault);
-      field.frame = bounds; field.editable = enabled; field.selectable = enabled;
+      field.returnKeyType = self.expandedEditor || inConversation ? UIReturnKeyDefault : (ios_submit_label.length ? UIReturnKeySend : UIReturnKeyDefault);
+      field.accessibilityLabel = ![event isEqual:name] ? region[@"label"] : [eventName substringFromIndex:10];
+      field.frame = inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
+      field.editable = enabled; field.selectable = enabled;
       field.userInteractionEnabled = enabled; field.textColor = field.isFirstResponder ? ios_ink() : UIColor.clearColor;
-      [self.canvas addSubview:field]; fields[key] = field;
+      [(inConversation ? self.conversationScroll : self.canvas) addSubview:field]; fields[key] = field;
       // Persist the rendered value only after Bend has consumed the latest edit.
       if (ios_persist && ![fresh containsObject:field] && field.markedTextRange == nil && ios_has_read(key, field.version)) {
-        NSString* cached = [@"bend-input:" stringByAppendingString:field.name];
+        NSString* cached = ios_scoped_key([@"bend-input:" stringByAppendingString:field.name]);
         if (field.text.length) [NSUserDefaults.standardUserDefaults setObject:field.text forKey:cached];
         else [NSUserDefaults.standardUserDefaults removeObjectForKey:cached];
       }
@@ -784,13 +822,12 @@ static BendIOSController* ios_controller;
         button = [BendIOSButton buttonWithType:UIButtonTypeCustom];
         [button addTarget:self action:@selector(clicked:) forControlEvents:UIControlEventTouchUpInside];
       }
-      NSString* eventName = ios_thread_name(name);
-      BOOL inConversation = self.hasConversation && ![eventName isEqual:name];
       button.eventName = eventName;
       button.frame = inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
       button.enabled = enabled;
       NSRange separator = [eventName rangeOfString:@" · "];
-      button.accessibilityLabel = separator.location == NSNotFound ? eventName : [eventName substringFromIndex:NSMaxRange(separator)];
+      button.accessibilityLabel = ![event isEqual:name] ? region[@"label"] :
+        (separator.location == NSNotFound ? eventName : [eventName substringFromIndex:NSMaxRange(separator)]);
       [(inConversation ? self.conversationScroll : self.canvas) addSubview:button]; buttons[key] = button;
     }
   }
@@ -800,9 +837,9 @@ static BendIOSController* ios_controller;
   [self fitCanvas];
   if (chromeChanged) [self.canvas setNeedsDisplay];
   for (BendIOSEditor* field in fields.allValues)
-    if (field.isFirstResponder) [self.scroll scrollRectToVisible:field.frame animated:NO];
+    if (field.isFirstResponder) [(field.superview == self.conversationScroll ? self.conversationScroll : self.scroll) scrollRectToVisible:field.frame animated:NO];
   for (BendIOSEditor* field in fresh) if (ios_persist && !field.text.length) {
-    NSString* text = [NSUserDefaults.standardUserDefaults stringForKey:[@"bend-input:" stringByAppendingString:field.name]];
+    NSString* text = [NSUserDefaults.standardUserDefaults stringForKey:ios_scoped_key([@"bend-input:" stringByAppendingString:field.name])];
     if (text.length) { field.text = text; [self edited:field]; }
   }
   // Cached Typed precedes Pending, including when the first GET already acknowledged it.
@@ -837,13 +874,15 @@ static BendIOSController* ios_controller;
 }
 @end
 
+#include "ios_connections.c"
+
 static char* ios_canvas(const char* data, unsigned len, unsigned* status, BOOL refresh) {
   NSError* error = nil;
   id commands = [NSJSONSerialization JSONObjectWithData:
     [NSData dataWithBytesNoCopy:(void*)data length:len freeWhenDone:NO] options:0 error:&error];
   NSString* problem = commands == nil ? @"invalid Canvas JSON" : bend_paint_check(commands) ?: bend_paint_prepare(commands);
   BOOL threadViewport = NO;
-  if (!problem) for (NSArray* command in commands) if (command.count > 1 && ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"])) threadViewport = YES;
+  if (!problem) for (NSArray* command in commands) if (command.count > 1 && ([command[1] isEqual:@"Scroll viewport · Conversation"] || [command[1] isEqual:@"Scroll viewport · Message"] || [command[1] isEqual:@"Scroll viewport · Dots"])) threadViewport = YES;
   if (!problem && !threadViewport) problem = bend_paint_check(ios_content_projection(commands));
   if (problem) { *status = 2; return ios_dup(problem); }
   __block BOOL deferred = NO;
@@ -905,6 +944,9 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
     } else if (op == 16 || op == 17) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
       reply = text ? (op == 16 ? ios_file_request(text, status) : ios_file_upload(text, status)) : ios_dup(@"request is not UTF-8");
+    } else if (op == 18) {
+      NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
+      reply = text ? ios_connection_request(text, status) : ios_dup(@"request is not UTF-8");
     } else if (op == 15 && len == 8 && memcmp(data, "settings", 8) == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{ [ios_notifications settings:ios_controller]; });
       *status = 1; reply = ios_dup(@"");
@@ -944,6 +986,7 @@ static void* ios_run(void* ignored) {
   ios_action(@{@"action":@"language", @"value":language});
   NSString* origin = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendOrigin"];
   ios_origin = [NSURL URLWithString:origin ?: @""];
+  ios_connections_init();
   ios_boot_pending = [[NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key] copy];
   ios_session_prefix = NSUUID.UUID.UUIDString;
   ios_action(@{@"action":@"session", @"value":ios_session_prefix});

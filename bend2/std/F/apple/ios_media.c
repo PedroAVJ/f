@@ -6,7 +6,7 @@
 #import <CommonCrypto/CommonDigest.h>
 
 #define IOS_IMAGE_LIMIT (5u << 20)
-static NSString* const ios_image_draft_key = @"bend-image-draft";
+static NSString* ios_image_draft_key = @"bend-image-draft";
 
 static BOOL ios_image_hash(NSString* value) {
   if (![value isKindOfClass:NSString.class] || value.length != 64) return NO;
@@ -16,6 +16,7 @@ static BOOL ios_image_hash(NSString* value) {
 static NSURL* ios_image_file(NSString* identifier) {
   if (!ios_clip_id(identifier) && !ios_image_hash(identifier)) return nil;
   NSURL* directory = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+  directory = ios_scoped_directory(directory);
   directory = [directory URLByAppendingPathComponent:@"BendImages" isDirectory:YES];
   if (![NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES
     attributes:@{NSFileProtectionKey:NSFileProtectionCompleteUntilFirstUserAuthentication} error:NULL]) return nil;

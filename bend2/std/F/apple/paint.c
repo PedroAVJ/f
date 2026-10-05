@@ -246,7 +246,7 @@ CGSize bend_paint_size(NSArray* commands) {
 
 // A region is what renderer.js hit-tests: name, x, y, width, height and
 // enabled; the shell tests them last to first (the last paints on top) and
-// sends a hit's name as the event. kind and label read the F role from the
+// sends a hit's event. kind and label read the F role from the
 // name ("button · Send", "button, disabled · Send", "textbox · Write to
 // Dot", "address · /x"); a textbox's value is its "value · " leaf, the 0x0
 // shape F places first inside it.
@@ -254,7 +254,7 @@ static NSDictionary* bp_region(NSArray* c, NSArray* commands) {
   NSString* name = c[1];
   NSString* kind = @"other";
   NSString* label = name;
-  NSArray* roles = @[@[@"button · ", @"button"], @[@"button, disabled · ", @"button"], @[@"textbox · ", @"textbox"], @[@"address · ", @"address"]];
+  NSArray* roles = @[@[@"button · ", @"button"], @[@"button, disabled · ", @"button"], @[@"textbox · ", @"textbox"], @[@"textbox, disabled · ", @"textbox"], @[@"address · ", @"address"]];
   for (NSArray* r in roles) {
     if ([name hasPrefix:r[0]]) {
       kind = r[1];
@@ -262,19 +262,29 @@ static NSDictionary* bp_region(NSArray* c, NSArray* commands) {
       break;
     }
   }
-  if ([kind isEqual:@"other"] && ([name isEqual:@"Field text"] || [name hasSuffix:@" button"])) kind = [name hasSuffix:@" button"] ? @"button" : @"field";
+  if ([kind isEqual:@"other"] && ([name isEqual:@"Field text"] || [name isEqual:@"Scroll content · Field text"] || [name hasSuffix:@" button"])) kind = [name hasSuffix:@" button"] ? @"button" : @"field";
+  // A tab separates a stable routing key from a human-readable label.
+  NSString* event = name;
+  NSRange separator = [name rangeOfString:@"\t"];
+  if (([kind isEqual:@"button"] || [kind isEqual:@"textbox"]) && separator.location != NSNotFound) {
+    event = [name substringToIndex:separator.location];
+    label = [name substringFromIndex:NSMaxRange(separator)];
+  }
   double x = [c[2] doubleValue], y = [c[3] doubleValue], w = [c[4] doubleValue], h = [c[5] doubleValue];
-  NSMutableDictionary* d = [@{@"name": name, @"label": label, @"kind": kind, @"x": c[2], @"y": c[3], @"w": c[4], @"h": c[5],
-                              @"enabled": c[6]} mutableCopy];
+  NSMutableDictionary* d = [@{@"name": name, @"event": event, @"label": label, @"kind": kind, @"x": c[2], @"y": c[3], @"w": c[4], @"h": c[5],
+                              @"enabled": @([c[6] boolValue] && ![name hasPrefix:@"textbox, disabled · "])} mutableCopy];
   if ([kind isEqual:@"textbox"]) {
     NSString* value = @"";
     for (id item in commands) {
       if (!bp_array(item)) continue;
       NSArray* s = item;
-      if (s.count < 6 || ![s[0] isEqual:@"shape"] || ![s[1] isKindOfClass:NSString.class] || ![s[1] hasPrefix:@"value · "]) continue;
+      if (s.count < 6 || ![s[0] isEqual:@"shape"] || ![s[1] isKindOfClass:NSString.class]) continue;
+      NSString* valueName = s[1];
+      if ([valueName hasPrefix:@"Scroll content · "]) valueName = [valueName substringFromIndex:17];
+      if (![valueName hasPrefix:@"value · "]) continue;
       double sx = [s[2] doubleValue], sy = [s[3] doubleValue];
       if (sx >= x && sy >= y && sx <= x + w && sy <= y + h) {
-        value = [s[1] substringFromIndex:8];
+        value = [valueName substringFromIndex:8];
         break;
       }
     }

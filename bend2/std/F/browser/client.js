@@ -16,7 +16,7 @@ export function createBrowserServices(policy, options = {}) {
   };
 
 
-async function responseText(response) {
+async function responseText(response, validate = true) {
   const reader = response.body?.getReader();
   if (!reader) throw Error(notice('empty-response'));
   const chunks = [];
@@ -37,7 +37,7 @@ async function responseText(response) {
   let at = 0;
   for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
   const text = new TextDecoder().decode(bytes);
-  if (!response.ok) rule('response-error', { body: text, status: response.status });
+  if (validate && !response.ok) rule('response-error', { body: text, status: response.status });
   return text;
 }
 
@@ -489,7 +489,15 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
     const response = await fetch(url, { signal, credentials: 'same-origin', ...(route.method === 'POST' ? {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec.body),
     } : {}) });
-    const text = await responseText(response);
+    const text = await responseText(response, false);
+    const outcome = rule('http-result', { body: text, status: response.status, pathname: url.pathname, requestId: spec.body?.requestId });
+    if (outcome.clearPending) {
+      let held;
+      try { held = JSON.parse(localStorage.getItem(PENDING)); } catch { /* Invalid receipt cannot match. */ }
+      if (held?.id === outcome.clearPending) localStorage.removeItem(PENDING);
+      if (outcome.event) event(outcome.event);
+    }
+    if (!response.ok) rule('response-error', { body: text, status: response.status });
     const snapshot = observeSnapshot(text);
     let pending;
     try { pending = JSON.parse(localStorage.getItem(PENDING)); } catch { /* A malformed local receipt is not sent. */ }

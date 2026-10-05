@@ -153,7 +153,7 @@ def path_html(d: S.Drawing, +f: P.Fill, stroke: P.Stroke, +id: U32) -> String: p
 def shape_in(s: P.Shape, head: String, id: U32, +scheme: T.Scheme) -> String:
   match s:
     case P.Shape{P.Text{text, P.TextType{name, size, weight}}, P.TextFill.Solid{role, state}, stroke, effects}:
-      head ++ "color:" ++ T.text(role,state,scheme) ++ ";font-family:system-ui;font-size:" ++ U32.show(size) ++ "px;font-weight:" ++ U32.show(weight) ++ ";" ++ style_in(P.NoStroke{},effects,scheme) ++ "\">" ++ escape(text) ++ "</div>"
+      head ++ "color:" ++ T.text(role,state,scheme) ++ ";white-space:pre;font-family:system-ui;font-size:" ++ U32.show(size) ++ "px;font-weight:" ++ U32.show(weight) ++ ";" ++ style_in(P.NoStroke{},effects,scheme) ++ "\">" ++ escape(text) ++ "</div>"
     case P.Shape{P.Rounded{+width, +height, r}, +f, +stroke, effects}:
       head ++ "width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;border-radius:" ++ radius(r,width,height) ++ "px;overflow:hidden;" ++ fill_css_in(f,scheme) ++ style_in(stroke,effects,scheme) ++ "\" " ++ stroke_attr(stroke) ++ ">" ++ fill_html(f) ++ "</div>"
     case P.Shape{P.Path{drawing}, f, +stroke, effects}:
@@ -175,23 +175,32 @@ def boxes_at(xs: List<&2, P.Box>, +id: U32) -> String: boxes_at_in(xs,id,T.Schem
 def boxes_in(xs: List<&2, P.Box>, +scheme: T.Scheme) -> String: boxes_at_in(xs,0,scheme)
 def boxes(xs: List<&2, P.Box>) -> String: boxes_in(xs,T.Scheme.Light{})
 # Layout nodes retain the interactive regions and focus order declared by F.
-def disabled(+name: String) -> Bool: String.starts_with(name,"button, disabled · ")
+def disabled(+name: String) -> Bool: String.starts_with(name,"button, disabled · ") || String.starts_with(name,"textbox, disabled · ")
+def textbox_name(+name: String) -> Bool: String.starts_with(name,"textbox · ") || String.starts_with(name,"textbox, disabled · ")
+def event_part(parts: List<&2, String>) -> String:
+  match parts:
+    case []: ""
+    case action <> rest: action
+def region_event(+name: String) -> String:
+  Bool.pick(String, String.starts_with(name, "button · ") || textbox_name(name) || disabled(name), event_part(String.split(name, '\t')), name)
 def region_label(+name: String) -> String:
-  Bool.pick(String,String.starts_with(name,"button · "),String.drop(name,9n),Bool.pick(String,disabled(name),String.drop(name,19n),Bool.pick(String,String.starts_with(name,"textbox · "),String.drop(name,10n),name)))
+  Bool.pick(String, (String.starts_with(name, "button · ") || textbox_name(name) || disabled(name)) && String.contains(name, "\t"),
+    String.join(List.drop(&2, String, String.split(name, '\t'), 1n), "\t"),
+    Bool.pick(String,String.starts_with(name,"button · "),String.drop(name,9n),Bool.pick(String,String.starts_with(name,"button, disabled · "),String.drop(name,19n),Bool.pick(String,String.starts_with(name,"textbox, disabled · "),String.drop(name,20n),Bool.pick(String,textbox_name(name),String.drop(name,10n),name)))))
 def region_role(+name: String) -> String:
-  Bool.pick(String,String.starts_with(name,"textbox · "),"textbox",Bool.pick(String,String.eq(name,"Field text"),"textbox","button"))
+  Bool.pick(String,textbox_name(name),"textbox",Bool.pick(String,String.eq(name,"Field text"),"textbox","button"))
 # A textbox is an input over its drawn text, which shows through: the input holds the whole value (the
 # "value · " leaf F places first inside it) and sends each edit as a field event named after the box.
 def textbox_html_in(+name: String, +value: String, +x: U32, +y: U32, +width: U32, +height: U32, +id: U32, +scheme: T.Scheme) -> String:
-  "<input data-bend-field=\"" ++ escape(name) ++ "\" value=\"" ++ escape(value) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" autocomplete=\"off\" spellcheck=\"false\" style=\"position:absolute;box-sizing:border-box;margin:0;border:0;outline:none;padding:0 16px;background:transparent;color:transparent;caret-color:" ++ T.text(T.TextRole.Ink{},T.State.Rest{},scheme) ++ ";font-family:system-ui;font-size:17px;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\">"
+  "<input data-bend-field=\"" ++ escape(region_event(name)) ++ "\" value=\"" ++ escape(value) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\"" ++ Bool.pick(String, disabled(name), " disabled", "") ++ " autocomplete=\"off\" spellcheck=\"false\" style=\"position:absolute;box-sizing:border-box;margin:0;border:0;outline:none;padding:0 16px;background:transparent;color:transparent;caret-color:" ++ T.text(T.TextRole.Ink{},T.State.Rest{},scheme) ++ ";font-family:system-ui;font-size:17px;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\">"
 def textbox_html(+name: String, +value: String, +x: U32, +y: U32, +width: U32, +height: U32, +id: U32) -> String: textbox_html_in(name,value,x,y,width,height,id,T.Scheme.Light{})
 def value_of(+name: String) -> String:
   Bool.pick(String,String.starts_with(name,"value · "),String.drop(name,8n),"")
 def region_html_in(b: P.Box, +id: U32, +value: String, +scheme: T.Scheme) -> String:
   match b:
     case P.Box{+name,mark,+x,+y,+width,+height,level,layer}:
-      Bool.pick(String,String.starts_with(name,"textbox · "),textbox_html_in(name,value,x,y,width,height,id,scheme),
-      "<button type=\"button\" data-bend-event=\"" ++ escape(name) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" role=\"" ++ region_role(name) ++ "\" " ++ Bool.pick(String,String.eq(region_role(name),"textbox"),"aria-readonly=\"true\" ","") ++ Bool.pick(String,disabled(name),"disabled ","") ++ "style=\"position:absolute;border:0;padding:0;background:transparent;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\"></button>")
+      Bool.pick(String,textbox_name(name),textbox_html_in(name,value,x,y,width,height,id,scheme),
+      "<button type=\"button\" data-bend-event=\"" ++ escape(region_event(name)) ++ "\" aria-label=\"" ++ escape(region_label(name)) ++ "\" role=\"" ++ region_role(name) ++ "\" " ++ Bool.pick(String,String.eq(region_role(name),"textbox"),"aria-readonly=\"true\" ","") ++ Bool.pick(String,disabled(name),"disabled ","") ++ "style=\"position:absolute;border:0;padding:0;background:transparent;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ "\"></button>")
 def region_html(b: P.Box, +id: U32, +value: String) -> String: region_html_in(b,id,value,T.Scheme.Light{})
 def region_at_in(xs: List<&2,P.Box>, +index: U32, id: U32, +value: String, +scheme: T.Scheme) -> String:
   match xs index:
