@@ -1,5 +1,9 @@
 # Open Dot
 
+Canonical source: [`PedroAVJ/f`, `apps/open-dot`](https://github.com/PedroAVJ/f/tree/main/apps/open-dot).
+The former standalone repository is retained for history and existing runtime
+paths, not as a second development source.
+
 Dot is a native iPhone app backed by the harness on your Mac mini.
 The app is compiled from Bend using [PedroAVJ/f](https://github.com/PedroAVJ/f).
 It keeps the existing dark conversation components and glass controls.
@@ -15,13 +19,14 @@ the app closes. While a reply is running, Stop replaces the camera control.
 The attachment control offers Camera, Photos and Files. Files keep their original
 bytes, name and caption, and an unsent file draft survives app relaunch.
 
-Keep the fork beside this repository at `../f`. The Mac needs Bun, Tailscale,
+Run these commands from `apps/open-dot`; the compiler is in `../../bend2`.
+The Mac needs Bun, Tailscale,
 the Codex CLI, Claude Code and Xcode with iOS SDKs. Sign into both providers, then build and deploy:
 
 ```sh
 cd harness && bun install --frozen-lockfile && cd ..
-bun ../f/bend2/main.ts system build
-bun ../f/bend2/main.ts system deploy
+bun ../../bend2/main.ts system build
+bun ../../bend2/main.ts system deploy
 ```
 
 Build produces `dist/ios-simulator/Dot.app`, `dist/ios-device/Dot.app` and
@@ -54,8 +59,8 @@ Session files live in `~/Library/Application Support/OpenDot` and logs in
 `~/Library/Logs/OpenDot`. The signed IPA is available privately at
 `/downloads/Dot.ipa` on the harness address.
 
-Codex uses the available default model from its model catalog and automatic
-approval review. The owner-configured Mac runtime has full filesystem access,
+Codex uses the available default model from its model catalog and starts turns
+without interactive approval prompts. The owner-configured Mac runtime has full filesystem access,
 including adjacent repositories. Open Dot answers tool-access approval requests
 affirmatively for the current request or turn, including Computer Use app access.
 It does not store global permission grants.
@@ -100,7 +105,7 @@ Automatic routing between the two providers has not been defined yet.
 Run the shared client and harness checks:
 
 ```sh
-bun ../f/bend2/main.ts tests mobile
+bun ../../bend2/main.ts tests mobile
 cd harness && bun run typecheck && bun test
 ```
 
@@ -110,7 +115,7 @@ The previous native macOS app is retained under `macos_system.bend`; the mobile
 deployment is now the default. Its release script remains a separate manual action.
 
 Dot's native macOS milestone was written in F using the adjacent Bend2 fork
-(`../f`, github.com/PedroAVJ/f). Bend owns application state, layout, tokens,
+(`../../bend2`, github.com/PedroAVJ/f). Bend owns application state, layout, tokens,
 and interaction. AppKit supplies the window and text input; CoreGraphics and
 CoreText paint the existing conversation components. No browser is required.
 
@@ -142,9 +147,9 @@ Requires Bun and Xcode Command Line Tools. Build, install and launch:
 is available explicitly:
 
 ```sh
-bun ../f/bend2/main.ts macos_system diff
-bun ../f/bend2/main.ts macos_system build
-bun ../f/bend2/main.ts macos_system deploy
+BEND=../../bend2/main.ts bun ../../bend2/main.ts macos_system diff
+BEND=../../bend2/main.ts bun ../../bend2/main.ts macos_system build
+BEND=../../bend2/main.ts bun ../../bend2/main.ts macos_system deploy
 ```
 
 `macos_system.bend` declares only `Application.MacOS{"ui"}`. Build produces
@@ -160,7 +165,7 @@ secure timestamp and hardened runtime, submits to Apple, staples the ticket,
 and requires Gatekeeper acceptance before packaging or publishing:
 
 ```sh
-./script/release_macos.sh --tag v1.0.0-preview.2 \
+./script/release_macos.sh --tag dot-v1.0.0-preview.2 \
   --identity 'Developer ID Application: YOUR NAME (TEAM_ID)' \
   --notary-profile YOUR_KEYCHAIN_PROFILE --publish
 ```
@@ -182,7 +187,7 @@ Run the state/geometry regression, including draft retention and control
 bounds at narrow and wide window sizes, with:
 
 ```sh
-bun ../f/bend2/main.ts tests state
+bun ../../bend2/main.ts tests state
 ```
 
 ## Web client
@@ -317,3 +322,29 @@ file reference and the original caption. The front relays documents to the
 existing worker turn endpoint with a labeled attachment reference, so new
 uploads do not require restarting the active Codex worker. File content is
 untrusted data, not instructions.
+
+## Ownership and releases
+
+F owns this package and all shared/open platform code. `package.json` records
+Dot's version independently from Bend. Native iOS builds use that version unless
+`--version` is supplied. Mac preview releases use `dot-vX.Y.Z-preview.N` tags in
+`PedroAVJ/f`; app and compiler come from one committed F snapshot. Retain
+`com.pedroavj.opendot.ios`, the existing desktop bundle identifier and the MIT
+license. Moving source does not require reinstalling the existing iPhone app.
+
+Sabor a Cielo is a deployable backend/plugin, not a custom Dot UI fork. It owns
+inventory workflows, permissions, access-link authentication, deployment and
+stored data in its separate repository. It imports this package's `web.bend` and
+browser adapters. TradeInCode also stays in its own repository. The product
+direction is one Open Dot app listing multiple dots; this migration does not
+implement that selector or change the current backend capability contract.
+
+Source migration and runtime cutover are separate. Existing services can keep
+running from the retained standalone checkout while this package becomes the
+canonical source. Their LaunchAgent labels, 19453 worker, 19455 Claude front,
+9453 HTTPS route, `~/Library/Application Support/OpenDot` state and APNs key
+location are unchanged. Do not run `system deploy` or `deploy_mobile.sh` as a
+migration step: that legacy script owns the worker and would restart it.
+A later coordinated cutover must retain both saved conversations, receipt/media
+ownership, pending request identities, notification registrations, current
+artifacts and the front/worker separation before changing service paths.

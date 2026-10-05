@@ -1,8 +1,8 @@
 import UI
 import ../mobile.bend as App
 import ../ios.bend as IOS
-import ../../f/bend2/std/F/browser/host.bend as Host
-import ../../f/bend2/std/F/ai/wire_json.bend as J
+import ../../../bend2/std/F/browser/host.bend as Host
+import ../../../bend2/std/F/ai/wire_json.bend as J
 
 def tick() -> J.Json:
   J.Object{[J.Field{"phase", J.Text{"elapsed"}}, J.Field{"elapsedMs", J.Number{"2500"}}, J.Field{"level", J.Number{"70"}}]}

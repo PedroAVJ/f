@@ -278,3 +278,17 @@ Thanks to [Ayush Somani](https://ayushsomani.me/) for reserving the
 `bend-lang` name for us.
 
 Framework extensions use explicit `import UI` and `import V` preludes. See [the framework guide](guide/F.md) and [web compilation](guide/WEB.md).
+
+## Open Dot
+
+[`apps/open-dot`](apps/open-dot) owns the shared conversation application, its
+native/web clients, and personal-agent adapters. Its package version and
+`dot-v*` release tags are independent of Bend releases. The package remains MIT
+licensed; see its [README](apps/open-dot/README.md) for build commands.
+
+Shared platform code belongs in F. TradeInCode remains a separate repository.
+Sabor a Cielo remains a separately deployed backend/plugin with its inventory
+workflow, permissions, access-link authentication and data; it imports the same
+Dot UI. The intended product is one Open Dot app listing multiple dots, not a
+separate custom chat for each backend. That selector is not implemented by this
+source-ownership migration.

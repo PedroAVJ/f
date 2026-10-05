@@ -54,6 +54,8 @@ cluster.
                         the gates (and gen_pins.ts) run them with
                         $BEND_NO_BASE, an internal switch; users get Base
     gates/_run.ts       the four gates with --gate
+    apps/open-dot/      canonical Open Dot app and shared conversation shell;
+                        versioned independently from Bend (its own AGENTS.md)
     demos/              one dir per demo
     guide/              GUIDE.md, and the extras EFFECTS.md, SHADERS.md, F.md,
                         WEB.md

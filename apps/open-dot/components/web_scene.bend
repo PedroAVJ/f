@@ -1,6 +1,6 @@
-import ../../f/bend2/std/F/browser/scene.bend as S
-import ../../f/bend2/std/F/ui/primitives.bend as P
-import ../../f/bend2/std/F/ui/tokens.bend as T
+import ../../../bend2/std/F/browser/scene.bend as S
+import ../../../bend2/std/F/ui/primitives.bend as P
+import ../../../bend2/std/F/ui/tokens.bend as T
 
 # Bool.pick evaluates both arguments; defer branches that render whole trees.
 def choose(condition: Bool, yes: Unit -> String, no: Unit -> String) -> String:

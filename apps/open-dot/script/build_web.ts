@@ -3,12 +3,12 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '..');
 const destination = resolve(root, 'dist/dot.web');
-const shell = readFileSync(resolve(root, '../f/bend2/std/F/browser/shell.js'), 'utf8');
+const shell = readFileSync(resolve(root, '../../bend2/std/F/browser/shell.js'), 'utf8');
 if (!shell.includes('options.host?.')) throw Error('The adjacent F browser host must support application IO adapters.');
 // Keep LLVM optimization without Binaryen's expensive whole-evaluator -O3 pass.
 // Clang 24's unreachable-warning pass also stalls on the generated switch;
 // Bend checks the source and C compilation errors remain fatal.
-const build = Bun.spawn(['bun', '../f/bend2/tool.ts', 'web.bend', '-o', 'dist/dot.web', '--web-corpus-mib', '128'], {
+const build = Bun.spawn(['bun', '../../bend2/tool.ts', 'web.bend', '-o', 'dist/dot.web', '--web-corpus-mib', '128'], {
   cwd: root, stdout: 'inherit', stderr: 'inherit',
   env: { ...process.env, EMCC_CFLAGS: `${process.env.EMCC_CFLAGS ?? ''} -O1 -w` },
 });

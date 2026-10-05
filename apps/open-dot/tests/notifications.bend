@@ -1,9 +1,9 @@
 import UI
-import ../../f/bend2/std/F/browser/input.bend as Native
-import ../../f/bend2/std/F/browser/host.bend as Host
-import ../../f/bend2/std/F/browser/scene.bend as Scene
-import ../../f/bend2/std/F/ui/kit.bend as K
-import ../../f/bend2/std/F/ui/tokens.bend as T
+import ../../../bend2/std/F/browser/input.bend as Native
+import ../../../bend2/std/F/browser/host.bend as Host
+import ../../../bend2/std/F/browser/scene.bend as Scene
+import ../../../bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/ui/tokens.bend as T
 import ../mobile.bend as App
 
 def html(state: App.State) -> String:

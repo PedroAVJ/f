@@ -34,3 +34,11 @@ listed above remain in near-bend. The AI README cites the official provider
 sources recorded in `ai/PROVENANCE.md`. No rights
 in private application assets or customer material are granted; those
 materials are not part of F.
+
+## Open Dot application
+
+`apps/open-dot/` was imported from `PedroAVJ/open-dot` at
+`42dabe1f1d87110f59b357af0a0a9f9c08eef2cc`, retaining its full Git history and
+[MIT license](apps/open-dot/LICENSE), copyright 2026 Pedro Antonio Villanueva
+Juarez. The application is now maintained in this repository; its license is
+unchanged by the move.

@@ -1,7 +1,7 @@
 import UI
-import ../../f/bend2/std/F/browser/input.bend as Native
-import ../../f/bend2/std/F/ui/kit.bend as K
-import ../../f/bend2/std/F/ui/primitives.bend as P
+import ../../../bend2/std/F/browser/input.bend as Native
+import ../../../bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/ui/primitives.bend as P
 import ../mobile.bend as App
 import ../components/mobile_conversation.bend as C
 import ../components/mobile_rich_text.bend as Rich

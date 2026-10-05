@@ -1,7 +1,7 @@
 import UI
-import ../../f/bend2/std/F/ui/kit.bend as K
-import ../../f/bend2/std/F/browser/host.bend as Host
-import ../../f/bend2/std/F/browser/input.bend as Native
+import ../../../bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/browser/host.bend as Host
+import ../../../bend2/std/F/browser/input.bend as Native
 import ../mobile.bend as App
 import ../components/web_scene.bend as Web
 

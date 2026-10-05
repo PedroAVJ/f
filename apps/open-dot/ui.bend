@@ -1,8 +1,8 @@
 import UI
-import ../f/bend2/std/F/ui/kit.bend as K
-import ../f/bend2/std/F/ui/primitives.bend as P
-import ../f/bend2/std/F/ui/tokens.bend as T
-import ../f/bend2/std/F/browser/input.bend as Native
+import ../../bend2/std/F/ui/kit.bend as K
+import ../../bend2/std/F/ui/primitives.bend as P
+import ../../bend2/std/F/ui/tokens.bend as T
+import ../../bend2/std/F/browser/input.bend as Native
 import ./components/conversation
 
 # The native milestone owns its conversation and composer state. Agent

@@ -1,11 +1,11 @@
 import UI
-import ../../f/bend2/std/F/browser/input.bend as Native
-import ../../f/bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/browser/input.bend as Native
+import ../../../bend2/std/F/ui/kit.bend as K
 import ../ui.bend as App
 import ../components/conversation.bend as C
-import ../../f/bend2/std/F/ui/primitives.bend as P
-import ../../f/bend2/std/F/ui/tokens.bend as T
-import ../../f/bend2/std/F/browser/scene.bend as Scene
+import ../../../bend2/std/F/ui/primitives.bend as P
+import ../../../bend2/std/F/ui/tokens.bend as T
+import ../../../bend2/std/F/browser/scene.bend as Scene
 
 def count(xs: List<&2, Line>) -> U32:
   match xs:

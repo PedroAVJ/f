@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 // Offline local builds. This script does not authenticate, register devices,
 // update provisioning, upload to Apple, install, or create an OTA manifest.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const fork = resolve(root, '../f');
+const fork = resolve(root, '../..');
+const packageInfo = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const packagePath = 'apps/open-dot';
 const bundle = 'com.pedroavj.opendot.ios';
 const minimum = '17.0';
 const args = process.argv.slice(2);
@@ -33,7 +35,7 @@ const originURL = new URL(origin);
 if (originURL.protocol !== 'https:' || originURL.username || originURL.password || originURL.pathname !== '/' || originURL.search || originURL.hash) {
   throw new Error('--origin must be an HTTPS origin without credentials, path, query or fragment.');
 }
-const version = flags['--version'] ?? '1.0.0';
+const version = flags['--version'] ?? packageInfo.version;
 const build = flags['--build'] ?? String(Math.floor(Date.now() / 1000));
 if (!/^\d+(\.\d+){0,2}$/.test(version) || !/^\d+(\.\d+){0,2}$/.test(build)) throw new Error('--version and --build require one to three numbers.');
 if (!existsSync(join(root, 'ios.bend'))) throw new Error('Missing ios.bend entrypoint.');
@@ -116,16 +118,17 @@ function checkout(directory: string) {
 }
 
 try {
-  const source = join(stage, 'work/open-dot');
+  const source = join(stage, 'work/f', packagePath);
   const compiler = join(stage, 'work/f/bend2');
   mkdirSync(source, { recursive: true });
   const checkouts = { source: checkout(root), fork: checkout(fork) };
   const sourceFiles = run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], true).split('\0').filter(n => n.endsWith('.bend'));
-  for (const name of [...new Set(sourceFiles)]) capture(join(root, name), join(source, name), 'open-dot/' + name);
+  for (const name of [...new Set(sourceFiles)]) capture(join(root, name), join(source, name), packagePath + '/' + name);
+  capture(join(root, 'package.json'), join(source, 'package.json'), packagePath + '/package.json');
   cpSync(join(fork, 'bend2'), compiler, { recursive: true, filter: path => !path.includes('/node_modules') && !path.includes('/bend2/docs') });
-  for (const file of files(compiler)) inputs.push({ name: 'f/bend2/' + relative(compiler, file), sha256: fileDigest(file) });
-  capture(join(root, 'mobile/icon-512.png'), join(source, 'icon-512.png'), 'open-dot/mobile/icon-512.png');
-  capture(join(root, 'mobile/nearling-original.png'), join(source, 'nearling-original.png'), 'open-dot/mobile/nearling-original.png');
+  for (const file of files(compiler)) inputs.push({ name: 'bend2/' + relative(compiler, file), sha256: fileDigest(file) });
+  capture(join(root, 'mobile/icon-512.png'), join(source, 'icon-512.png'), packagePath + '/mobile/icon-512.png');
+  capture(join(root, 'mobile/nearling-original.png'), join(source, 'nearling-original.png'), packagePath + '/mobile/nearling-original.png');
   const native = join(stage, 'native');
   mkdirSync(native);
   run('bun', [join(compiler, 'tool.ts'), join(source, 'ios.bend'), '-o', join(native, 'app.c')]);
@@ -185,7 +188,7 @@ try {
     }
     run('codesign', ['--verify', '--deep', '--strict', app]);
     const appFiles = files(app).map(file => ({ name: relative(app, file), bytes: statSync(file).size, sha256: fileDigest(file) }));
-    writeFileSync(join(output, 'build.json'), JSON.stringify({ bendIOS: 1, builtAt: new Date().toISOString(), target: platform, bundle, minimumOS: minimum,
+    writeFileSync(join(output, 'build.json'), JSON.stringify({ bendIOS: 1, repository: 'PedroAVJ/f', package: packagePath, version, builtAt: new Date().toISOString(), target: platform, bundle, minimumOS: minimum,
       sdk: { name: sdkName, version: sdkVersion, architecture: arch }, origin: originURL.origin, compiler: 'PedroAVJ/f Bend2 C', defines: ['BEND_NATIVE=1', 'BEND_IOS=1'], checkoutAtSnapshot: checkouts,
       capturedInputs: inputs.sort((a, b) => a.name.localeCompare(b.name)), generatedCSha256: fileDigest(join(native, 'app.c')), appFiles, signing: signingMetadata,
       verification: { codeSignature: 'verified', installedOnDevice: false, inputTested: false },

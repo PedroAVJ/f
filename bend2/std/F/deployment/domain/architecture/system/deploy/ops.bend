@@ -241,6 +241,10 @@ def builds(ps: List<&2, L.Program>, +dir: String) -> IO(List<&2, P.Built>):
 # Build and stamp select the same generated entry; web rendering keeps its defaults.
 # Arguments: the page entry, the folder, the default app entry, the bundle identifier,
 # the UI module path, the themed entry, the persistence entry, both options' entry ----
+# The native entry follows the selected compiler, including app packages inside F.
+def native_import_script() -> String:
+  "e=$(printf '%s' \"$e\" | python3 -c 'import os,sys; p=os.path.relpath(os.path.join(sys.argv[1], \"std/F/browser/input.bend\"), os.path.dirname(sys.argv[2]) or \".\"); sys.stdout.write(sys.stdin.read().replace(\"import ../../f/bend2/std/F/browser/input.bend as Native\", \"import \" + p + \" as Native\"))' \"$f\" \"$d\") || exit 1\n"
+
 def app_script() -> String:
   tools_script() ++
   "d=$2; f=$(dirname \"$b\"); e=$3\n" ++
@@ -251,7 +255,7 @@ def app_script() -> String:
   "    e=${9}; if grep -Eq '^def scheme[[:space:]]*\\(' \"$5.bend\"; then e=${10}; if grep -Eq '^def persist_inputs[[:space:]]*\\(' \"$5.bend\"; then e=${12}; fi\n" ++
   "    elif grep -Eq '^def persist_inputs[[:space:]]*\\(' \"$5.bend\"; then e=${11}; fi\n" ++
   "  fi\n" ++
-  "fi\n" ++
+  "fi\n" ++ native_import_script() ++
   "o() { (cd \"$1\" && find . -type f -exec shasum {} + | LC_ALL=C sort) | shasum | cut -c1-40; }\n" ++
   "k() { printf '%s\\n%s\\n%s\\n' \"$(h \"$1\" \"$2\")\" \"$3\" \"$( (cd \"$f\" && { git diff HEAD -- .; git ls-files -o --exclude-standard -z -- . | xargs -0 shasum; }) 2>/dev/null | shasum | cut -c1-40)\" | shasum | cut -c1-40; }\n" ++
   "p() { plutil -extract \"$2\" raw -o - \"$1/Contents/Info.plist\" 2>/dev/null; }\n"

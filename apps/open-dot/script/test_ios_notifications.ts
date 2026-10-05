@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const source = readFileSync(resolve(import.meta.dir, '../../f/bend2/std/F/apple/ios_notifications.c'), 'utf8');
+const source = readFileSync(resolve(import.meta.dir, '../../../bend2/std/F/apple/ios_notifications.c'), 'utf8');
 const start = source.indexOf('static BOOL ios_notification_payload(');
 const end = source.indexOf('@interface BendIOSNotifications', start);
 if (start < 0 || end < start) throw Error('Notification validation source boundary changed.');

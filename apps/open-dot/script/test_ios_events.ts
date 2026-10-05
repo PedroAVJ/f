@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 // Compile the actual Foundation-only queue from the UIKit host, not a model.
-const host = readFileSync(resolve(import.meta.dir, '../../f/bend2/std/F/apple/ios_shell.c'), 'utf8');
+const host = readFileSync(resolve(import.meta.dir, '../../../bend2/std/F/apple/ios_shell.c'), 'utf8');
 const start = host.indexOf('#define IOS_LIMIT ');
 const end = host.indexOf('static NSNumber* ios_port(');
 if (start < 0 || end <= start) throw Error('Native event queue source boundaries changed.');

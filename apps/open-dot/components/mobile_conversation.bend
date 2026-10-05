@@ -1,9 +1,9 @@
-import ../../f/bend2/std/F/ui/kit.bend as K
-import ../../f/bend2/std/F/ui/primitives.bend as P
-import ../../f/bend2/std/F/ui/tokens.bend as T
-import ../../f/bend2/std/F/ui/metrics.bend as M
-import ../../f/bend2/std/F/ui/nearling.bend as N
-import ../../f/bend2/std/F/ui/symbols.bend as S
+import ../../../bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/ui/primitives.bend as P
+import ../../../bend2/std/F/ui/tokens.bend as T
+import ../../../bend2/std/F/ui/metrics.bend as M
+import ../../../bend2/std/F/ui/nearling.bend as N
+import ../../../bend2/std/F/ui/symbols.bend as S
 
 def width() -> U32: 390
 def height() -> U32: 844

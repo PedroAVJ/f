@@ -1,6 +1,6 @@
-import ../../f/bend2/std/F/ui/kit.bend as K
-import ../../f/bend2/std/F/ui/primitives.bend as P
-import ../../f/bend2/std/F/ui/tokens.bend as T
+import ../../../bend2/std/F/ui/kit.bend as K
+import ../../../bend2/std/F/ui/primitives.bend as P
+import ../../../bend2/std/F/ui/tokens.bend as T
 
 # The accepted conversation components use the Mac window's content size.
 def width() -> U32: 1000

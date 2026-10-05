@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --tag vX.Y.Z-preview.N --identity <Developer-ID-name-or-SHA1> --notary-profile <keychain-profile> [--keychain <path>] [--publish]"
+  echo "usage: $0 --tag dot-vX.Y.Z-preview.N --identity <Developer-ID-name-or-SHA1> --notary-profile <keychain-profile> [--keychain <path>] [--publish]"
 }
 tag=""
 identity=""
@@ -25,7 +25,7 @@ while [ "$#" -gt 0 ]; do
     *) usage >&2; exit 2 ;;
   esac
 done
-if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-preview\.[0-9]+$ ]] || [ -z "$identity" ] || [ -z "$notary_profile" ]; then
+if [[ ! "$tag" =~ ^dot-v([0-9]+\.[0-9]+\.[0-9]+)-preview\.[0-9]+$ ]] || [ -z "$identity" ] || [ -z "$notary_profile" ]; then
   usage >&2
   exit 2
 fi
@@ -49,11 +49,10 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 source_commit="$(git rev-parse HEAD)"
-fork_commit="$(git -C ../f rev-parse HEAD)"
+repository_root="$(git rev-parse --show-toplevel)"
 if $publish; then
-  if [ "$source_commit" != "$(git ls-remote origin refs/heads/main | cut -f1)" ] ||
-     [ "$fork_commit" != "$(git -C ../f ls-remote origin refs/heads/main | cut -f1)" ]; then
-    echo "Push both source commits to main before publishing." >&2
+  if [ "$source_commit" != "$(git ls-remote origin refs/heads/main | cut -f1)" ]; then
+    echo "Push the F source commit to main before publishing." >&2
     exit 1
   fi
   if [ -n "$(git ls-remote origin "refs/tags/$tag")" ]; then
@@ -64,12 +63,11 @@ fi
 xcrun notarytool history --keychain-profile "$notary_profile" --output-format json >/dev/null
 mkdir -p dist
 release_dir="$(mktemp -d "$project_root/dist/release-${tag}.XXXXXX")"
-build_root="$release_dir/work/open-dot"
-mkdir -p "$build_root" "$release_dir/work/f"
-# Build committed snapshots so unrelated local fork edits cannot enter a release.
-git archive "$source_commit" | tar -x -C "$build_root"
-git -C ../f archive "$fork_commit" | tar -x -C "$release_dir/work/f"
-(cd "$build_root" && BEND="$release_dir/work/f/bend2/main.ts" bun ../f/bend2/main.ts macos_system build)
+build_root="$release_dir/work/f/apps/open-dot"
+mkdir -p "$release_dir/work/f"
+# App and compiler come from the same committed F snapshot.
+git -C "$repository_root" archive "$source_commit" | tar -x -C "$release_dir/work/f"
+(cd "$build_root" && BEND="$release_dir/work/f/bend2/main.ts" bun ../../bend2/main.ts macos_system build)
 app_bundle="$release_dir/Dot.app"
 ditto "$build_root/dist/mac.macos/Dot.app" "$app_bundle"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" "$app_bundle/Contents/Info.plist"
@@ -122,11 +120,11 @@ Signed with Developer ID, notarized by Apple, and verified by Gatekeeper. The no
 
 Replies remain the placeholder \`…\`. Codex/Claude transport is not connected. Calls, attachments and dictation show availability notices. Conversation state lasts for the current run.
 
-Built from [Open Dot ${source_commit:0:7}](https://github.com/PedroAVJ/open-dot/commit/$source_commit) using [Bend2 fork ${fork_commit:0:8}](https://github.com/PedroAVJ/f/commit/$fork_commit). \`SHA256SUMS\` contains the ZIP checksum.
+Built from [F ${source_commit:0:8}](https://github.com/PedroAVJ/f/commit/$source_commit), package \`apps/open-dot\`. \`SHA256SUMS\` contains the ZIP checksum.
 EOF
 echo "Verified release files: $release_dir"
 if $publish; then
   gh release create "$tag" "$release_dir/Dot-macOS-arm64.zip" "$release_dir/SHA256SUMS" \
-    --repo PedroAVJ/open-dot --target "$source_commit" --title "Open Dot $short_version macOS preview" \
+    --repo PedroAVJ/f --target "$source_commit" --title "Open Dot $short_version macOS preview" \
     --notes-file "$release_dir/release-notes.md" --prerelease
 fi

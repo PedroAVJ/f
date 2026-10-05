@@ -1,12 +1,12 @@
 import UI
-import ../f/bend2/std/F/browser/input.bend as Native
-import ../f/bend2/std/F/browser/host.bend as Host
-import ../f/bend2/std/F/ui/kit.bend as K
-import ../f/bend2/std/F/ui/primitives.bend as P
-import ../f/bend2/std/F/ai/wire_json.bend as J
+import ../../bend2/std/F/browser/input.bend as Native
+import ../../bend2/std/F/browser/host.bend as Host
+import ../../bend2/std/F/ui/kit.bend as K
+import ../../bend2/std/F/ui/primitives.bend as P
+import ../../bend2/std/F/ai/wire_json.bend as J
 import ./components/mobile_conversation.bend as C
 import ./components/mobile_rich_text.bend as Rich
-import ../f/bend2/std/F/ui/tokens.bend as T
+import ../../bend2/std/F/ui/tokens.bend as T
 
 type DocumentFile is Data:
   DocumentFile{id: String, url: String, name: String, mimeType: String, size: U32}

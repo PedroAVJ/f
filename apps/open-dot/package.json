@@ -1,0 +1,20 @@
+{
+  "name": "@pedroavj/open-dot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PedroAVJ/f.git",
+    "directory": "apps/open-dot"
+  },
+  "scripts": {
+    "build:ios": "bun script/build_ios.ts",
+    "build:web": "bun script/build_web.ts",
+    "test:harness": "bun --cwd harness test",
+    "typecheck:harness": "bun --cwd harness run typecheck",
+    "test:host": "bun tests/web_host.mjs && bun tests/web_media.mjs",
+    "build:macos": "BEND=../../bend2/main.ts bun ../../bend2/main.ts macos_system build"
+  }
+}
