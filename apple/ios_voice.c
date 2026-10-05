@@ -63,6 +63,10 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
   NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
   NSDictionary* draft = [defaults dictionaryForKey:ios_audio_draft_key];
   if (![draft[@"clipId"] isEqual:pending[@"clipId"]]) return;
+  if ([pending[@"processing"] isEqual:@"server"]) {
+    [defaults removeObjectForKey:ios_audio_draft_key];
+    return;
+  }
   NSString* transcript = [pending[@"transcript"] isKindOfClass:NSString.class] ? pending[@"transcript"] : @"";
   if (![transcript stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length) {
     // Storage acknowledgment does not mean the provider received context.
@@ -103,6 +107,7 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
 @property NSTimeInterval callStartedAt;
 @property NSTimeInterval recordStartedAt;
 @property BOOL callConnected;
+@property BOOL serverTranscription;
 @property BOOL tapInstalled;
 @property BOOL muted;
 @property BOOL loudspeaker;
@@ -207,15 +212,19 @@ static BendIOSVoice* ios_voice;
     AVFormatIDKey:@(kAudioFormatMPEG4AAC), AVSampleRateKey:@44100, AVNumberOfChannelsKey:@1,
     AVEncoderBitRateKey:@64000, AVEncoderAudioQualityKey:@(AVAudioQualityHigh)} error:&error];
   self.recorder.delegate = self;
+  self.recorder.meteringEnabled = self.serverTranscription;
   if (!self.recorder || ![self.recorder prepareToRecord] || ![self.recorder recordForDuration:IOS_AUDIO_SECONDS]) {
     [self failed:error.localizedDescription ?: ios_audio_words(@"Could not start the microphone.", @"No se pudo iniciar el micrófono.")]; return;
   }
   self.recordStartedAt = NSProcessInfo.processInfo.systemUptime;
-  self.recordingTimer = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(recordTick:) userInfo:nil repeats:YES];
+  self.recordingTimer = [NSTimer scheduledTimerWithTimeInterval:(self.serverTranscription ? 0.1 : 1) target:self selector:@selector(recordTick:) userInfo:nil repeats:YES];
   [self emit:@"recording" extra:@{@"clipId":self.clip}];
 }
 - (void)recordTick:(NSTimer*)timer {
-  ios_action(@{@"action":@"voice", @"data":[self state:@"elapsed" extra:@{@"clipId":self.clip ?: @""}]});
+  [self.recorder updateMeters];
+  float power = [self.recorder averagePowerForChannel:0];
+  NSUInteger level = (NSUInteger)roundf(fmaxf(0, fminf(100, (power + 60) * (100.0f / 60))));
+  ios_action(@{@"action":@"voice", @"data":[self state:@"elapsed" extra:@{@"clipId":self.clip ?: @"", @"level":@(level)}]});
 }
 - (void)finishRecording:(AVAudioRecorder*)recorder success:(BOOL)success {
   if (recorder != self.recorder) return;
@@ -240,7 +249,8 @@ static BendIOSVoice* ios_voice;
     @"mimeType":@"audio/mp4", @"transcript":@"", @"session":self.session,
     @"mode":@"message", @"phase":@"recorded", @"transcriptionStatus":@"pending"};
   if (!ios_audio_draft(metadata)) { [self failed:ios_audio_words(@"The audio is saved, but its draft could not be saved.", @"El audio está guardado, pero no se pudo guardar su borrador.")]; return; }
-  [self transcribeFile:path metadata:metadata];
+  if (self.serverTranscription) [self emit:@"recorded" extra:metadata];
+  else [self transcribeFile:path metadata:metadata];
 }
 - (void)transcribeFile:(NSURL*)file metadata:(NSDictionary*)metadata {
   // The M4A is already durable. Speech supplies optional provider context;
@@ -515,6 +525,7 @@ static BendIOSVoice* ios_voice;
     self.callStartedAt = 0; self.callConnected = NO; self.awaitingReply = NO;
     if ([action isEqual:@"record"]) {
       self.mode = @"message"; self.clip = NSUUID.UUID.UUIDString; self.locale = nil;
+      self.serverTranscription = [command[@"transcription"] isEqual:@"server"];
       [self emit:@"authorizing" extra:nil];
       NSUInteger generation = self.generation;
       [self microphone:generation completion:^{ [self beginRecording]; }];
