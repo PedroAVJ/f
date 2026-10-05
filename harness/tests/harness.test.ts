@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { AppServer } from "../rpc.ts";
 import { ClaudeCode } from "../claude.ts";
-import { Sessions } from "../session.ts";
+import { Sessions, type Audio } from "../session.ts";
+import { type VoiceProcessor, TONE_MODEL, parseTone } from "../voice.ts";
 import { httpHandler } from "../server.ts";
 import { audioUpload, audioDownload } from "../audio.ts";
 import { imageUpload, imagePath, readImage } from "../images.ts";
@@ -22,12 +23,12 @@ const owned: { rpc: AppServer; root: string; claude?: ClaudeCode }[] = [];
 afterEach(async () => {
   for (const item of owned.splice(0)) { item.rpc.close(); item.claude?.close(); await Bun.sleep(50); rmSync(item.root, { recursive: true, force: true }); }
 });
-async function fixture(mode = "complete", existingRoot?: string, timeoutMs = 2_000, claudeMode?: string) {
+async function fixture(mode = "complete", existingRoot?: string, timeoutMs = 2_000, claudeMode?: string, voiceProcessor: VoiceProcessor = async () => ({ transcript: "Hello from voice", tone: { model: TONE_MODEL, summary: "Even, measured delivery.", segments: [] } })) {
   const root = existingRoot ?? mkdtempSync(join(tmpdir(), "dot-harness-test-"));
   const rpc = new AppServer([process.execPath, join(import.meta.dir, "mock-app-server.ts"), join(root, "official.json"), mode], root, timeoutMs);
   const claude = claudeMode ? new ClaudeCode([process.execPath, join(import.meta.dir, "mock-claude.ts"), join(root, "claude.json"), claudeMode], root) : undefined;
   owned.push({ rpc, root, claude });
-  const sessions = new Sessions(rpc, join(root, "session.json"), root, claude);
+  const sessions = new Sessions(rpc, join(root, "session.json"), root, claude, voiceProcessor);
   await sessions.ready;
   const official = () => JSON.parse(readFileSync(join(root, "official.json"), "utf8"));
   return { root, rpc, sessions, official, claude };
@@ -128,9 +129,9 @@ test("voice messages retain private M4A bytes, deduplicate uploads and route rec
   expect(saved.status).toBe(202);
   const snapshot = await saved.json() as any;
   const audio = snapshot.threads[0].messages[0].audio;
-  expect(audio).toMatchObject({ durationMs: 1200, mimeType: "audio/mp4", transcriptionStatus: "missing" });
+  expect(audio).toMatchObject({ durationMs: 1200, mimeType: "audio/mp4", transcriptionStatus: "processing" });
   expect(snapshot.acceptedRequestIds).toEqual(["voice-1"]);
-  expect(snapshot.threads[0].error).toContain("transcription");
+  expect(snapshot.threads[0].status).toBe("working");
   expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(0);
   const artifact = join(f.sessions.audioDirectory(), `${audio.id}.m4a`);
   expect(new Uint8Array(readFileSync(artifact))).toEqual(bytes);
@@ -142,9 +143,12 @@ test("voice messages retain private M4A bytes, deduplicate uploads and route rec
   expect(new Uint8Array(await playback.arrayBuffer())).toEqual(bytes);
   const range = await download({ "Tailscale-User-Login": "owner@test", Range: "bytes=4-7" });
   expect(range.status).toBe(206); expect(await range.text()).toBe("ftyp");
-  expect((await upload({ ...metadata, transcript: "Hello from voice" })).status).toBe(202);
+  expect((await upload({ ...metadata, transcript: "FORGED client transcript" })).status).toBe(202);
   await until(() => selected(f.sessions).status === "idle");
-  expect(selected(f.sessions).messages[0].audio?.transcriptionStatus).toBe("ready");
+  expect(selected(f.sessions).messages[0].audio).toMatchObject({ transcriptionStatus: "ready", transcriptionModel: "scribe_v2", transcript: "Hello from voice", tone: { model: TONE_MODEL } });
+  const prompt = f.official().calls.find((call: any) => call.method === "turn/start").params.input[0].text;
+  expect(prompt).toContain("Hello from voice"); expect(prompt).toContain("Even, measured delivery.");
+  expect(prompt).not.toContain("FORGED"); expect(prompt).toContain(artifact);
   expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
   expect((await upload({ ...metadata, transcript: "Hello from voice" })).status).toBe(202);
   expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
@@ -384,11 +388,18 @@ test("acknowledges immediately, streams real items, deduplicates and resumes off
   expect(() => resumed.sessions.submit({ ...input, text: "Different" })).toThrow("different message");
 });
 
-test("stop interrupts only this session and blocks overlapping sends", async () => {
+test("follow-ups reach the running task once and stop interrupts only this session", async () => {
   const f = await fixture("hold"); const id = selected(f.sessions).id;
   f.sessions.submit({ threadId: id, requestId: "hold-1", text: "Wait" });
   await until(() => f.official().calls.some((x: any) => x.method === "turn/start"));
-  expect(() => f.sessions.submit({ threadId: id, requestId: "hold-2", text: "Second" })).toThrow("still working");
+  const followup = { threadId: id, requestId: "hold-2", text: "Second" };
+  expect(f.sessions.submit(followup).acceptedRequestIds).toEqual(["hold-1", "hold-2"]);
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/steer"));
+  f.sessions.submit(followup);
+  await Bun.sleep(30);
+  expect(f.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
+  expect(f.official().calls.filter((x: any) => x.method === "turn/steer")).toHaveLength(1);
+  expect(f.official().calls.find((x: any) => x.method === "turn/steer").params).toMatchObject({ expectedTurnId: "turn-1", clientUserMessageId: "hold-2", input: [{ type: "text", text: "Second" }] });
   await f.sessions.stop({ threadId: id });
   await until(() => selected(f.sessions).status === "idle");
   expect(selected(f.sessions).error).toBe("Turn stopped.");
@@ -433,7 +444,7 @@ test("surfaces provider failure and completes tool requests with affirmative pro
   expect(selected(approval.sessions).messages.at(-1)?.text).toBe("Hello world");
 });
 
-test("a missing turn acknowledgement does not permit overlapping work or replay", async () => {
+test("a missing turn acknowledgement permits follow-ups without another start or replay", async () => {
   const f = await fixture("timeout", undefined, 80); const id = selected(f.sessions).id;
   const input = { threadId: id, requestId: "timeout-1", text: "Hold" };
   f.sessions.submit(input);
@@ -441,10 +452,64 @@ test("a missing turn acknowledgement does not permit overlapping work or replay"
   expect(selected(f.sessions).status).toBe("working");
   expect(selected(f.sessions).error).toContain("unknown");
   f.sessions.submit(input);
-  expect(() => f.sessions.submit({ ...input, requestId: "timeout-2" })).toThrow("still working");
+  f.sessions.submit({ ...input, requestId: "timeout-2", text: "Follow up" });
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/steer"));
   await f.sessions.stop({ threadId: id });
   await until(() => selected(f.sessions).status === "idle");
   expect(f.official().calls.filter((x: any) => x.method === "turn/start")).toHaveLength(1);
+});
+
+test("a turn ending before steering starts the follow-up once in the same conversation", async () => {
+  const f = await fixture("steer-end-race");
+  f.sessions.submit({ requestId: "race-first", text: "First" });
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/start"));
+  f.sessions.submit({ requestId: "race-next", text: "Next" });
+  await until(() => selected(f.sessions).status === "idle");
+  const turns = Object.values(f.official().threads) as any[];
+  expect(turns).toHaveLength(1);
+  expect(turns[0].turns).toHaveLength(2);
+  expect(turns[0].turns.flatMap((t: any) => t.items).filter((i: any) => i.clientId === "race-next")).toHaveLength(1);
+  expect(JSON.parse(readFileSync(join(f.root, "session.json"), "utf8")).requests.map((r: any) => r.phase)).toEqual(["completed", "completed"]);
+});
+
+test("completion before a steering acknowledgement clears both accepted receipts", async () => {
+  const f = await fixture("steer-complete-before-ack");
+  f.sessions.submit({ requestId: "early-first", text: "First" });
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/start"));
+  f.sessions.submit({ requestId: "early-next", text: "Next" });
+  await until(() => selected(f.sessions).status === "idle");
+  await Bun.sleep(100);
+  expect(selected(f.sessions).status).toBe("idle");
+  expect(JSON.parse(readFileSync(join(f.root, "session.json"), "utf8")).requests.map((r: any) => r.phase)).toEqual(["completed", "completed"]);
+});
+
+test("an unacknowledged steer is not replayed by retrying its receipt", async () => {
+  const f = await fixture("steer-timeout", undefined, 80);
+  f.sessions.submit({ requestId: "unknown-first", text: "First" });
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/start"));
+  const followup = { requestId: "unknown-steer", text: "Next" };
+  f.sessions.submit(followup);
+  await until(() => !!selected(f.sessions).error);
+  f.sessions.submit(followup);
+  await Bun.sleep(30);
+  expect(f.official().calls.filter((x: any) => x.method === "turn/steer")).toHaveLength(1);
+  expect(selected(f.sessions).messages.filter((m) => m.role === "user")).toHaveLength(2);
+  await f.sessions.stop({ threadId: selected(f.sessions).id });
+});
+
+test("voice and typed messages are accepted and delivered during a running task", async () => {
+  const f = await fixture("hold");
+  f.sessions.submit({ requestId: "voice-busy-first", text: "Work" });
+  await until(() => f.official().calls.some((x: any) => x.method === "turn/start"));
+  f.sessions.submitAudio({ requestId: "voice-busy", clipId: "busy-clip" }, testAudio);
+  f.sessions.submit({ requestId: "typed-after-voice", text: "And this" });
+  await until(() => f.official().calls.filter((x: any) => x.method === "turn/steer").length === 2);
+  const steers = f.official().calls.filter((x: any) => x.method === "turn/steer");
+  expect(steers.map((x: any) => x.params.clientUserMessageId)).toEqual(["voice-busy", "typed-after-voice"]);
+  expect(steers[0].params.input[0].text).toContain("Voice message attached:");
+  expect(steers[0].params.input[0].text).toContain("Hello from voice");
+  expect(steers[1].params.input[0].text).toBe("And this");
+  await f.sessions.stop({ threadId: selected(f.sessions).id });
 });
 
 test("completed notification wins over a later missing acknowledgement timeout", async () => {
@@ -595,4 +660,100 @@ test("the ongoing conversation's full history can be paged without exposing or c
   expect(JSON.parse(readFileSync(join(root, "session.json"), "utf8")).threads[0].messages[0].text).toBe(source);
   expect(JSON.parse(readFileSync(join(root, "session.json"), "utf8")).threads[1]).toEqual(saved.threads[1]);
   expect((await handler(new Request("http://localhost:19453/api/session?before=-1"))).status).toBe(400);
+});
+
+
+const testAudio: Audio = { id: "a".repeat(64), url: "/api/audio/" + "a".repeat(64), mimeType: "audio/mp4", durationMs: 2000, transcriptionStatus: "missing" };
+
+test("voice enrichment failure retains audio and retries the same receipt once", async () => {
+  let calls = 0;
+  const f = await fixture("complete", undefined, 2000, undefined, async () => {
+    if (++calls === 1) throw new Error("Transcription service unavailable");
+    return { transcript: "Recovered words", toneError: "Tone service unavailable" };
+  });
+  const input = { requestId: "retry-voice", clipId: "clip" };
+  f.sessions.submitAudio(input, testAudio);
+  await until(() => selected(f.sessions).status === "failed");
+  expect(selected(f.sessions).messages[0].audio?.transcriptionStatus).toBe("failed");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(0);
+  const handler = httpHandler(f.sessions, { allowedLogin: "", publicHost: "" });
+  const retry = () => handler(new Request("http://localhost/api/audio/retry", { method: "POST", headers: { Origin: "http://localhost", "Content-Type": "application/json" }, body: JSON.stringify({ requestId: input.requestId }) }));
+  expect((await retry()).status).toBe(202);
+  expect((await retry()).status).toBe(202);
+  await until(() => selected(f.sessions).status === "idle");
+  expect(calls).toBe(2);
+  expect(selected(f.sessions).messages.filter((m) => m.role === "user")).toHaveLength(1);
+  expect(selected(f.sessions).messages[0].audio?.toneError).toBe("Tone service unavailable");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+  expect((await retry()).status).toBe(202);
+  expect(calls).toBe(2);
+});
+
+test("stopping voice enrichment aborts processing and never sends a provider turn", async () => {
+  let started = false, aborted = false;
+  const f = await fixture("complete", undefined, 2000, undefined, async (_path, _id, _duration, signal) => {
+    started = true;
+    return new Promise((_resolve, reject) => signal.addEventListener("abort", () => { aborted = true; reject(new Error("aborted")); }, { once: true }));
+  });
+  f.sessions.submitAudio({ requestId: "stop-voice", clipId: "clip" }, testAudio);
+  await until(() => started);
+  await f.sessions.stop({ threadId: selected(f.sessions).id });
+  await until(() => aborted);
+  await Bun.sleep(20);
+  expect(selected(f.sessions).status).toBe("idle");
+  expect(selected(f.sessions).messages[0].audio?.transcriptionStatus).toBe("failed");
+  expect(JSON.parse(readFileSync(join(f.root, "session.json"), "utf8")).requests[0].phase).toBe("awaiting-transcript");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(0);
+});
+
+test("restart resumes audio enrichment but does not replay acknowledged agent turns", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dot-audio-recover-"));
+  writeFileSync(join(root, "session.json"), JSON.stringify({ version: 1, selectedThreadId: "voice-thread", requests: [
+    { id: "recover-voice", hash: "saved", threadId: "voice-thread", provider: "codex", phase: "processing-audio" },
+  ], threads: [{ id: "voice-thread", title: "Voice", status: "working", messages: [
+    { id: "client:recover-voice", clientId: "recover-voice", role: "user", text: "", provider: "codex", audio: { ...testAudio, transcriptionStatus: "processing" } },
+  ] }] }));
+  let calls = 0;
+  const f = await fixture("complete", root, 2000, undefined, async () => { calls++; return { transcript: "Recovered after restart" }; });
+  await until(() => selected(f.sessions).status === "idle");
+  expect(calls).toBe(1);
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+  f.rpc.close(); await Bun.sleep(30);
+  const second = await fixture("complete", root, 2000, undefined, async () => { throw new Error("must not reprocess"); });
+  expect(selected(second.sessions).messages[0].audio?.transcriptionStatus).toBe("ready");
+  expect(second.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+});
+
+test("voice caption and audio-derived tone reach Claude and survive provider handoff", async () => {
+  const f = await fixture("complete", undefined, 2000, "complete");
+  f.sessions.setProvider({ provider: "claude" });
+  f.sessions.submitAudio({ requestId: "claude-voice", clipId: "clip", text: "A caption" }, testAudio);
+  await until(() => selected(f.sessions).status === "idle");
+  const saved = JSON.parse(readFileSync(join(f.root, "claude.json"), "utf8"));
+  expect(JSON.stringify(saved)).toContain("A caption");
+  expect(JSON.stringify(saved)).toContain(TONE_MODEL);
+  f.sessions.setProvider({ provider: "codex" });
+  f.sessions.submit({ requestId: "voice-handoff", text: "Continue" });
+  await until(() => selected(f.sessions).status === "idle");
+  const prompt = f.official().calls.find((call: any) => call.method === "turn/start").params.input[0].text;
+  expect(prompt).toContain("Even, measured delivery.");
+});
+
+test("tone annotation validation rejects invented timestamps and malformed model output", () => {
+  expect(() => parseTone({ summary: "Fast delivery", segments: [{ startSeconds: 0, endSeconds: 30, delivery: "Fast" }] }, 2000)).toThrow();
+  expect(() => parseTone({ summary: 4, segments: [] }, 2000)).toThrow();
+  expect(parseTone({ summary: "Unclear", segments: [] }, 2000)).toEqual({ model: TONE_MODEL, summary: "Unclear", segments: [] });
+});
+
+
+test("stop before voice processing starts keeps the recording retryable without running enrichment", async () => {
+  let calls = 0;
+  const f = await fixture("complete", undefined, 2000, undefined, async () => { calls++; return { transcript: "Unexpected" }; });
+  f.sessions.submitAudio({ requestId: "queued-voice-stop", clipId: "clip" }, testAudio);
+  await f.sessions.stop({ threadId: selected(f.sessions).id });
+  await Bun.sleep(20);
+  expect(calls).toBe(0);
+  expect(selected(f.sessions).messages[0].audio?.transcriptionStatus).toBe("failed");
+  expect(JSON.parse(readFileSync(join(f.root, "session.json"), "utf8")).requests[0].phase).toBe("awaiting-transcript");
+  expect(f.official().calls.filter((call: any) => call.method === "turn/start")).toHaveLength(0);
 });

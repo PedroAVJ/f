@@ -3,6 +3,7 @@ import ../../f/bend2/std/F/ui/primitives.bend as P
 import ../../f/bend2/std/F/ui/tokens.bend as T
 import ../../f/bend2/std/F/ui/metrics.bend as M
 import ../../f/bend2/std/F/ui/nearling.bend as N
+import ../../f/bend2/std/F/ui/symbols.bend as S
 
 def width() -> U32: 390
 def height() -> U32: 844
@@ -126,16 +127,35 @@ def search_results(+query: String, history: List<&2, K.Item>, +limit: U32) -> K.
 def search_view(+query: String, history: List<&2, K.Item>, +w: U32, +h: U32) -> P.UI:
   +inner = U32.sub(w, 40)
   K.sheet_tree(K.sheet("Buscar", K.SheetBody.Find{K.search("Buscar en la conversación", K.FieldState{query, K.Focus.Focused{}}, search_results(query, history, U32.min(8, U32.max(1, U32.div(U32.sub(U32.max(h, 160), 160), 80)))), inner)}, K.Settled{}, K.still(), w, h))
-def recording_view(+elapsed_ms: U32, +phase: String, +error: String, +w: U32, +h: U32) -> P.UI:
+def meter_bars(n: Nat, +level: U32) -> List<&2, P.UI>:
+  match n:
+    case 0n: []
+    case Succ{+k}:
+      +height = U32.add(3, U32.div(U32.mul(level, U32.add(8, U32.mod(U32.mul(U32.from_nat(k), 7), 17))), 100))
+      P.rounded("Audio level", P.Fill.None{}, 2, height, P.Full{}, P.Stroke{T.LineRole.Ink{}, T.State.Rest{}, "2"}, P.Middle{}) <> meter_bars(k, level)
+def recording_composer(+elapsed: U32, +phase: String, +level: U32, +box: U32) -> P.UI:
   +ready = String.eq(phase, "recorded")
   +recording = String.eq(phase, "recording")
-  +copy = Bool.pick(String, ready, "Grabación lista · ", Bool.pick(String, recording, "Grabando · ", Bool.pick(String, String.eq(phase, "uploading"), "Enviando mensaje de voz… ", "Procesando audio… ")))
-  dialog("Mensaje de voz", K.append_trees([K.paragraph("Recording status", copy ++ K.clock_text(elapsed_ms), K.body(), K.ink(), U32.sub(dialog_w(w), 32), P.Middle{})],
-    K.append_trees(Bool.pick(List<&2, P.UI>, ready, [K.button_tree(K.say(K.ButtonKind.Quiet{}, "Reproducir grabación")), K.button_tree(K.say(K.ButtonKind.Primary{}, "Enviar mensaje de voz"))],
-      Bool.pick(List<&2, P.UI>, recording, [K.button_tree(K.say(K.ButtonKind.Primary{}, "Detener grabación"))], [])),
-      K.append_trees(Bool.pick(List<&2, P.UI>, ready && Bool.not(String.is_empty(error)), [K.button_tree(K.say(K.ButtonKind.Quiet{}, "Reintentar transcripción"))], []),
-      K.append_trees(Bool.pick(List<&2, P.UI>, String.eq(phase, "uploading"), [], [K.button_tree(K.act(K.ButtonKind.Quiet{}, K.Intent.Cancel{}, K.Form.Text{}))]),
-        Bool.pick(List<&2, P.UI>, String.is_empty(error), [], [K.paragraph("Error", error, K.small_type(), K.ink(), U32.sub(dialog_w(w), 32), P.Leading{})]))))), w, h)
+  +enabled = ready || recording
+  +cw = K.composer_w(box)
+  +meter_w = U32.sub(cw, 184)
+  +control = Bool.pick(String, ready, "Reproducir grabación", "Detener grabación")
+  +path = Bool.pick(String, ready, "M8 5L20 12L8 19Z", "M6 6H18V18H6Z")
+  +cancel = P.layout(Bool.pick(String, String.eq(phase, "uploading"), "button, disabled · Cancelar", "button · Cancelar"), P.Depth{}, 0, 0, 44, 44, P.Middle{}, [K.glyph(S.Drawing{"Cancel", "0", "0", "2", [S.Path{"M6 6L18 18M18 6L6 18"}]}, 18)])
+  +middle = P.layout("Recording meter", P.Horizontal{}, 4, 0, U32.sub(cw, 132), 44, P.Middle{}, [K.paragraph("Recording timer", K.clock_text(elapsed), K.small_type(), K.ink(), 48, P.Middle{}), P.layout("Audio meter", P.Horizontal{}, 3, 0, meter_w, 32, P.Middle{}, meter_bars(U32.to_nat(U32.div(meter_w, 5)), level))])
+  +stop = P.layout(Bool.pick(String, enabled, "button · ", "button, disabled · ") ++ control, P.Depth{}, 0, 0, 44, 44, P.Middle{}, [K.glyph_in(S.Drawing{"Recording control", "0", "0", "2", [S.Path{path}]}, 18, Bool.pick(T.State, enabled, T.State.Rest{}, T.State.Disabled{}))])
+  +send = K.renamed(K.button_tree(K.send_button(Bool.not(enabled))), Bool.pick(String, enabled, "button · Enviar mensaje de voz", "button, disabled · Enviar mensaje de voz"))
+  P.layout("group · Mensaje de voz", P.Depth{}, 0, 0, cw, 44, P.Middle{}, [K.pill_container(K.composer_size(box), False{}, cw, 44, 0), P.layout("Recording controls", P.Horizontal{}, 0, 0, cw, 44, P.Middle{}, [cancel, middle, stop, send])])
+def replace_composer(t: P.UI, +composer: P.UI) -> P.UI:
+  match t:
+    case P.Last{}: P.Last{}
+    case P.Leaf{name, shape, w, h, align, next}: P.Leaf{blocked(name), shape, w, h, align, replace_composer(next, composer)}
+    case P.Node{+name, lay, w, h, align, first, +next}:
+      Bool.pick(P.UI, String.eq(name, "group · Escribir mensaje"), with_next(composer, replace_composer(next, composer)), P.Node{blocked(name), lay, w, h, align, replace_composer(first, composer), replace_composer(next, composer)})
+def recording_view(history: List<&2, K.Item>, +elapsed_ms: U32, +phase: String, +level: U32, +error: String, +w: U32, +h: U32) -> P.UI:
+  +error_h = Bool.pick(U32, String.is_empty(error), 0, 56)
+  +base = conversation("Mensaje", "", history, K.Focus.Blurred{}, "", False{}, True{}, [], w, U32.sub(h, error_h))
+  P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, K.append_trees([replace_composer(base, recording_composer(elapsed_ms, phase, level, box(w)))], Bool.pick(List<&2, P.UI>, String.is_empty(error), [], [K.placed_at("Recording error", margin(), U32.sub(h, 56), K.paragraph("status · Error", error, K.small_type(), K.ink(), box(w), P.Leading{}))])))
 def call_view(permission: K.Permission, slice: K.CallSlice(permission), +w: U32, +h: U32) -> P.UI:
   +controls = K.call_controls_tree(K.call_controls(permission, slice))
   +pet = Bool.pick(P.UI, U32.is_lt(h, 340), K.identity_compact(identity(N.Idle{})), K.identity_tree(identity(N.Idle{})))
@@ -145,7 +165,7 @@ def call_view(permission: K.Permission, slice: K.CallSlice(permission), +w: U32,
 type Copy is Data:
   Copy{es: String, en: String}
 def copies() -> List<&2, Copy>:
-  [Copy{"Foto", "Photo"}, Copy{"Quitar foto", "Remove photo"}, Copy{"Cargando foto…", "Loading photo…"}, Copy{"No se pudo cargar la foto.", "Could not load the photo."}, Copy{"No se pudo cargar", "Could not load"}, Copy{"Reintentar", "Retry"}, Copy{"Enviando…", "Sending…"}, Copy{"Near terminó sin una respuesta de voz.", "Near finished without a spoken reply."}, Copy{"Mensaje", "Message"}, Copy{"Dictar", "Voice message"}, Copy{"Dictate", "Voice message"}, Copy{"Mensaje de voz", "Voice message"}, Copy{"Buscar en la conversación", "Search conversation"}, Copy{"Buscar", "Search"}, Copy{"Recientes", "Recent"}, Copy{"Resultados", "Results"}, Copy{"Sin resultados", "No results"}, Copy{"Aún no hay mensajes", "No messages yet"}, Copy{"Conversación", "Conversation"}, Copy{"Escribir mensaje", "Write message"}, Copy{"Modelo", "Model"}, Copy{"Detener", "Stop"}, Copy{"Tú", "You"}, Copy{"Detener grabación", "Stop recording"}, Copy{"Reproducir grabación", "Play recording"}, Copy{"Enviar mensaje de voz", "Send voice message"}, Copy{"Silenciado", "Muted"}, Copy{"Llamada terminada", "Call ended"}, Copy{"Llamando a Near…", "Calling Near…"}, Copy{"Near necesita tu micrófono para hablar contigo.", "Near needs your microphone to talk with you."}, Copy{"Acepta el permiso del navegador para continuar.", "Allow microphone access on your iPhone to continue."}, Copy{"El micrófono está bloqueado. Actívalo en los ajustes del navegador.", "Microphone access is blocked. Enable it in iPhone Settings."}]
+  [Copy{"Transcribiendo…", "Transcribing…"}, Copy{"Reintentar audio", "Retry audio"}, Copy{"Mensaje de voz · ", "Voice message · "}, Copy{"Foto", "Photo"}, Copy{"Quitar foto", "Remove photo"}, Copy{"Cargando foto…", "Loading photo…"}, Copy{"No se pudo cargar la foto.", "Could not load the photo."}, Copy{"No se pudo cargar", "Could not load"}, Copy{"Reintentar", "Retry"}, Copy{"Enviando…", "Sending…"}, Copy{"Near terminó sin una respuesta de voz.", "Near finished without a spoken reply."}, Copy{"Mensaje", "Message"}, Copy{"Dictar", "Voice message"}, Copy{"Dictate", "Voice message"}, Copy{"Mensaje de voz", "Voice message"}, Copy{"Buscar en la conversación", "Search conversation"}, Copy{"Buscar", "Search"}, Copy{"Recientes", "Recent"}, Copy{"Resultados", "Results"}, Copy{"Sin resultados", "No results"}, Copy{"Aún no hay mensajes", "No messages yet"}, Copy{"Conversación", "Conversation"}, Copy{"Escribir mensaje", "Write message"}, Copy{"Modelo", "Model"}, Copy{"Detener", "Stop"}, Copy{"Tú", "You"}, Copy{"Detener grabación", "Stop recording"}, Copy{"Reproducir grabación", "Play recording"}, Copy{"Enviar mensaje de voz", "Send voice message"}, Copy{"Silenciado", "Muted"}, Copy{"Llamada terminada", "Call ended"}, Copy{"Llamando a Near…", "Calling Near…"}, Copy{"Near necesita tu micrófono para hablar contigo.", "Near needs your microphone to talk with you."}, Copy{"Acepta el permiso del navegador para continuar.", "Allow microphone access on your iPhone to continue."}, Copy{"El micrófono está bloqueado. Actívalo en los ajustes del navegador.", "Microphone access is blocked. Enable it in iPhone Settings."}]
 def copied(xs: List<&2, Copy>, +text: String, +lang: K.Lang) -> String:
   match xs:
     case []: text

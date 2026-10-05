@@ -43,7 +43,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       thread.turns.push(turn); save(); if (!["timeout", "complete-no-ack"].includes(mode)) reply({ turn });
       notify("turn/started", { threadId: thread.id, turn });
       notify("item/started", { threadId: thread.id, turnId: turn.id, startedAtMs: Date.now(), item: turn.items[0] });
-      if (mode === "hold" || mode === "timeout") break;
+      if (mode === "hold" || mode === "timeout" || (mode.startsWith("steer-") && thread.turns.length === 1)) break;
       if (mode === "approval") {
         const params = { threadId: thread.id, turnId: turn.id, itemId: "command-1", startedAtMs: Date.now() };
         const requests = [
@@ -70,6 +70,23 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         notify("item/completed", { threadId: thread.id, turnId: turn.id, completedAtMs: Date.now(), item });
         notify("turn/completed", { threadId: thread.id, turn });
       }, 45);
+      break;
+    }
+    case "turn/steer": {
+      const thread = state.threads[params.threadId], turn = thread.turns.at(-1);
+      if (mode === "steer-end-race" && turn.status === "inProgress") {
+        turn.status = "completed"; save(); notify("turn/completed", { threadId: thread.id, turn });
+      }
+      if (!turn || turn.id !== params.expectedTurnId || turn.status !== "inProgress") {
+        emit({ id: message.id, error: { code: -32600, message: "The expected turn is no longer active" } }); break;
+      }
+      const item = { id: `steer-user-${turn.items.length}`, type: "userMessage", clientId: params.clientUserMessageId, content: params.input };
+      turn.items.push(item); save();
+      notify("item/started", { threadId: thread.id, turnId: turn.id, item });
+      if (mode === "steer-complete-before-ack") {
+        turn.status = "completed"; save(); notify("turn/completed", { threadId: thread.id, turn });
+        setTimeout(() => reply({ turnId: turn.id }), 80);
+      } else if (mode !== "steer-timeout") reply({ turnId: turn.id });
       break;
     }
     case "turn/interrupt": {

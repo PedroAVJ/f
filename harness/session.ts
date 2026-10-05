@@ -5,10 +5,12 @@ import { AppServer, RpcTimeout, type ServerCall, type Wire } from "./rpc.ts";
 import { ClaudeCode } from "./claude.ts";
 import { imagePath, readImage } from "./images.ts";
 import { approvalResponse } from "./approvals.ts";
+import { processVoice, TONE_MODEL, type Tone, type VoiceProcessor } from "./voice.ts";
 
 export type Status = "idle" | "working" | "failed";
 export type Provider = "codex" | "claude";
-export type Audio = { id: string; url: string; mimeType: "audio/mp4"; durationMs: number; transcriptionStatus: "ready" | "missing" };
+export type Audio = { id: string; url: string; mimeType: "audio/mp4"; durationMs: number; transcriptionStatus: "ready" | "missing" | "processing" | "failed";
+  transcript?: string; transcriptionModel?: "scribe_v2"; caption?: string; tone?: Tone; toneError?: string; processingError?: string };
 export type ImageAttachment = { id: string; url: string; mimeType: "image/jpeg" | "image/png"; width: number; height: number };
 type Message = { id: string; role: "user" | "assistant"; text: string; clientId?: string; provider?: Provider; audio?: Audio; image?: ImageAttachment };
 type Thread = {
@@ -17,7 +19,7 @@ type Thread = {
   claudeId?: string; claudeStarted?: boolean; provider?: Provider;
   synced?: Partial<Record<Provider, number>>;
 };
-type Receipt = { id: string; hash: string; threadId: string; provider?: Provider; claudeRequestUuid?: string; phase: "queued" | "submitted" | "completed" | "failed" | "cancelled" | "awaiting-transcript" };
+type Receipt = { id: string; hash: string; threadId: string; provider?: Provider; claudeRequestUuid?: string; turnId?: string; phase: "queued" | "dispatching" | "submitted" | "completed" | "failed" | "cancelled" | "awaiting-transcript" | "processing-audio" };
 type State = { version: 1; threads: Thread[]; selectedThreadId: string; requests: Receipt[] };
 
 export class InputError extends Error {
@@ -28,11 +30,14 @@ export class Sessions {
   readonly ready: Promise<void>;
   private state: State;
   private active = new Set<string>();
+  private delivery = new Map<string, Promise<void>>();
+  private completedTurns = new Map<string, "completed" | "failed" | "interrupted">();
+  private audioControllers = new Map<string, AbortController>();
   private connectionError?: string;
   private model?: string;
   isReady = false;
 
-  constructor(readonly rpc: AppServer, private path: string, private cwd: string, readonly claude?: ClaudeCode) {
+  constructor(readonly rpc: AppServer, private path: string, private cwd: string, readonly claude?: ClaudeCode, private voiceProcessor: VoiceProcessor = processVoice) {
     if (existsSync(path)) {
       const state = JSON.parse(readFileSync(path, "utf8"));
       if (state.version !== 1 || !Array.isArray(state.threads) || !Array.isArray(state.requests)
@@ -59,8 +64,8 @@ export class Sessions {
     const { id, title, status, messages, error } = this.thread(this.state.selectedThreadId);
     const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
     const needle = search?.trim().toLocaleLowerCase();
-    const parts = messages.flatMap(({ id, role, text, audio, image }) => matchingChunks(text, needle)
-      .map(({ text: part, index }) => ({ id: `${id}:${index}`, role, text: part, ...(audio ? { audio } : {}), ...(image && index === 0 ? { image } : {}) })));
+    const parts = messages.flatMap(({ id, role, text, audio, image, clientId }) => matchingChunks(text, needle)
+      .map(({ text: part, index }) => ({ id: `${id}:${index}`, role, text: part, ...(audio && index === 0 ? { audio, clientId } : {}), ...(image && index === 0 ? { image } : {}) })));
     const end = before === undefined ? parts.length : Number(before);
     if (end > parts.length) throw new InputError("History cursor is no longer available.");
     const start = Math.max(0, end - 4);
@@ -83,7 +88,8 @@ export class Sessions {
   ownedImage(id: string) { return this.thread(this.state.selectedThreadId).messages.find((message) => message.image?.id === id)?.image; }
 
   health() {
-    return { status: this.connectionError ? "failed" : this.isReady ? "ok" : "connecting", runtime: "codex-app-server+claude-code", provider: this.provider(), providers: {
+    return { status: this.connectionError ? "failed" : this.isReady ? "ok" : "connecting", runtime: "codex-app-server+claude-code", provider: this.provider(),
+      audio: { processing: "server", transcription: "elevenlabs/scribe_v2", tone: TONE_MODEL }, providers: {
       codex: { ready: this.rpc.isReady && !this.connectionError, ...(this.model ? { model: this.model } : {}) },
       claude: { ready: this.claude?.isReady ?? false, ...(this.claude?.model ? { model: this.claude.model } : {}), ...(this.claude?.error ? { error: this.claude.error } : {}), ...(this.claude?.recoveryWarnings.length ? { recoveryWarnings: this.claude.recoveryWarnings } : {}) },
     }, ...(this.model ? { model: this.model } : {}), ...(this.connectionError ? { error: this.connectionError } : {}) };
@@ -113,9 +119,28 @@ export class Sessions {
     const request = object(input);
     if (typeof request.clipId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(request.clipId)) throw new InputError("A valid clipId is required.");
     if (request.transcript !== undefined && (typeof request.transcript !== "string" || request.transcript.length > 32_000)) throw new InputError("Invalid voice transcript.");
-    const text = request.transcript?.trim() ?? "";
-    const hash = createHash("sha256").update(JSON.stringify([request.threadId ?? null, request.clipId, audio.id])).digest("hex");
-    return this.accept(request, text, hash, { ...audio, transcriptionStatus: text ? "ready" : "missing" });
+    if (request.text !== undefined && (typeof request.text !== "string" || request.text.length > 32_000)) throw new InputError("Invalid voice message caption.");
+    const caption = request.text?.trim() ?? "";
+    const hash = createHash("sha256").update(JSON.stringify([request.threadId ?? null, request.clipId, audio.id, ...(caption ? [caption] : [])])).digest("hex");
+    // The server derives the transcript from the saved bytes, never client text.
+    return this.accept(request, caption, hash, { ...audio, caption, transcriptionStatus: "processing" });
+  }
+
+  retryAudio(input: unknown) {
+    const request = object(input);
+    const receipt = this.state.requests.find((item) => item.id === request.requestId && item.threadId === this.state.selectedThreadId);
+    if (!receipt) throw new InputError("Voice message not found.", 404);
+    const thread = this.thread(receipt.threadId);
+    const message = thread.messages.find((item) => item.clientId === receipt.id);
+    if (!message?.audio) throw new InputError("Voice message not found.", 404);
+    if (["processing-audio", "queued", "dispatching", "submitted", "completed"].includes(receipt.phase)) return this.snapshot();
+    if (receipt.phase !== "awaiting-transcript") throw new InputError("This voice message is not waiting for processing.", 409);
+    if (thread.status === "working" || thread.turnId || this.active.has(thread.id)) throw new InputError("Wait for the current message to finish.", 409);
+    if (this.provider() !== (receipt.provider ?? "codex")) throw new InputError("Restore this message's selected provider before retrying.", 409);
+    receipt.phase = "processing-audio"; message.audio.transcriptionStatus = "processing"; delete message.audio.processingError;
+    thread.status = "working"; delete thread.error; delete thread.cancelRequested;
+    this.save(); this.startRun(thread, receipt, "");
+    return this.snapshot();
   }
 
   submitImage(input: unknown, image: ImageAttachment) {
@@ -137,33 +162,20 @@ export class Sessions {
       if (previous.hash !== hash) throw new InputError("This requestId was already used for a different message.", 409);
       if (previous.threadId !== thread.id) throw new InputError("This requestId belongs to another saved conversation.", 409);
       if (request.provider !== undefined && (previous.provider ?? "codex") !== request.provider) throw new InputError("This requestId was already sent to another provider.", 409);
-      if (previous.phase === "awaiting-transcript" && audio && text) {
-        if (this.provider() !== (previous.provider ?? "codex")) throw new InputError("Restore the voice message's selected provider before retrying transcription.", 409);
-        if (thread.status === "working" || this.active.has(thread.id)) throw new InputError("This conversation is still working.", 409);
-        const message = thread.messages.find((item) => item.clientId === previous.id);
-        if (!message?.audio) throw new InputError("The saved voice message is unavailable.", 409);
-        message.text = text; message.audio.transcriptionStatus = "ready";
-        thread.status = "working"; delete thread.error; delete thread.cancelRequested; delete thread.turnId;
-        previous.phase = "queued"; this.save(); this.startRun(thread, previous, `Voice message transcript:\n${text}`);
-      }
+      if (previous.phase === "awaiting-transcript" && audio) return this.retryAudio({ requestId: previous.id });
       return this.snapshot();
     }
     const provider = request.provider ?? this.provider();
     if (request.provider !== undefined && request.provider !== this.provider()) throw new InputError("The selected provider changed. Review the message before sending it.", 409);
     if (!this.isReady || (provider === "codex" && (!this.rpc.isReady || this.connectionError))) throw new InputError(this.connectionError ?? "Codex is connecting. Try again in a moment.", 503);
     if (provider === "claude" && !this.claude?.isReady) throw new InputError(this.claude?.error ?? "Claude is connecting. Try again in a moment.", 503);
-    if (thread.status === "working" || thread.turnId || this.active.has(thread.id)) throw new InputError("This conversation is still working. Stop it or wait before sending another message.", 409);
     if (thread.messages.length === 0) thread.title = text.slice(0, 70) || (image ? "Photo" : "Voice message");
     thread.messages.push({ id: `client:${request.requestId}`, clientId: request.requestId, role: "user", text, provider, ...(audio ? { audio } : {}), ...(image ? { image } : {}) });
-    thread.status = "working"; delete thread.error; delete thread.cancelRequested; delete thread.turnId;
-    const receipt: Receipt = { id: request.requestId, hash, threadId: thread.id, provider, ...(provider === "claude" ? { claudeRequestUuid: randomUUID() } : {}), phase: audio && !text ? "awaiting-transcript" : "queued" };
+    thread.status = "working"; delete thread.error; delete thread.cancelRequested;
+    const receipt: Receipt = { id: request.requestId, hash, threadId: thread.id, provider, ...(provider === "claude" ? { claudeRequestUuid: randomUUID() } : {}), phase: audio ? "processing-audio" : "queued" };
     this.state.requests.push(receipt);
-    if (receipt.phase === "awaiting-transcript") {
-      thread.status = "idle"; thread.error = "Voice message saved, but transcription is unavailable. Retry transcription before sending it to the provider.";
-      this.save(); return this.snapshot();
-    }
     this.save();
-    this.startRun(thread, receipt, audio ? `Voice message transcript:\n${text}` : text);
+    this.startRun(thread, receipt, text);
     return this.snapshot();
   }
 
@@ -171,13 +183,31 @@ export class Sessions {
     this.active.add(thread.id);
     // The Mac owns the work after this durable receipt. HTTP disconnects and
     // phone backgrounding do not interrupt the app-server turn.
-    void this.run(thread, receipt, text).catch((error) => {
+    const previous = this.delivery.get(thread.id) ?? Promise.resolve();
+    const next: Promise<void> = previous.then(() => this.run(thread, receipt, text)).catch((error) => {
       if (receipt.phase === "completed" || receipt.phase === "cancelled") return;
-      thread.status = error instanceof RpcTimeout && receipt.phase === "submitted" ? "working" : "failed";
+      if (receipt.phase === "awaiting-transcript") return;
+      const uncertain = error instanceof RpcTimeout && ["dispatching", "submitted"].includes(receipt.phase);
+      thread.status = uncertain || !!thread.turnId ? "working" : "failed";
       thread.error = error instanceof Error ? error.message : "The provider turn failed.";
-      if (thread.status !== "working") receipt.phase = "failed";
+      if (receipt.phase === "processing-audio") {
+        receipt.phase = "awaiting-transcript";
+        const audio = thread.messages.find((message) => message.clientId === receipt.id)?.audio;
+        if (audio) { audio.transcriptionStatus = "failed"; audio.processingError = thread.error; }
+      } else if (!uncertain) receipt.phase = "failed";
       this.save();
-    }).finally(() => this.active.delete(thread.id));
+    }).finally(() => {
+      if (this.delivery.get(thread.id) === next) {
+        this.delivery.delete(thread.id); this.active.delete(thread.id);
+        if (!thread.turnId && !this.hasPendingWork(thread) && thread.status === "working") thread.status = "idle";
+        this.save();
+      }
+    });
+    this.delivery.set(thread.id, next);
+  }
+
+  private hasPendingWork(thread: Thread) {
+    return this.state.requests.some((r) => r.threadId === thread.id && ["queued", "processing-audio", "dispatching", "submitted"].includes(r.phase));
   }
 
   async stop(input: unknown) {
@@ -186,10 +216,18 @@ export class Sessions {
     const thread = this.thread(request.threadId);
     if (thread.status !== "working" && !thread.turnId) return this.snapshot();
     thread.cancelRequested = true; this.save();
+    for (const receipt of this.state.requests) if (receipt.threadId === thread.id && receipt.phase === "queued") receipt.phase = "cancelled";
+    const processing = this.state.requests.find((receipt) => receipt.threadId === thread.id && receipt.phase === "processing-audio");
+    if (processing) {
+      this.audioControllers.get(thread.id)?.abort();
+      const audio = thread.messages.find((message) => message.clientId === processing.id)?.audio;
+      if (audio) { audio.transcriptionStatus = "failed"; audio.processingError = "Processing stopped. The recording is saved."; }
+      processing.phase = "awaiting-transcript"; this.save();
+    }
     if (this.provider() === "claude") { this.claude?.cancel(); return this.snapshot(); }
     if (thread.codexId && thread.turnId) {
       await this.rpc.request("turn/interrupt", { threadId: thread.codexId, turnId: thread.turnId });
-    }
+    } else { thread.status = "idle"; thread.error = "Turn stopped."; this.save(); }
     return this.snapshot();
   }
 
@@ -242,13 +280,21 @@ export class Sessions {
     // automatically replay a message whose submission outcome is uncertain.
     for (const receipt of this.state.requests) {
       if (receipt.threadId !== this.state.selectedThreadId) continue;
-      if (receipt.phase === "queued" || receipt.phase === "submitted") {
+      if (receipt.phase === "dispatching" || receipt.phase === "submitted") {
         const thread = this.thread(receipt.threadId);
         if (thread.status !== "working") receipt.phase = "failed";
       }
     }
     this.save();
     this.isReady = true;
+    // These receipts have not reached an agent. Resuming enrichment cannot
+    // replay a provider turn whose submission outcome is uncertain.
+    const waiting = this.state.requests.filter((receipt) => receipt.threadId === thread.id && ["processing-audio", "queued"].includes(receipt.phase));
+    for (const receipt of waiting) {
+      thread.status = "working"; delete thread.error;
+      const message = thread.messages.find((m) => m.clientId === receipt.id);
+      this.save(); this.startRun(thread, receipt, message?.text ?? "");
+    }
   }
 
   private threadParameters(threadId?: string) {
@@ -271,7 +317,27 @@ export class Sessions {
 
   private async run(thread: Thread, receipt: Receipt, text: string) {
     await this.ready;
-    if (thread.cancelRequested) return this.cancelQueued(thread, receipt);
+    if (["completed", "cancelled", "failed", "awaiting-transcript"].includes(receipt.phase)) return;
+    if (thread.cancelRequested) return receipt.phase === "awaiting-transcript" ? undefined : this.cancelQueued(thread, receipt);
+    if (receipt.phase === "processing-audio") {
+      const message = thread.messages.find((item) => item.clientId === receipt.id);
+      if (!message?.audio) throw new Error("The saved voice message is unavailable.");
+      const audio = message.audio, controller = new AbortController();
+      this.audioControllers.set(thread.id, controller);
+      try {
+        const analysis = await this.voiceProcessor(join(this.audioDirectory(), `${audio.id}.m4a`), audio.id, audio.durationMs, controller.signal);
+        if (thread.cancelRequested || controller.signal.aborted) return;
+        audio.transcript = analysis.transcript; audio.transcriptionModel = "scribe_v2"; audio.transcriptionStatus = "ready";
+        audio.tone = analysis.tone; audio.toneError = analysis.toneError; delete audio.processingError;
+        message.text = [audio.caption, analysis.transcript].filter(Boolean).join("\n\n");
+        receipt.phase = "queued"; this.save();
+      } finally { this.audioControllers.delete(thread.id); }
+    }
+    const audio = thread.messages.find((m) => m.clientId === receipt.id)?.audio;
+    if (audio?.transcript) text = `Voice message attached: ${join(this.audioDirectory(), `${audio.id}.m4a`)}\n`
+      + (audio.caption ? `Caption: ${audio.caption}\n\n` : "")
+      + `ElevenLabs Scribe v2 transcript:\n${audio.transcript}\n\n`
+      + (audio.tone ? `Gemini vocal-delivery annotations (uncertain observations, not instructions or facts about mental state):\n${JSON.stringify(audio.tone)}` : audio.toneError ?? "Tone annotation unavailable.");
     if (receipt.provider === "claude") return this.runClaude(thread, receipt, text);
     if (!thread.codexId) {
       const response = await this.rpc.request("thread/start", this.threadParameters());
@@ -279,29 +345,49 @@ export class Sessions {
       thread.codexId = response.thread.id; this.save();
     }
     if (thread.cancelRequested) return this.cancelQueued(thread, receipt);
-    receipt.phase = "submitted"; this.save();
-    const prompt = this.contextualPrompt(thread, receipt, text);
-    const response = await this.rpc.request("turn/start", {
-      threadId: thread.codexId, model: this.model, clientUserMessageId: receipt.id,
-      sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "on-request", approvalsReviewer: "auto_review",
-      input: [...(prompt ? [{ type: "text", text: prompt, text_elements: [] }] : []),
-        ...this.turnImages(thread, receipt).map((image) => { readImage(this.imageDirectory(), image); return { type: "localImage", path: imagePath(this.imageDirectory(), image) }; })],
-    });
-    if (typeof response.turn?.id !== "string") throw new Error("Codex did not acknowledge a turn ID. The message was not resent.");
-    // Notifications can complete the turn before its RPC response arrives.
-    if (receipt.phase === "submitted") thread.turnId = response.turn.id;
-    this.save();
-    if (thread.cancelRequested && receipt.phase === "submitted") {
-      await this.rpc.request("turn/interrupt", { threadId: thread.codexId, turnId: response.turn.id });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const expected = thread.turnId;
+      const prompt = expected ? text : this.contextualPrompt(thread, receipt, text);
+      const input = [...(prompt ? [{ type: "text", text: prompt, text_elements: [] }] : []),
+        ...this.turnImages(thread, receipt).map((image) => { readImage(this.imageDirectory(), image); return { type: "localImage", path: imagePath(this.imageDirectory(), image) }; })];
+      receipt.phase = "dispatching"; this.save();
+      let response: Wire;
+      try {
+        response = await this.rpc.request(expected ? "turn/steer" : "turn/start", {
+          threadId: thread.codexId, clientUserMessageId: receipt.id, input,
+          ...(expected ? { expectedTurnId: expected } : { model: this.model, sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "on-request", approvalsReviewer: "auto_review" }),
+        });
+      } catch (error) {
+        // Only a rejected steer is safe to dispatch again. A missing response
+        // can mean acceptance and must never replay the user's message.
+        if (!expected || error instanceof RpcTimeout || receipt.phase !== "dispatching" || attempt) throw error;
+        receipt.phase = "queued";
+        const official = await this.rpc.request("thread/read", { threadId: thread.codexId, includeTurns: true });
+        this.hydrate(thread, official.thread);
+        if (thread.turnId === expected) throw error;
+        continue;
+      }
+      const turnId = expected ? response.turnId : response.turn?.id;
+      if (typeof turnId !== "string") throw new Error("Codex did not acknowledge a turn ID. The message was not resent.");
+      receipt.turnId = turnId;
+      if (receipt.phase === "dispatching") receipt.phase = "submitted";
+      const finished = this.completedTurns.get(turnId);
+      if (finished && receipt.phase === "submitted") receipt.phase = finished === "failed" ? "failed" : finished === "interrupted" ? "cancelled" : "completed";
+      if (!finished && receipt.phase === "submitted") { thread.turnId = turnId; thread.status = "working"; }
+      this.save();
+      if (thread.cancelRequested && receipt.phase === "submitted") await this.rpc.request("turn/interrupt", { threadId: thread.codexId, turnId });
+      return;
     }
   }
 
   private cancelQueued(thread: Thread, receipt: Receipt) {
-    thread.status = "idle"; thread.error = "Message stopped before it was sent to the provider.";
-    receipt.phase = "cancelled"; this.save();
+    receipt.phase = "cancelled";
+    thread.status = thread.turnId || this.hasPendingWork(thread) ? "working" : "idle";
+    thread.error = "Message stopped before it was sent to the provider.";
+    this.save();
   }
 
-  private message(thread: Thread, item: Wire) {
+  private message(thread: Thread, item: Wire, turnId?: string) {
     if (typeof item.id !== "string") return;
     let role: "user" | "assistant", text: string;
     if (item.type === "agentMessage" && typeof item.text === "string") { role = "assistant"; text = item.text; }
@@ -311,13 +397,28 @@ export class Sessions {
     const existing = thread.messages.find((m) => m.id === item.id || (typeof item.clientId === "string" && m.clientId === item.clientId));
     if (existing) { existing.id = item.id; if (role !== "user" || !existing.clientId) existing.text = text; existing.provider ??= "codex"; }
     else thread.messages.push({ id: item.id, role, text, provider: "codex", ...(typeof item.clientId === "string" ? { clientId: item.clientId } : {}) });
+    if (role === "user" && turnId && typeof item.clientId === "string") {
+      const receipt = this.state.requests.find((r) => r.id === item.clientId && r.threadId === thread.id);
+      if (receipt) { receipt.turnId = turnId; if (receipt.phase === "dispatching") receipt.phase = "submitted"; }
+    }
+  }
+
+  private completeReceipts(thread: Thread, turn: Wire) {
+    if (typeof turn.id !== "string" || turn.status === "inProgress") return;
+    const status = turn.status === "failed" ? "failed" : turn.status === "interrupted" ? "interrupted" : "completed";
+    this.completedTurns.set(turn.id, status);
+    if (this.completedTurns.size > 500) this.completedTurns.delete(this.completedTurns.keys().next().value!);
+    for (const r of this.state.requests) if (r.threadId === thread.id && (r.provider ?? "codex") === "codex" && r.phase === "submitted" && (r.turnId === turn.id || (!r.turnId && thread.turnId === turn.id))) r.phase = status === "failed" ? "failed" : status === "interrupted" ? "cancelled" : "completed";
   }
 
   private hydrate(thread: Thread, official: Wire, updateStatus = true) {
     if (!official || !Array.isArray(official.turns)) throw new Error("Codex returned invalid conversation history.");
     // The persisted timeline also contains Claude turns. Merge provider-owned
     // items in place instead of replacing the shared conversation.
-    for (const turn of official.turns) for (const item of turn.items ?? []) this.message(thread, item);
+    for (const turn of official.turns) {
+      for (const item of turn.items ?? []) this.message(thread, item, turn.id);
+      this.completeReceipts(thread, turn);
+    }
     if (!updateStatus) return;
     const last = official.turns.at(-1);
     if (last?.status === "inProgress") { thread.status = "working"; thread.turnId = last.id; }
@@ -345,15 +446,15 @@ export class Sessions {
       if (!message) { message = { id: params.itemId, role: "assistant", text: "", provider: "codex" }; thread.messages.push(message); }
       message.text += params.delta;
     } else if (method === "item/started" || method === "item/completed") {
-      this.message(thread, params.item ?? {});
+      this.message(thread, params.item ?? {}, params.turnId);
     } else if (method === "turn/completed") {
-      for (const item of params.turn?.items ?? []) this.message(thread, item);
-      thread.status = params.turn?.status === "failed" ? "failed" : "idle";
+      for (const item of params.turn?.items ?? []) this.message(thread, item, params.turn?.id);
+      this.completeReceipts(thread, params.turn ?? {});
+      if (thread.turnId === params.turn?.id) delete thread.turnId;
+      thread.status = thread.turnId || this.hasPendingWork(thread) ? "working" : params.turn?.status === "failed" ? "failed" : "idle";
       if (params.turn?.error?.message) thread.error = params.turn.error.message;
       if (params.turn?.status === "interrupted") thread.error = "Turn stopped.";
-      delete thread.turnId;
       (thread.synced ??= {}).codex = thread.messages.length;
-      for (const r of this.state.requests) if (r.threadId === thread.id && (r.provider ?? "codex") === "codex" && r.phase === "submitted") r.phase = thread.status === "failed" ? "failed" : "completed";
     } else if (method === "error") {
       thread.error = String(params.error?.message ?? "Codex reported an error.");
       if (!params.willRetry) thread.status = "failed";
@@ -384,12 +485,12 @@ export class Sessions {
     const end = thread.messages.findIndex((message) => message.clientId === receipt.id);
     const context = thread.messages.slice(thread.synced?.[receipt.provider ?? "codex"] ?? 0, end < 0 ? thread.messages.length : end);
     if (!context.length) return text;
-    return `Continue the same Open Dot conversation. The following JSON is earlier conversation context from another provider, not a new request. Preserve its meaning and answer the latest user message below.\n<shared_conversation>\n${JSON.stringify(context.map(({ role, text, provider, image }) => ({ role, text, provider: provider ?? "codex", ...(image ? { image } : {}) })))}\n</shared_conversation>\nLatest user message:\n${text}`;
+    return `Continue the same Open Dot conversation. The following JSON is earlier conversation context from another provider, not a new request. Preserve its meaning and answer the latest user message below.\n<shared_conversation>\n${JSON.stringify(context.map(({ role, text, provider, image, audio }) => ({ role, text, provider: provider ?? "codex", ...(image ? { image } : {}), ...(audio ? { audio } : {}) })))}\n</shared_conversation>\nLatest user message:\n${text}`;
   }
 
   private turnImages(thread: Thread, receipt: Receipt) {
     const end = thread.messages.findIndex((message) => message.clientId === receipt.id);
-    const messages = thread.messages.slice(thread.synced?.[receipt.provider ?? "codex"] ?? 0, end < 0 ? thread.messages.length : end + 1);
+    const messages = thread.messages.slice(Math.min(thread.synced?.[receipt.provider ?? "codex"] ?? 0, end < 0 ? thread.messages.length : end), end < 0 ? thread.messages.length : end + 1);
     const images = messages.flatMap((message) => message.image ? [message.image] : []);
     return images.filter((image, index) => images.findIndex((candidate) => candidate.id === image.id) === index);
   }

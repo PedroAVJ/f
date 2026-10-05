@@ -58,14 +58,38 @@ including adjacent repositories. Open Dot answers tool-access approval requests
 affirmatively for the current request or turn, including Computer Use app access.
 It does not store global permission grants.
 
-The microphone records a retained M4A voice message. You can play it, send it,
-or retry speech recognition without rerecording it. Recognition supplies text
-context to the subscription backends; the original audio remains available for
-playback. The call button uses iPhone speech recognition and speech output in
-the same conversation. Calls run while Dot is in the foreground; backgrounding
-ends the call. The plus button picks a photo, previews it in the conversation,
-and sends the actual image with its caption when you tap Send. Images and audio
-stay private behind the same Tailscale authorization as the conversation.
+The microphone records a retained M4A voice message. Tap Send while recording
+to stop and send it, or stop first to preview it. A typed caption travels with
+the recording. The original remains a playable message attachment; upload is
+acknowledged before analysis, so processing continues if the phone closes.
+The Mac transcribes with ElevenLabs Scribe v2 and annotates audible vocal delivery
+with Gemini 3.8 Flash through OpenRouter. The agent receives the transcript,
+separate tentative tone annotations, and the local path to the original audio.
+Voice messages do not require Apple speech-recognition permission. Calls still
+use iPhone speech recognition and speech output while Dot is in the foreground.
+
+Text and voice messages remain available while Near works. Text follows up on
+the active Codex task; voice is accepted immediately and delivered after audio
+processing. Claude follow-ups wait for its current response. Receipts prevent
+duplicate delivery on retries, and acknowledged messages are never replayed
+automatically after a missing provider response.
+
+Transcription uses the installed `elevenlabs` CLI and its Keychain credential
+(`elevenlabs auth status --json`). Gemini uses `OPENROUTER_API_KEY` when explicitly
+provided, otherwise the existing macOS Keychain service
+`com.pedro.codexvoice.openrouter.v1`, account `api-key`. No keys enter the phone
+bundle or conversation. New voice messages are sent to these two services for
+processing. Existing recordings are processed only when retried.
+
+Failed transcription keeps the playable audio and offers Retry audio. Pending
+analysis resumes after a harness restart without replaying acknowledged agent
+turns. A Gemini failure does not discard or block a successful transcript; its
+unavailability is recorded separately. Captions and request IDs survive upload
+retries and app restarts.
+
+The plus button picks a photo, previews it in the conversation, and sends the
+actual image with its caption when you tap Send. Stored images and audio remain
+behind the same Tailscale authorization as the conversation.
 
 The harness has both provider transports connected. Mobile routing currently
 uses the stored provider, which defaults to Codex; there is no provider selector.

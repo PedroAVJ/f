@@ -45,6 +45,7 @@ export function httpHandler(sessions: Sessions, options: HttpOptions) {
           return json(sessions.snapshot(undefined, body.query));
         }
         if (url.pathname === "/api/turn") return json(sessions.submit(body), 202);
+        if (url.pathname === "/api/audio/retry") return json(sessions.retryAudio(body), 202);
         if (url.pathname === "/api/stop") return json(await sessions.stop(body));
         throw new InputError("Not found.", 404);
       }

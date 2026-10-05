@@ -8,9 +8,9 @@ import ./components/mobile_conversation.bend as C
 import ../f/bend2/std/F/ui/tokens.bend as T
 
 type Message is Data:
-  Message{id: String, role: K.Role, text: String, audio: String, duration: U32, picture: K.Picture}
+  Message{id: String, role: K.Role, text: String, audio: String, duration: U32, picture: K.Picture, processing: String, requestId: String, caption: String}
 type Voice is Data:
-  Voice{phase: String, clip: String, duration: U32, transcript: String}
+  Voice{phase: String, clip: String, duration: U32, transcript: String, level: U32}
 type Call is Data:
   Call{phase: String, elapsed: U32, muted: Bool, speaker: Bool, reply: String, pending: Bool}
 type Photo is Data:
@@ -151,7 +151,7 @@ def State.with_error(state: State, value: String) -> State:
 
 def Message.id(value: Message) -> String:
   match value:
-    case Message{id, role, text, audio, duration, picture}: id
+    case Message{id, role, text, audio, duration, picture, processing, requestId, caption}: id
 def State.local(value: State) -> Local:
   match value:
     case State{session, draft, focus, panel, width, height, prefix, counter, pending, online, error, local}: local
@@ -187,7 +187,7 @@ def with_voice(+state: State, value: Voice) -> State:
   with_voice_value(state, value, State.local(state))
 def voice_retry_state(state: State, v: Voice) -> State:
   match v:
-    case Voice{phase, clip, duration, transcript}: with_voice(state, Voice{"recorded", clip, duration, transcript})
+    case Voice{phase, clip, duration, transcript, level}: with_voice(state, Voice{"recorded", clip, duration, transcript, 0})
 def language_value(+state: State, held: Local) -> String:
   match held:
     case Local{language, query, voice, call, physical, audioId, photo, files}: language
@@ -216,12 +216,15 @@ def voice(+state: State) -> Voice:
   voice_value(state, State.local(state))
 def voice_phase_value(+state: State, held: Voice) -> String:
   match held:
-    case Voice{phase, +clip, +duration, +transcript}: phase
+    case Voice{phase, +clip, +duration, +transcript, level}: phase
 def voice_phase(+state: State) -> String:
   voice_phase_value(state, voice(state))
 def voice_duration_value(+state: State, held: Voice) -> U32:
   match held:
-    case Voice{phase, +clip, +duration, +transcript}: duration
+    case Voice{phase, +clip, +duration, +transcript, level}: duration
+def voice_level(v: Voice) -> U32:
+  match v:
+    case Voice{phase, clip, duration, transcript, level}: level
 def voice_duration(+state: State) -> U32:
   voice_duration_value(state, voice(state))
 def call_value(+state: State, held: Local) -> Call:
@@ -259,11 +262,14 @@ def is_mine(role: K.Role) -> Bool:
   match role:
     case K.Role.Mine{}: True{}
     case _: False{}
-def audio_item(+id: String, +role: K.Role, duration: U32) -> K.Item:
+def audio_item(+id: String, +role: K.Role, duration: U32, +processing: String, requestId: String) -> K.Item:
+  +play = K.renamed(K.button_tree(K.say(K.ButtonKind.Plain{}, "Mensaje de voz · " ++ K.clock_text(duration))), "button · play:" ++ id)
+  +status = Bool.pick(List<&2, P.UI>, String.eq(processing, "processing"), [K.paragraph("Voice processing", "Transcribiendo…", K.small_type(), K.ink(), 220, P.Leading{})],
+    Bool.pick(List<&2, P.UI>, String.eq(processing, "failed") || String.eq(processing, "missing"), [K.renamed(K.button_tree(K.say(K.ButtonKind.Quiet{}, "Reintentar audio")), "button · retry-audio:" ++ requestId)], []))
   K.Said{K.Bubble{K.pill(role_align(role), Bool.pick(T.SurfaceRole, is_mine(role), T.SurfaceRole.Mine{}, T.SurfaceRole.Surface{}),
-    K.renamed(K.button_tree(K.say(K.ButtonKind.Plain{}, "Mensaje de voz · " ++ K.clock_text(duration))), "button · play:" ++ id), P.NoStroke{})}}
+    P.layout("Voice message", P.Vertical{}, 4, 0, 0, 0, role_align(role), K.append_trees([play], status)), P.NoStroke{})}}
 def s() -> State:
-  State{Snapshot{[], "", [], "codex"}, "", K.Focus.Blurred{}, Closed{}, C.width(), C.height(), "", 1, None{}, False{}, "", Local{"en", "", Voice{"idle", "", 0, ""}, Call{"idle", 0, False{}, False{}, "", False{}}, "", "", Photo{"idle", "", "", 0, 0, ""}, []}}
+  State{Snapshot{[], "", [], "codex"}, "", K.Focus.Blurred{}, Closed{}, C.width(), C.height(), "", 1, None{}, False{}, "", Local{"en", "", Voice{"idle", "", 0, "", 0}, Call{"idle", 0, False{}, False{}, "", False{}}, "", "", Photo{"idle", "", "", 0, 0, ""}, []}}
 def placeholder() -> String: "Mensaje"
 def selected_in(xs: List<&2, Thread>, +id: String) -> Maybe<&2, Thread>:
   match xs:
@@ -293,7 +299,7 @@ def has_photo_value(value: Photo) -> Bool:
     case Photo{phase, id, asset, width, height, requestId}: Bool.not(String.eq(phase, "idle"))
 def has_photo(+state: State) -> Bool: has_photo_value(photo(state))
 def can_send(+state: State) -> Bool:
-  Bool.not(working(state)) && (Bool.not(has_photo(state)) || photo_ready(state)) && Bool.not(String.is_empty(State.prefix(state))) && Bool.not(String.is_empty(Thread.id(current(state)))) && (Bool.not(String.is_empty(String.trim(State.draft(state)))) || photo_ready(state))
+  (Bool.not(has_photo(state)) || photo_ready(state)) && Bool.not(String.is_empty(State.prefix(state))) && Bool.not(String.is_empty(Thread.id(current(state)))) && (Bool.not(String.is_empty(String.trim(State.draft(state)))) || photo_ready(state))
 def is_menu(panel: Panel) -> Bool:
   match panel:
     case Menu{}: True{}
@@ -303,6 +309,8 @@ def is_closed(panel: Panel) -> Bool:
     case Closed{}: True{}
     case Jumped{index, highlighted}: True{}
     case _: False{}
+def can_record(+state: State) -> Bool:
+  is_closed(State.panel(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state))
 def field(+value: J.Json, key: String) -> String: J.text(J.get(value, key))
 def boolean_field(value: Maybe<&2, J.Json>, otherwise: Bool) -> Bool:
   match value:
@@ -316,6 +324,14 @@ def audio_url(value: Maybe<&2, J.Json>) -> String:
   match value:
     case Some{v}: field(v, "url")
     case None{}: ""
+def audio_caption(value: Maybe<&2, J.Json>) -> String:
+  match value:
+    case None{}: ""
+    case Some{v}: field(v, "caption")
+def audio_processing(value: Maybe<&2, J.Json>) -> String:
+  match value:
+    case None{}: ""
+    case Some{v}: field(v, "transcriptionStatus")
 def audio_duration(value: Maybe<&2, J.Json>) -> U32:
   match value:
     case Some{v}: number(J.get(v, "durationMs"))
@@ -333,7 +349,7 @@ def decoded_picture(value: Maybe<&2, J.Json>) -> K.Picture:
 def line_text(+value: J.Json) -> Result<&2, &2, String, Message>:
   +role = field(value, "role")
   Bool.pick(Result<&2, &2, String, Message>, String.eq(role, "user") || String.eq(role, "assistant"),
-    Done{Message{message_id(value), Bool.pick(K.Role, String.eq(role, "user"), K.Role.Mine{}, K.Role.Near{}), field(value, "text"), audio_url(J.get(value, "audio")), audio_duration(J.get(value, "audio")), decoded_picture(J.get(value, "image"))}}, Fail{"Invalid conversation message."})
+    Done{Message{message_id(value), Bool.pick(K.Role, String.eq(role, "user"), K.Role.Mine{}, K.Role.Near{}), field(value, "text"), audio_url(J.get(value, "audio")), audio_duration(J.get(value, "audio")), decoded_picture(J.get(value, "image")), audio_processing(J.get(value, "audio")), field(value, "clientId"), audio_caption(J.get(value, "audio"))}}, Fail{"Invalid conversation message."})
 def joined_line(first: Result<&2, &2, String, Message>, tail: Result<&2, &2, String, List<&2, Message>>) -> Result<&2, &2, String, List<&2, Message>>:
   match first:
     case Fail{e}: Fail{e}
@@ -453,7 +469,7 @@ def reconcile_request(+state: State, pending: Maybe<&2, Request>) -> State:
     case Some{+request}:
       Bool.pick(State, has_receipt(Snapshot.accepted(State.session(state)), Request.id(request)),
         close_recovery(State.with_pending(Bool.pick(State, String.eq(Request.kind(request), "image"), with_photo(Bool.pick(State, String.eq(State.draft(state), Request.text(request)), State.with_draft(state, ""), state), Photo{"idle", "", "", 0, 0, ""}),
-          Bool.pick(State, String.eq(Request.kind(request), "text") && String.eq(String.trim(State.draft(state)), Request.text(request)), State.with_draft(state, ""), state)), None{})), state)
+          Bool.pick(State, (String.eq(Request.kind(request), "text") || String.eq(Request.kind(request), "audio")) && String.eq(String.trim(State.draft(state)), String.trim(Request.text(request))), State.with_draft(state, ""), state)), None{})), state)
 def reconcile(+state: State) -> State:
   reconcile_request(state, State.pending(state))
 def restore_pending(+state: State, +request: Request) -> State:
@@ -463,8 +479,8 @@ def pending_audio(+state: State, +value: J.Json) -> State:
   +thread = field(value, "thread")
   +clip = field(value, "clipId")
   Bool.pick(State, Bool.not(String.is_empty(id)) && Bool.not(String.is_empty(thread)) && Bool.not(String.is_empty(clip)),
-    Bool.pick(State, has_receipt(Snapshot.accepted(State.session(state)), id), State.with_panel(with_voice(State.with_pending(state, None{}), Voice{"idle", "", 0, ""}), Closed{}),
-      reconcile(State.with_panel(with_voice(with_audio_id(State.with_pending(state, Some{Request{id, thread, "", "audio"}}), id), Voice{"recorded", clip, number(J.get(value, "durationMs")), field(value, "transcript")}), Recording{}))), failed(state, "Could not restore the voice message."))
+    Bool.pick(State, has_receipt(Snapshot.accepted(State.session(state)), id), State.with_panel(with_voice(State.with_pending(Bool.pick(State, String.eq(State.draft(state), field(value, "text")), State.with_draft(state, ""), state), None{}), Voice{"idle", "", 0, "", 0}), Closed{}),
+      reconcile(State.with_panel(with_voice(with_audio_id(State.with_pending(state, Some{Request{id, thread, field(value, "text"), "audio"}}), id), Voice{"recorded", clip, number(J.get(value, "durationMs")), field(value, "transcript"), 0}), Recording{}))), failed(state, "Could not restore the voice message."))
 def pending_value(+state: State, +value: J.Json) -> State:
   +id = field(value, "id")
   +thread = field(value, "thread")
@@ -572,8 +588,8 @@ def captioned_picture(+item: K.Item, +text: String, +role: K.Role, +w: U32) -> K
     case _: item
 def message_item(message: Message, +w: U32, +files: List<&2, ImageFile>) -> K.Item:
   match message:
-    case Message{+id, +role, +text, +audio, duration, +picture}:
-      Bool.pick(K.Item, String.is_empty(picture_asset(picture)), Bool.pick(K.Item, String.is_empty(audio), text_item(role, text, w), audio_item(id, role, duration)), captioned_picture(picture_item(role, picture, files, w), text, role, w))
+    case Message{+id, +role, +text, +audio, duration, +picture, processing, requestId, caption}:
+      Bool.pick(K.Item, String.is_empty(picture_asset(picture)), Bool.pick(K.Item, String.is_empty(audio), text_item(role, text, w), captioned_picture(audio_item(id, role, duration, processing, requestId), caption, role, w)), captioned_picture(picture_item(role, picture, files, w), text, role, w))
 def message_items(xs: List<&2, Message>, +w: U32, +files: List<&2, ImageFile>) -> List<&2, K.Item>:
   match xs:
     case []: []
@@ -599,7 +615,7 @@ def panel_view(+state: State, panel: Panel, history: List<&2, Message>) -> K.UI:
   match panel:
     case Search{}: C.view(C.search_view(query(state), message_items(history, State.width(state), image_files(state)), State.width(state), State.height(state)))
     case Jumped{index, highlighted}: C.view(C.conversation(placeholder(), State.draft(state), jump_items(history, index, highlighted, State.width(state), image_files(state)), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), [], State.width(state), State.height(state)))
-    case Recording{}: C.view(C.recording_view(voice_duration(state), voice_phase(state), State.error(state), State.width(state), State.height(state)))
+    case Recording{}: C.view(C.recording_view(message_items(history, State.width(state), image_files(state)), voice_duration(state), voice_phase(state), voice_level(voice(state)), State.error(state), State.width(state), State.height(state)))
     case Calling{}: C.view(call_tree(state))
     case _: C.view(C.conversation(placeholder(), State.draft(state), K.append_items(message_items(history, State.width(state), image_files(state)), K.append_items(photo_items(photo(state), State.width(state), State.height(state)), Bool.pick(List<&2, K.Item>, working(state), [K.Waiting{K.still_indicator()}], []))), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), panel_tree(state), State.width(state), State.height(state)))
 def f(+state: State) -> K.UI: panel_view(state, State.panel(state), Thread.messages(current(state)))
@@ -640,7 +656,7 @@ def load_picture(+state: State, +source: String) -> IO(State):
 def load_pictures(xs: List<&2, Message>, state: State) -> IO(State):
   match xs:
     case []: IO.pure(State, state)
-    case Message{id, role, text, audio, duration, picture} <> rest: IO.bind(State, State, load_picture(state, picture_asset(picture)), next => load_pictures(rest, next))
+    case Message{id, role, text, audio, duration, picture, processing, requestId, caption} <> rest: IO.bind(State, State, load_picture(state, picture_asset(picture)), next => load_pictures(rest, next))
 def session_media(+state: State) -> IO(State): load_pictures(Thread.messages(current(state)), state)
 def fetch_session(+state: State) -> IO(State):
   IO.bind(Host.Reply, State, Host.fetch(Bool.pick(String, is_calling(State.panel(state)), "/api/session?call=1", "/api/session")), reply => IO.bind(State, State, after_call_reply(apply_reply(state, reply, False{})), next => session_media(next)))
@@ -652,18 +668,18 @@ def stop(+state: State) -> IO(State):
   +closed = State.with_panel(state, Closed{})
   IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/stop\",\"body\":{\"threadId\":" ++ J.quote(Thread.id(current(state))) ++ "}}"), reply => IO.pure(State, apply_reply(closed, reply, False{})))
 def start_record(+state: State) -> IO(State):
-  command(State.with_error(State.with_panel(with_voice(with_audio_id(new_physical(state, "voice"), ""), Voice{"authorizing", "", 0, ""}), Recording{}), ""), "record", "")
+  command(State.with_error(State.with_panel(with_voice(with_audio_id(new_physical(state, "voice"), ""), Voice{"authorizing", "", 0, "", 0}), Recording{}), ""), "record", ",\"transcription\":\"server\"")
 def cancelled_record(+state: State, reply: Host.Reply) -> IO(State):
   match reply:
-    case Host.Reply{1, data}: IO.pure(State, State.with_panel(with_audio_id(with_voice(state, Voice{"idle", "", 0, ""}), ""), Closed{}))
+    case Host.Reply{1, data}: IO.pure(State, State.with_panel(with_audio_id(with_voice(state, Voice{"idle", "", 0, "", 0}), ""), Closed{}))
     case Host.Reply{status, data}: IO.pure(State, State.with_error(state, data))
 def cancel_record(+state: State) -> IO(State):
   IO.bind(Host.Reply, State, Host.request(10, "{\"action\":\"record-cancel\",\"session\":" ++ J.quote(physical(state)) ++ "}"), reply => cancelled_record(state, reply))
 def audio_failed(state: State, value: Voice, error: String) -> IO(State):
   match value:
-    case Voice{phase, +clip, +duration, +transcript}: IO.pure(State, State.with_error(with_voice(state, Voice{"recorded", clip, duration, transcript}), error))
+    case Voice{phase, +clip, +duration, +transcript, level}: IO.pure(State, State.with_error(with_voice(state, Voice{"recorded", clip, duration, transcript, 0}), error))
 def audio_adopted(+old: State, +next: State) -> IO(State):
-  IO.pure(State, Bool.pick(State, String.is_empty(State.error(next)), State.with_panel(with_voice(next, Voice{"idle", "", 0, ""}), Closed{}),
+  IO.pure(State, Bool.pick(State, String.is_empty(State.error(next)), State.with_panel(with_voice(next, Voice{"idle", "", 0, "", 0}), Closed{}),
     State.with_panel(voice_retry_state(next, voice(old)), Recording{})))
 def audio_uploaded(+state: State, reply: Host.Reply) -> IO(State):
   match reply:
@@ -671,32 +687,42 @@ def audio_uploaded(+state: State, reply: Host.Reply) -> IO(State):
     case Host.Reply{status, +data}: audio_failed(state, voice(state), data)
 def audio_request_id(+state: State, clip: String, pending: Maybe<&2, Request>) -> String:
   Bool.pick(String, String.is_empty(audio_id(state)), State.prefix(state) ++ "-audio-" ++ clip, audio_id(state))
+def voice_caption_value(pending: Maybe<&2, Request>, +state: State, +id: String) -> String:
+  match pending:
+    case Some{+request}: Bool.pick(String, String.eq(Request.kind(request), "audio") && String.eq(Request.id(request), id), Request.text(request), State.draft(state))
+    case None{}: State.draft(state)
+def voice_caption(+state: State, id: String) -> String:
+  voice_caption_value(State.pending(state), state, id)
 def upload_voice(+state: State, v: Voice) -> IO(State):
   match v:
-    case Voice{phase, +clip, +duration, +transcript}:
+    case Voice{phase, +clip, +duration, +transcript, level}:
       +id = audio_request_id(state, clip, State.pending(state))
-      +prepared = State.with_pending(with_voice(with_audio_id(state, id), Voice{"uploading", clip, duration, transcript}), Some{Request{id, Thread.id(current(state)), "", "audio"}})
-      IO.bind(Host.Reply, State, Host.request(11, "{\"url\":\"/api/audio\",\"body\":{\"requestId\":" ++ J.quote(id) ++ ",\"threadId\":" ++ J.quote(Thread.id(current(state))) ++ ",\"clipId\":" ++ J.quote(clip) ++ ",\"durationMs\":" ++ U32.show(duration) ++ ",\"transcript\":" ++ J.quote(transcript) ++ "}}"), reply => audio_uploaded(prepared, reply))
-def voice_elapsed(state: State, v: Voice, elapsed: U32) -> State:
+      +caption = voice_caption(state, id)
+      +prepared = State.with_pending(with_voice(with_audio_id(state, id), Voice{"uploading", clip, duration, transcript, 0}), Some{Request{id, Thread.id(current(state)), caption, "audio"}})
+      IO.bind(Host.Reply, State, Host.request(11, "{\"url\":\"/api/audio\",\"body\":{\"requestId\":" ++ J.quote(id) ++ ",\"threadId\":" ++ J.quote(Thread.id(current(state))) ++ ",\"clipId\":" ++ J.quote(clip) ++ ",\"durationMs\":" ++ U32.show(duration) ++ ",\"transcript\":\"\",\"processing\":\"server\",\"text\":" ++ J.quote(caption) ++ "}}"), reply => audio_uploaded(prepared, reply))
+def voice_elapsed(state: State, v: Voice, elapsed: U32, meter: U32) -> State:
   match v:
-    case Voice{phase, clip, duration, transcript}: with_voice(state, Voice{phase, clip, elapsed, transcript})
+    case Voice{phase, clip, duration, transcript, level}: with_voice(state, Voice{phase, clip, elapsed, transcript, U32.min(100, meter)})
 def voice_message_event(+state: State, +data: J.Json) -> IO(State):
   +phase = field(data, "phase")
-  +next = with_voice(Bool.pick(State, String.eq(phase, "recorded"), State.with_error(state, field(data, "transcriptionError")), state), Voice{phase, field(data, "clipId"), number(J.get(data, "durationMs")), field(data, "transcript")})
-  Bool.pick(IO(State), String.eq(phase, "elapsed"), IO.pure(State, voice_elapsed(state, voice(state), number(J.get(data, "elapsedMs")))),
+  +next = with_voice(Bool.pick(State, String.eq(phase, "recorded"), State.with_error(state, field(data, "transcriptionError")), state), Voice{phase, field(data, "clipId"), number(J.get(data, "durationMs")), field(data, "transcript"), 0})
+  Bool.pick(IO(State), String.eq(phase, "elapsed"), IO.pure(State, voice_elapsed(state, voice(state), number(J.get(data, "elapsedMs")), number(J.get(data, "level")))),
   Bool.pick(IO(State), String.eq(phase, "error"), IO.pure(State, State.with_panel(State.with_error(state, field(data, "error")), Notice{field(data, "error")})),
   Bool.pick(IO(State), String.eq(phase, "cancelled"), IO.pure(State, State.with_panel(next, Closed{})),
-  IO.pure(State, Bool.pick(State, String.eq(phase, "recorded"), State.with_panel(next, Recording{}), next)))))
-def retry_transcription(+state: State, v: Voice) -> IO(State):
-  match v:
-    case Voice{phase, clip, duration, transcript}: command(State.with_error(state, ""), "transcribe", ",\"clipId\":" ++ J.quote(clip))
+  Bool.pick(IO(State), String.eq(phase, "recorded") && String.eq(voice_phase(state), "sending-recording"), upload_voice(next, voice(next)),
+  IO.pure(State, Bool.pick(State, String.eq(phase, "recorded"), State.with_panel(next, Recording{}), next))))))
+def send_voice(+state: State) -> IO(State):
+  Bool.pick(IO(State), String.eq(voice_phase(state), "recording"),
+    command(with_voice(state, Voice{"sending-recording", "", voice_duration(state), "", 0}), "record-stop", ""), upload_voice(state, voice(state)))
+def retry_audio(+state: State, requestId: String) -> IO(State):
+  IO.bind(Host.Reply, State, Host.post("{\"url\":\"/api/audio/retry\",\"body\":{\"requestId\":" ++ J.quote(requestId) ++ "}}"), reply => IO.pure(State, apply_reply(state, reply, False{})))
 def play_recording(state: State, v: Voice) -> IO(State):
   match v:
-    case Voice{phase, +clip, +duration, +transcript}: command(state, "play", ",\"clipId\":" ++ J.quote(clip))
+    case Voice{phase, +clip, +duration, +transcript, level}: command(state, "play", ",\"clipId\":" ++ J.quote(clip))
 def play_found(+state: State, found: Maybe<&2, Message>) -> IO(State):
   match found:
     case None{}: IO.pure(State, state)
-    case Some{Message{id, role, text, audio, duration, picture}}: command(state, "play", ",\"clipId\":" ++ J.quote(id) ++ ",\"url\":" ++ J.quote(audio))
+    case Some{Message{id, role, text, audio, duration, picture, processing, requestId, caption}}: command(state, "play", ",\"clipId\":" ++ J.quote(id) ++ ",\"url\":" ++ J.quote(audio))
 def find_message(xs: List<&2, Message>, +id: String) -> Maybe<&2, Message>:
   match xs:
     case []: None{}
@@ -807,17 +833,17 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
   match input:
     case Native.Typed{label, +value}: Bool.pick(IO(State), is_search(State.panel(state)), fetch_search(with_query(state, value)), IO.pure(State, update(state, input)))
     case Native.Clicked{+label}:
-      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Adjuntar", "Attach") && Bool.not(working(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), pick_photo(state),
+      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Adjuntar", "Attach") && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), pick_photo(state),
       Bool.pick(IO(State), matches(label, "Quitar foto", "Remove photo") && photo_ready(state), cancel_photo(state),
       Bool.pick(IO(State), is_search(State.panel(state)) && (String.starts_with(label, "Ir al mensaje ") || String.starts_with(label, "Go to message ")), IO.pure(State, State.with_panel(state, Jumped{found_index(label), True{}})),
       Bool.pick(IO(State), matches(label, "Reintentar carga", "Retry loading") || matches(label, "Cerrar", "Close"), reload(state),
       Bool.pick(IO(State), is_recovery(State.panel(state)) && matches(label, "Reintentar envío", "Retry sending"), retry_call_pending(state, State.pending(state)),
       Bool.pick(IO(State), String.starts_with(label, "play:"), play_found(state, find_message(Thread.messages(current(state)), String.drop(label, 5n))),
-      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensaje de voz", "Voice message") && Bool.not(working(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), start_record(state),
+      Bool.pick(IO(State), matches(label, "Mensaje de voz", "Voice message") && can_record(state), start_record(state),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Llamar a Near", "Call Near") && Bool.not(working(state)) && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), start_call(state),
       Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Detener grabación", "Stop recording"), command(state, "record-stop", ""),
-      Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Enviar mensaje de voz", "Send voice message") && String.eq(voice_phase(state), "recorded"), upload_voice(state, voice(state)),
-      Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Reintentar transcripción", "Retry transcription"), retry_transcription(state, voice(state)),
+      Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Enviar mensaje de voz", "Send voice message") && (String.eq(voice_phase(state), "recorded") || String.eq(voice_phase(state), "recording")), send_voice(state),
+      Bool.pick(IO(State), is_closed(State.panel(state)) && String.starts_with(label, "retry-audio:") && Bool.not(working(state)), retry_audio(state, String.drop(label, 12n)),
       Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Reproducir grabación", "Play recording"), play_recording(state, voice(state)),
       Bool.pick(IO(State), is_recording(State.panel(state)) && matches(label, "Cancelar", "Cancel"), cancel_record(state),
       Bool.pick(IO(State), is_calling(State.panel(state)) && (matches(label, "Colgar", "Hang up") || matches(label, "Volver al chat", "Back to the chat")), command(State.with_panel(state, Closed{}), "end", ""),

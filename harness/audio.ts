@@ -76,7 +76,7 @@ export function audioDownload(directory: string, id: string, request: Request) {
   } finally { if (descriptor !== undefined) closeSync(descriptor); }
 }
 
-function verifiedAudio(path: string, id: string): Buffer {
+export function verifiedAudio(path: string, id: string): Buffer {
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
