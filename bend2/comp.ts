@@ -3003,6 +3003,9 @@ const runtime_c = (tabs: string, spins: string, segs: string,
 #ifndef BEND_WEB
 #define BEND_WEB 0
 #endif
+#ifndef BEND_IOS
+#define BEND_IOS 0
+#endif
 #if defined(__CUDACC_RTC__)
 #define BEND_RTC 1
 #endif
@@ -3225,11 +3228,11 @@ typedef u32 __attribute__((may_alias)) u32a;
 #define LINE      16
 #define PAGE_BITS 7
 #define PAGE_LEN  (1ull << PAGE_BITS)
-#define CUBE_T    (BEND_WEB ? 16 : 128)
+#define CUBE_T    (BEND_WEB || BEND_IOS ? 16 : 128)
 #define CUBE      ((u64)CUBE_T * CUBE_T)
 #define CUBE_G    (1u << CUBE_LOG)
 #define LANES     ((u64)CUBE_T << CUBE_LOG)
-#define RING_LOG  (BEND_WEB ? 10 : 17 - CUBE_LOG)
+#define RING_LOG  (BEND_WEB || BEND_IOS ? 10 : 17 - CUBE_LOG)
 #define RING_LEN  (1ull << RING_LOG)
 #define STAK_LEN  (1ull << 11)
 #define NCLS      8
@@ -3271,7 +3274,7 @@ typedef u32 __attribute__((may_alias)) u32a;
 static u64*    CORPUS;
 static u64    ALC[CUBE_T + 1][3 * NCLS_ALL] __attribute__((aligned(128)));
 static u32    KEEP_WORDS;
-static u32    CUBE_LOG = BEND_WEB ? 4 : 7;
+static u32    CUBE_LOG = BEND_WEB || BEND_IOS ? 4 : 7;
 static u32    bank_lock;
 
 static u32             pool_size;
@@ -4392,7 +4395,7 @@ static Term* pool_stack(void) {
   web_limit = p + (2u << 20) / sizeof(Term);
   return p;
 #else
-  u64   len = 1ull << 31;
+  u64   len = BEND_IOS ? 8ull << 20 : 1ull << 31;
   char* p   = pool_mmap(len + 16384 + SIGSTKSZ);
   if (mprotect(p + len, 16384, PROT_NONE) != 0) {
     err_fail("stack guard failed");
@@ -4884,12 +4887,13 @@ static void cube_run(u64* H, bool gpu) {
 // Corpus
 
 // Native CPUs reserve 8GiB, doubling in place with banks above pages.
-// GPU/browser spans are fixed.
+// GPU/browser/iOS spans are fixed. iOS uses compact lanes and a bounded
+// 128MiB corpus because the desktop virtual reservations exceed its limits.
 
 static u64 corpus_size;
 
 static void* corpus_map(u64 size) {
-#if BEND_WEB
+#if BEND_WEB || BEND_IOS
   return pool_mmap(size);
 #else
   u64   hint = 1ull << 45;
@@ -4927,7 +4931,7 @@ static void corpus_lay(u64* H, u64 size) {
 }
 
 static bool corpus_grow(u64* H, u64 need) {
-#if BEND_WEB
+#if BEND_WEB || BEND_IOS
   return false;
 #else
   bool ok = true;
@@ -4952,7 +4956,7 @@ static bool corpus_grow(u64* H, u64 need) {
 static u64* corpus_setup(bool gpu, long threads, u64 bytes) {
   io_gpu     = gpu;
   KEEP_WORDS = gpu ? CHUNK : CAP_WORDS;
-  u64 dflt   = BEND_WEB ? 32ull << 20 : gpu ? gpu_span() : 1ull << 33;
+  u64 dflt   = BEND_WEB ? 32ull << 20 : BEND_IOS ? 128ull << 20 : gpu ? gpu_span() : 1ull << 33;
   u64 size   = (gpu && bytes != 0 ? bytes : dflt) & ~16383ull;
   CORPUS     = gpu ? gpu_map(size) : corpus_map(size);
   u64* H     = CORPUS;

@@ -23,6 +23,8 @@ static NSURL* ios_origin;
 static NSDictionary* ios_boot_pending;
 static BOOL ios_persist = YES;
 static BOOL ios_dark;
+static NSString* ios_submit_label;
+static NSString* ios_session_prefix;
 static pthread_mutex_t ios_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t ios_bell = PTHREAD_COND_INITIALIZER;
 static NSMutableArray* ios_events;
@@ -126,12 +128,13 @@ static BOOL ios_same_origin(NSURL* url) {
 @private
   BOOL finished;
 }
+@property NSUInteger limit;
 @end
 
 @implementation BendIOSFetch
 - (instancetype)init {
   self = [super init];
-  if (self) { body = [NSMutableData data]; done = dispatch_semaphore_create(0); }
+  if (self) { body = [NSMutableData data]; done = dispatch_semaphore_create(0); _limit = IOS_LIMIT; }
   return self;
 }
 - (void)finish:(NSError*)problem {
@@ -141,13 +144,13 @@ static BOOL ios_same_origin(NSURL* url) {
   didReceiveResponse:(NSURLResponse*)got
   completionHandler:(void (^)(NSURLSessionResponseDisposition))complete {
   response = got;
-  if (got.expectedContentLength > IOS_LIMIT) { oversized = YES; complete(NSURLSessionResponseCancel); }
+  if (got.expectedContentLength > (long long)self.limit) { oversized = YES; complete(NSURLSessionResponseCancel); }
   else complete(NSURLSessionResponseAllow);
 }
 - (void)URLSession:(NSURLSession*)session dataTask:(NSURLSessionDataTask*)task
   didReceiveData:(NSData*)data {
   if (finished || oversized) return;
-  if (data.length > IOS_LIMIT - body.length) { oversized = YES; [task cancel]; }
+  if (data.length > self.limit - body.length) { oversized = YES; [task cancel]; }
   else [body appendData:data];
 }
 - (void)URLSession:(NSURLSession*)session task:(NSURLSessionTask*)task
@@ -162,6 +165,109 @@ static BOOL ios_same_origin(NSURL* url) {
   [self finish:problem];
 }
 @end
+
+static NSData* ios_audio_download(NSURL* url, unsigned* status) {
+  *status = 2;
+  if (!ios_same_origin(url)) return nil;
+  BendIOSFetch* stream = [BendIOSFetch new]; stream.limit = 16u << 20;
+  NSURLSessionConfiguration* config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+  config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 30;
+  config.waitsForConnectivity = NO;
+  NSOperationQueue* queue = [NSOperationQueue new]; queue.maxConcurrentOperationCount = 1;
+  NSURLSession* session = [NSURLSession sessionWithConfiguration:config delegate:stream delegateQueue:queue];
+  NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url
+    cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30];
+  NSURLSessionDataTask* task = [session dataTaskWithRequest:request]; [task resume];
+  if (dispatch_semaphore_wait(stream->done, dispatch_time(DISPATCH_TIME_NOW, 31 * NSEC_PER_SEC))) {
+    [session invalidateAndCancel]; *status = 3; return nil;
+  }
+  [session finishTasksAndInvalidate];
+  if (stream->error || stream->oversized || ![stream->response isKindOfClass:NSHTTPURLResponse.class]) return nil;
+  NSInteger code = ((NSHTTPURLResponse*)stream->response).statusCode;
+  if (code < 200 || code > 299 || ![stream->response.MIMEType.lowercaseString isEqual:@"audio/mp4"]) return nil;
+  *status = 1; return stream->body;
+}
+
+#include "ios_voice.c"
+#include "ios_media.c"
+
+static char* ios_audio_upload(NSString* text, unsigned* status) {
+  *status = 2;
+  id envelope = [NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+  NSDictionary* payload = [envelope isKindOfClass:NSDictionary.class] ? envelope[@"body"] : nil;
+  NSString* href = [envelope isKindOfClass:NSDictionary.class] ? envelope[@"url"] : nil;
+  if (![payload isKindOfClass:NSDictionary.class] || ![href isKindOfClass:NSString.class] ||
+    ![payload[@"requestId"] isKindOfClass:NSString.class] || ![payload[@"threadId"] isKindOfClass:NSString.class] ||
+    !ios_clip_id(payload[@"clipId"])) return ios_dup(@"audio upload takes {url,body:{requestId,threadId,clipId,...}}");
+  NSURL* url = [NSURL URLWithString:href relativeToURL:ios_origin].absoluteURL;
+  if (!ios_same_origin(url) || ![url.path isEqual:@"/api/audio"] || url.query.length || url.fragment.length)
+    return ios_dup(@"audio upload requires the configured /api/audio endpoint");
+  NSURL* file = ios_audio_file(payload[@"clipId"], NO);
+  NSNumber* size = nil; [file getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
+  if (!size || !size.unsignedLongLongValue || size.unsignedLongLongValue > IOS_AUDIO_LIMIT)
+    return ios_dup(@"recorded audio is missing or exceeds 16 MiB");
+  NSData* clip = [NSData dataWithContentsOfURL:file options:NSDataReadingMappedIfSafe error:NULL];
+  NSData* metadata = [NSJSONSerialization dataWithJSONObject:payload options:NSJSONWritingSortedKeys error:NULL];
+  if (!clip.length || clip.length > IOS_AUDIO_LIMIT || !metadata || metadata.length > 131072)
+    return ios_dup(@"invalid audio metadata or file");
+  NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+  @synchronized(defaults) {
+    [defaults setObject:payload forKey:ios_pending_key];
+    if (![defaults synchronize] || ![[defaults dictionaryForKey:ios_pending_key] isEqual:payload])
+      return ios_dup(@"No se pudo guardar el envío de audio en este dispositivo.");
+    NSDictionary* draft = [defaults dictionaryForKey:ios_audio_draft_key];
+    if ([draft[@"clipId"] isEqual:payload[@"clipId"]]) {
+      NSMutableDictionary* remembered = [draft mutableCopy];
+      for (NSString* key in @[@"requestId", @"threadId", @"provider"])
+        if ([payload[key] isKindOfClass:NSString.class]) remembered[key] = payload[key];
+      if (!ios_audio_draft(remembered)) return ios_dup(@"Could not save audio retry metadata.");
+    }
+  }
+  NSString* boundary = [@"BendAudio-" stringByAppendingString:NSUUID.UUID.UUIDString];
+  NSMutableData* multipart = [NSMutableData data];
+  NSString* before = [NSString stringWithFormat:@"--%@\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n", boundary];
+  [multipart appendData:[before dataUsingEncoding:NSUTF8StringEncoding]]; [multipart appendData:metadata];
+  NSString* between = [NSString stringWithFormat:@"\r\n--%@\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"%@.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n", boundary, payload[@"clipId"]];
+  [multipart appendData:[between dataUsingEncoding:NSUTF8StringEncoding]]; [multipart appendData:clip];
+  [multipart appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+  NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url
+    cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30];
+  request.HTTPMethod = @"POST"; request.HTTPBody = multipart;
+  [request setValue:[@"multipart/form-data; boundary=" stringByAppendingString:boundary] forHTTPHeaderField:@"Content-Type"];
+  NSURLComponents* origin = [NSURLComponents componentsWithURL:ios_origin resolvingAgainstBaseURL:YES];
+  origin.path = @""; origin.query = nil; origin.fragment = nil;
+  [request setValue:origin.string forHTTPHeaderField:@"Origin"];
+  BendIOSFetch* stream = [BendIOSFetch new];
+  NSURLSessionConfiguration* config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+  config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 30; config.waitsForConnectivity = NO;
+  NSOperationQueue* queue = [NSOperationQueue new]; queue.maxConcurrentOperationCount = 1;
+  NSURLSession* session = [NSURLSession sessionWithConfiguration:config delegate:stream delegateQueue:queue];
+  NSURLSessionDataTask* task = [session dataTaskWithRequest:request]; [task resume];
+  if (dispatch_semaphore_wait(stream->done, dispatch_time(DISPATCH_TIME_NOW, 31 * NSEC_PER_SEC))) {
+    [session invalidateAndCancel]; *status = 3; return ios_dup(@"audio upload timeout");
+  }
+  [session finishTasksAndInvalidate];
+  if (stream->oversized) return ios_dup(@"audio reply exceeds 1 MiB");
+  if (stream->error) return ios_dup(stream->error.localizedDescription);
+  NSInteger code = [stream->response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse*)stream->response).statusCode : 0;
+  id decoded = [NSJSONSerialization JSONObjectWithData:stream->body options:0 error:NULL];
+  if (code < 200 || code > 299) {
+    NSString* problem = [decoded isKindOfClass:NSDictionary.class] && [decoded[@"error"] isKindOfClass:NSString.class] ? decoded[@"error"] : nil;
+    return ios_dup(problem ?: [NSString stringWithFormat:@"HTTP %ld", (long)code]);
+  }
+  NSArray* receipts = [decoded isKindOfClass:NSDictionary.class] && [decoded[@"acceptedRequestIds"] isKindOfClass:NSArray.class] ? decoded[@"acceptedRequestIds"] : nil;
+  @synchronized(defaults) {
+    NSDictionary* pending = [defaults dictionaryForKey:ios_pending_key];
+    if (pending[@"requestId"] && [receipts containsObject:pending[@"requestId"]]) {
+      ios_audio_acknowledged(pending);
+      ios_image_acknowledged(pending);
+      [defaults removeObjectForKey:ios_pending_key]; [defaults synchronize];
+    }
+  }
+  char* result = malloc(stream->body.length + 1); if (!result) abort();
+  memcpy(result, stream->body.bytes, stream->body.length); result[stream->body.length] = 0;
+  *status = 1; return result;
+}
 
 static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
   *status = 2;
@@ -189,8 +295,10 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
       return ios_dup(@"invalid durable request");
     // This write precedes transport; a crash or lost reply can reuse its id.
     @synchronized(defaults) {
-      [defaults setObject:payload forKey:ios_pending_key];
-      if (![defaults synchronize] || ![[defaults dictionaryForKey:ios_pending_key] isEqual:payload])
+      NSMutableDictionary* pending = [payload mutableCopy];
+      if ([payload[@"mode"] isEqual:@"call"]) pending[@"kind"] = @"call";
+      [defaults setObject:pending forKey:ios_pending_key];
+      if (![defaults synchronize] || ![[defaults dictionaryForKey:ios_pending_key] isEqual:pending])
         return ios_dup(@"No se pudo guardar el envío en este dispositivo.");
     }
   }
@@ -234,6 +342,8 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
   @synchronized(defaults) {
     NSDictionary* pending = [defaults dictionaryForKey:ios_pending_key];
     if (pending[@"requestId"] && [receipts containsObject:pending[@"requestId"]]) {
+      ios_audio_acknowledged(pending);
+      ios_image_acknowledged(pending);
       [defaults removeObjectForKey:ios_pending_key]; [defaults synchronize];
     }
   }
@@ -410,6 +520,7 @@ static BendIOSController* ios_controller;
   // A recreated textbox must never reuse an acknowledged edit version.
   field.version = ++ios_edit_serial;
   ios_deliver(ios_json(@{@"action":@"field", @"name":field.name, @"value":field.text ?: @""}), field.key, field.version);
+  ios_image_edited(field.name, field.text ?: @"");
   if (ios_persist) {
     NSString* key = [@"bend-input:" stringByAppendingString:field.name];
     if (field.text.length) [NSUserDefaults.standardUserDefaults setObject:field.text forKey:key];
@@ -428,7 +539,7 @@ static BendIOSController* ios_controller;
   if (!self.painting) ios_deliver(ios_json(@{@"action":@"blur", @"name":field.name}), nil, 0);
 }
 - (BOOL)textView:(UITextView*)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString*)text {
-  NSString* submit = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendSubmitLabel"];
+  NSString* submit = ios_submit_label;
   if ([text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
     NSString* name = [@"button · " stringByAppendingString:submit];
     for (BendIOSButton* button in self.buttons.allValues)
@@ -438,7 +549,7 @@ static BendIOSController* ios_controller;
 }
 - (void)clicked:(BendIOSButton*)button {
   if (!button.enabled) return;
-  NSString* submit = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendSubmitLabel"];
+  NSString* submit = ios_submit_label;
   if (!submit.length || ![button.eventName isEqual:[@"button · " stringByAppendingString:submit]])
     [self.view endEditing:YES];
   ios_deliver(button.eventName, nil, 0);
@@ -456,7 +567,7 @@ static BendIOSController* ios_controller;
   field.autocorrectionType = UITextAutocorrectionTypeNo;
   field.spellCheckingType = UITextSpellCheckingTypeNo;
   field.accessibilityLabel = [name hasPrefix:@"textbox · "] ? [name substringFromIndex:10] : name;
-  if ([[NSBundle.mainBundle objectForInfoDictionaryKey:@"BendSubmitLabel"] length]) field.returnKeyType = UIReturnKeySend;
+  if (ios_submit_label.length) field.returnKeyType = UIReturnKeySend;
   return field;
 }
 - (void)apply:(NSArray*)commands {
@@ -518,11 +629,28 @@ static BendIOSController* ios_controller;
   // Cached Typed precedes Pending, including when the first GET already acknowledged it.
   if (!self.restoredPending) {
     self.restoredPending = YES;
-    if ([ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
+    ios_voice_restore();
+    ios_image_restore();
+    if ([ios_boot_pending[@"kind"] isEqual:@"image"] &&
+        [ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
+        [ios_boot_pending[@"threadId"] isKindOfClass:NSString.class] && ios_clip_id(ios_boot_pending[@"imageId"])) {
+      NSMutableDictionary* pending = [ios_boot_pending mutableCopy];
+      pending[@"id"] = pending[@"requestId"]; pending[@"thread"] = pending[@"threadId"];
+      ios_action(@{@"action":@"pending", @"data":pending});
+    } else if ([ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
+        [ios_boot_pending[@"threadId"] isKindOfClass:NSString.class] && ios_clip_id(ios_boot_pending[@"clipId"])) {
+      NSMutableDictionary* pending = [ios_boot_pending mutableCopy];
+      pending[@"kind"] = @"audio"; pending[@"id"] = pending[@"requestId"]; pending[@"thread"] = pending[@"threadId"];
+      ios_action(@{@"action":@"pending", @"data":pending});
+    } else if ([ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
         [ios_boot_pending[@"threadId"] isKindOfClass:NSString.class] &&
         [ios_boot_pending[@"text"] isKindOfClass:NSString.class])
-      ios_action(@{@"action":@"pending", @"data":@{@"id":ios_boot_pending[@"requestId"],
-        @"thread":ios_boot_pending[@"threadId"], @"text":ios_boot_pending[@"text"]}});
+      {
+        NSMutableDictionary* pending = [ios_boot_pending mutableCopy];
+        pending[@"id"] = pending[@"requestId"]; pending[@"thread"] = pending[@"threadId"];
+        if ([pending[@"mode"] isEqual:@"call"] || [pending[@"kind"] isEqual:@"call"]) pending[@"kind"] = @"call";
+        ios_action(@{@"action":@"pending", @"data":pending});
+      }
     ios_boot_pending = nil;
   }
 }
@@ -574,6 +702,12 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
         dispatch_sync(dispatch_get_main_queue(), ^{ [ios_controller.view setNeedsLayout]; });
         *status = 1; reply = ios_dup(@"");
       } else reply = ios_dup(@"viewport dimensions must be positive integer points");
+    } else if (op == 10 || op == 11) {
+      NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
+      reply = text ? (op == 10 ? ios_voice_request(text, status) : ios_audio_upload(text, status)) : ios_dup(@"request is not UTF-8");
+    } else if (op == 12 || op == 13) {
+      NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
+      reply = text ? (op == 12 ? ios_image_request(text, status) : ios_image_upload(text, status)) : ios_dup(@"request is not UTF-8");
     } else reply = ios_dup([NSString stringWithFormat:@"unsupported native operation %u", op]);
     atomic_fetch_sub(&ios_active, 1);
     return reply;
@@ -603,10 +737,16 @@ static void* ios_run(void* ignored) {
 @implementation BendIOSAppDelegate
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)options {
   ios_events = [NSMutableArray array]; ios_read = [NSMutableDictionary dictionary];
+  NSString* language = [NSLocale.preferredLanguages.firstObject.lowercaseString hasPrefix:@"es"] ? @"es" : @"en";
+  NSString* configuredSubmit = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendSubmitLabel"];
+  ios_submit_label = [@[@"Enviar", @"Send"] containsObject:configuredSubmit ?: @""]
+    ? ([language isEqual:@"es"] ? @"Enviar" : @"Send") : configuredSubmit;
+  ios_action(@{@"action":@"language", @"value":language});
   NSString* origin = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendOrigin"];
   ios_origin = [NSURL URLWithString:origin ?: @""];
   ios_boot_pending = [[NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key] copy];
-  ios_action(@{@"action":@"session", @"value":NSUUID.UUID.UUIDString});
+  ios_session_prefix = NSUUID.UUID.UUIDString;
+  ios_action(@{@"action":@"session", @"value":ios_session_prefix});
   ios_controller = [BendIOSController new];
   self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
   self.window.rootViewController = ios_controller; [self.window makeKeyAndVisible];
@@ -631,7 +771,10 @@ static void* ios_run(void* ignored) {
   [self.refreshTimer invalidate]; self.refreshTimer = nil;
   [NSUserDefaults.standardUserDefaults synchronize];
 }
+- (void)applicationDidEnterBackground:(UIApplication*)application { [ios_voice background]; [ios_image background]; }
 - (void)applicationWillTerminate:(UIApplication*)application {
+  [ios_voice background];
+  [ios_image background];
   atomic_store(&ios_stopped, YES);
   pthread_mutex_lock(&ios_lock); pthread_cond_broadcast(&ios_bell); pthread_mutex_unlock(&ios_lock);
   [NSUserDefaults.standardUserDefaults synchronize];
