@@ -3003,6 +3003,9 @@ const runtime_c = (tabs: string, spins: string, segs: string,
 #ifndef BEND_WEB
 #define BEND_WEB 0
 #endif
+#ifndef BEND_WEB_CORPUS_BYTES
+#define BEND_WEB_CORPUS_BYTES (32ull << 20)
+#endif
 #ifndef BEND_IOS
 #define BEND_IOS 0
 #endif
@@ -3449,7 +3452,7 @@ static void err_fail(const char* msg) {
 
 static void err_post(u64* H, u32 code) {
   err_fail(BEND_WEB && code == ERR_DEEP ? "browser work stack exhausted (2 MiB)"
-    : BEND_WEB && code == ERR_HEAP ? "browser heap exhausted (32 MiB corpus)"
+    : BEND_WEB && code == ERR_HEAP ? "browser heap exhausted"
     : ERR_TEXT[code]);
 }
 
@@ -4061,7 +4064,13 @@ static const WlFn wl_tab[] = { WL_TABLE };
 #undef WL_X
 #endif
 
-static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
+#if BEND_WEB
+// Keep pure reduction separate from the suspending browser IO dispatcher.
+FAR
+#else
+static
+#endif
+Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
   WL_BANK
   u32 rn = 0;
   r0 = t;
@@ -4956,7 +4965,7 @@ static bool corpus_grow(u64* H, u64 need) {
 static u64* corpus_setup(bool gpu, long threads, u64 bytes) {
   io_gpu     = gpu;
   KEEP_WORDS = gpu ? CHUNK : CAP_WORDS;
-  u64 dflt   = BEND_WEB ? 32ull << 20 : BEND_IOS ? 128ull << 20 : gpu ? gpu_span() : 1ull << 33;
+  u64 dflt   = BEND_WEB ? BEND_WEB_CORPUS_BYTES : BEND_IOS ? 128ull << 20 : gpu ? gpu_span() : 1ull << 33;
   u64 size   = (gpu && bytes != 0 ? bytes : dflt) & ~16383ull;
   CORPUS     = gpu ? gpu_map(size) : corpus_map(size);
   u64* H     = CORPUS;

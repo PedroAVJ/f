@@ -6,6 +6,7 @@
 //
 //   bun bend2/tool.ts <file.bend> -o <out>...      build: a binary, or C, JS,
 //                                                   .mjs, .web or BendTT by extension
+//   .web accepts --web-corpus-mib N (32 by default, at most 1024).
 //   bun bend2/tool.ts <file.bend> -o <dir>.macos --id <bundle id> --name <name>
 //     [--version N] [--short X.Y] [--origin <url>] [--identity <sha1|name|->]
 //                                                   a Mac app (see Mac below)
@@ -107,7 +108,7 @@ async function tool(): Promise<void> {
   let named: string | undefined;
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
-    if (MAC_FLAGS.includes(a)) {
+    if (MAC_FLAGS.includes(a) || a === "--web-corpus-mib") {
       i += 1;
       mac[a.slice(2)] = args[i] ?? fail(a + " needs a value");
     } else if (a === "--check-only") {
@@ -141,8 +142,11 @@ async function tool(): Promise<void> {
     fail((publish ? "--publish" : outs.length !== 0 ? "-o" : "--verdict")
       + " takes no other option");
   }
-  if (Object.keys(mac).length !== 0 && !outs.some((o) => o.endsWith(".macos"))) {
+  if (MAC_FLAGS.some((a) => mac[a.slice(2)] !== undefined) && !outs.some((o) => o.endsWith(".macos"))) {
     fail(MAC_FLAGS.join(", ") + " go with -o <dir>.macos");
+  }
+  if (mac["web-corpus-mib"] !== undefined && !outs.some((o) => o.endsWith(".web"))) {
+    fail("--web-corpus-mib goes with -o <dir>.web");
   }
   if (file.endsWith(".html")) {
     return outs.length === 1 ? bundle(file, outs[0]) : fail("a page bundles with -o <dir>");
@@ -218,14 +222,19 @@ function emit(book: Bend.Book, out: string, mac: Record<string, string> = {}): v
   if (out.endsWith(".macos")) {
     mac_build(book, out, mac_opts(mac));
   } else if (out.endsWith(".web")) {
+    const corpusMib = Number(mac["web-corpus-mib"] ?? "32");
+    if (!Number.isInteger(corpusMib) || corpusMib < 32 || corpusMib > 1024)
+      throw "Error: --web-corpus-mib must be an integer from 32 to 1024";
+    const corpusBytes = corpusMib * 1048576, memoryBytes = corpusBytes + 100663296;
     const dir = fs.mkdtempSync(path.join(path.dirname(path.resolve(out)), ".bend-web-"));
     try {
       const c = path.join(dir, "app.c");
       fs.writeFileSync(c, Comp.compile_book(book, true));
-      const flags = [c, "-O3", "-DBEND_WEB=1", "--js-library",
+      const flags = [c, "-O3", "-DBEND_WEB=1", `-DBEND_WEB_CORPUS_BYTES=${corpusBytes}`, "--js-library",
         path.join(Bend.BEND_DIR, "std/F/browser/stdio.js"), "-sMODULARIZE=1", "-sEXPORT_ES6=1",
         "-sENVIRONMENT=web,worker,node", "-sINVOKE_RUN=0", "-sASYNCIFY=1",
-        "-sASYNCIFY_STACK_SIZE=262144", "-sINITIAL_MEMORY=134217728",
+        "-sASYNCIFY_REMOVE=work_loop",
+        "-sASYNCIFY_STACK_SIZE=262144", `-sINITIAL_MEMORY=${memoryBytes}`,
         "-sALLOW_MEMORY_GROWTH=0", "-sSTACK_SIZE=1048576",
         "-sEXPORTED_FUNCTIONS=_bend_start,_bend_worker_rows,_malloc,_free",
         "-sEXPORTED_RUNTIME_METHODS=ccall"];
@@ -246,8 +255,8 @@ window.bend = startBend(document.getElementById('app'), {workers:Number(new URLS
 onMessage:m => { if (m.type === 'stdout' || m.type === 'stderr' || m.type === 'error') document.getElementById('output').textContent = (document.getElementById('output').textContent + (m.text || '') + '\\n').slice(-65536); }});
 </script>`);
       const files = [...fs.readdirSync(dir).filter(n => n !== "app.c"), "manifest.json"];
-      fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({bendWeb:1, files, memoryBytes:134217728,
-        corpusBytes:33554432, workStackBytes:2097152, maxWorkers:8,
+      fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({bendWeb:1, files, memoryBytes,
+        corpusBytes, workStackBytes:2097152, maxWorkers:8,
         headers:{"Cross-Origin-Opener-Policy":"same-origin", "Cross-Origin-Embedder-Policy":"require-corp"}}, null, 2));
       fs.unlinkSync(c);
       if (fs.existsSync(out)) {

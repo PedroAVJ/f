@@ -116,6 +116,7 @@ export function startBend(root, options = {}) {
     else if (events.length < 256) events.push(entry);
   };
   const renderer = createCanvasRenderer(root, deliver);
+  const host = options.host?.({root, deliver});
   // A textbox's text outlives the page: each edit is kept in localStorage by the textbox's name, and a
   // textbox that appears empty gets its kept text back as an edit, so Bend keeps it in the input's state.
   const store = (() => { try { return localStorage; } catch { return null; } })();
@@ -138,7 +139,7 @@ export function startBend(root, options = {}) {
     }
   };
   const restore = () => {
-    for (const field of root.querySelectorAll('input[data-bend-field]')) {
+    for (const field of root.querySelectorAll('input[data-bend-field],textarea[data-bend-field]')) {
       if (restored.has(field)) continue;
       restored.add(field);
       let text = null;
@@ -199,6 +200,8 @@ export function startBend(root, options = {}) {
   };
   async function request(operation, data, signal, requestId) {
     bounded(data);
+    const hosted = await host?.request?.(operation, data, signal, requestId);
+    if (hosted !== undefined) return hosted;
     if (operation === 1) {
       const view = document.createElement('template'); view.innerHTML = data;
       for (const node of view.content.querySelectorAll('[data-bend-stroke-width]')) {
@@ -227,6 +230,7 @@ export function startBend(root, options = {}) {
         }
       } finally { painting = false; }
       restore();
+      host?.rendered?.();
       return '';
     }
     if (operation === 2) {
@@ -270,6 +274,7 @@ export function startBend(root, options = {}) {
       root.removeEventListener('focusin',focus);root.removeEventListener('focusout',focus);
       root.removeEventListener('compositionstart',composition);root.removeEventListener('compositionend',composition);
       compute.close(); renderer.close();
+      host?.close?.();
       for (const abort of active.values()) abort.abort(Error('stopped'));
       active.clear(); events.length = 0; worker.postMessage({type:'stop'});
       setTimeout(() => worker.terminate(), 100);
