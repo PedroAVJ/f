@@ -8,7 +8,16 @@ import ../../f/bend2/std/F/ui/tokens.bend as T
 import ../../f/bend2/std/F/ai/wire_json.bend as J
 import ../mobile.bend as App
 import ../components/mobile_conversation.bend as C
+import ../components/mobile_rich_text.bend as Rich
 
+def is_draw(mark: P.Mark) -> Bool:
+  match mark:
+    case P.Draw{shape}: True{}
+    case _: False{}
+def command_count(xs: List<&2, P.Box>) -> U32:
+  match xs:
+    case []: 3
+    case P.Box{+name, mark, x, y, w, h, level, layer} <> rest: U32.add(Bool.pick(U32, is_draw(mark), 1, 0), U32.add(Bool.pick(U32, P.interactive(name) || String.starts_with(name, "button, disabled · "), 1, 0), command_count(rest)))
 def snapshot(status: String) -> String:
   "{\"threads\":[{\"id\":\"thread-1\",\"title\":\"Recuperada\",\"status\":\"" ++ status ++ "\",\"messages\":[{\"role\":\"user\",\"text\":\"Mensaje anterior\"},{\"role\":\"assistant\",\"text\":\"Respuesta real del Mac mini\"}]}],\"selectedThreadId\":\"thread-1\"}"
 def reply(status: String) -> Host.Reply: Host.Reply{1, snapshot(status)}
@@ -24,11 +33,15 @@ def last_text(xs: List<&2, App.Message>) -> String:
     case App.Message{id, role, text, audio, duration, picture, processing, requestId, caption} <> []: text
     case x <> rest: last_text(rest)
 def tree(s: App.State) -> P.UI: K.draw(App.f(s), K.Rendering{K.Lang.Es{}, []})
+def is_spacing(mark: P.Mark) -> Bool:
+  match mark:
+    case P.Spacing{axis}: True{}
+    case _: False{}
 def inside(xs: List<&2, P.Box>, +w: U32, +h: U32) -> Bool:
   match xs:
     case []: True{}
-    case P.Box{name, mark, x, y, bw, bh, level, layer} <> rest:
-      U32.is_le(U32.add(x, bw), w) && U32.is_le(U32.add(y, bh), h) && inside(rest, w, h)
+    case P.Box{+name, mark, x, y, bw, bh, level, layer} <> rest:
+      U32.is_le(U32.add(x, bw), w) && (is_spacing(mark) || String.starts_with(name, "Scroll content · ") || String.starts_with(name, "button · scroll:") || U32.is_le(U32.add(y, bh), h)) && inside(rest, w, h)
 def fits(+s: App.State, +w: U32, +h: U32) -> Bool:
   U32.is_eq(K.width(tree(s)), w) && U32.is_eq(K.height(tree(s)), h) && inside(K.placed(tree(s)), w, h)
 def composer_centered(s: App.State, +w: U32) -> Bool:
@@ -103,10 +116,19 @@ def main() -> IO(Unit):
   +recording_tree = tree(recording)
   +recording_html = Scene.html_in(recording_tree, T.Scheme.Dark{})
   +recorded = App.with_voice(recording, App.Voice{"recorded", "clip", 2500, "", 0})
+  +stress = C.conversation("Mensaje", "", [App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320), App.text_item(K.Role.Near{}, repeat(125n), 320)], K.Focus.Blurred{}, "", False{}, False{}, [], 320, 568)
+  +stress_packet = Scene.canvas_in(stress, T.Scheme.Dark{})
+  +formatted = Rich.view("One **bold** word.\n\nSee [the docs](https://example.com/docs).", 220)
   do IO<Unit>:
+    IO.print(Bool.show(U32.is_le(command_count(K.placed(stress)), 4096) && U32.is_le(U32.from_nat(String.length(stress_packet)), 1048576)))
+    IO.print(Bool.show(inside(K.placed(stress), 320, 568)))
+    IO.print(Bool.show(U32.is_le(U32.add(K.area_y(K.find_area(K.placed(stress), "group · Escribir mensaje")), K.area_h(K.find_area(K.placed(stress), "group · Escribir mensaje"))), 568)))
+    IO.print(Bool.show(U32.is_gt(K.height(formatted), 46)))
+    IO.print(Bool.show(String.contains(Scene.html_in(formatted, T.Scheme.Dark{}), "button · open-url:https://example.com/docs")))
+    IO.print(Bool.show(Bool.not(String.contains(C.text_of(formatted), "**"))))
     IO.print(Bool.show(Bool.not(String.contains(recording_html, "dialog · "))))
     IO.print(Bool.show(Bool.not(String.contains(recording_html, "textbox · "))))
-    IO.print(Bool.show(String.contains(recording_html, "Respuesta real del Mac mini")))
+    IO.print(Bool.show(String.contains(C.text_of(recording_tree), "Respuesta real del Mac mini")))
     IO.print(Bool.show(String.contains(recording_html, "button · Cancelar")))
     IO.print(Bool.show(String.contains(recording_html, "button · Detener grabación")))
     IO.print(Bool.show(String.contains(Scene.html_in(tree(recorded), T.Scheme.Dark{}), "button · Reproducir grabación")))
@@ -132,9 +154,9 @@ def main() -> IO(Unit):
     IO.print(Bool.show(String.is_empty(App.State.draft(photo_ack))))
     IO.print(Bool.show(String.eq(App.State.draft(photo_edited_ack), "Newer draft")))
     IO.print(Bool.show(String.eq(App.State.draft(call_ack), App.State.draft(typed))))
-    IO.print(Bool.show(U32.is_gt(K.area_w(K.find_area(K.placed(tree(jump)), "Highlight ring")), 0)))
-    IO.print(Bool.show(String.contains(Scene.html_in(tree(failed), T.Scheme.Dark{}), "button · Reintentar carga")))
-    IO.print(Bool.show(String.contains(Scene.html_in(photo_tree, T.Scheme.Dark{}), "Exact photo caption")))
+    IO.print(Bool.show(U32.is_gt(K.area_w(K.find_area(K.placed(tree(jump)), "Scroll content · Highlight ring")), 0)))
+    IO.print(Bool.show(String.contains(Scene.html_in(tree(failed), T.Scheme.Dark{}), "button · scroll:Reintentar carga")))
+    IO.print(Bool.show(String.contains(C.text_of(photo_tree), "Exact photo caption")))
     IO.print(Bool.show(String.eq(App.voice_phase(elapsed), "recording")))
     IO.print(Bool.show(U32.is_eq(App.voice_duration(elapsed), 2500)))
     IO.print(Bool.show(String.eq(pending_voice_clip(App.voice(elapsed)), "clip")))
@@ -254,6 +276,13 @@ def main() -> IO(Unit):
 #| True
 #| True
 #| True
+#| True
+#| True
+#| True
+#| True
+#| True
+#| True
+
 #| True
 #| True
 #| True

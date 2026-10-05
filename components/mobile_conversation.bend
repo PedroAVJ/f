@@ -50,12 +50,13 @@ def with_next(t: P.UI, next: P.UI) -> P.UI:
     case P.Last{}: next
     case P.Leaf{name, shape, w, h, align, old}: P.Leaf{name, shape, w, h, align, next}
     case P.Node{name, lay, w, h, align, first, old}: P.Node{name, lay, w, h, align, first, next}
-def photo_send(t: P.UI, +enabled: Bool) -> P.UI:
-  match t:
-    case P.Last{}: P.Last{}
-    case P.Leaf{name, shape, w, h, align, next}: P.Leaf{name, shape, w, h, align, photo_send(next, enabled)}
-    case P.Node{+name, lay, w, h, align, first, +next}:
-      Bool.pick(P.UI, enabled && String.eq(name, "button · Dictar"), with_next(K.button_tree(K.send_button(False{})), photo_send(next, enabled)), P.Node{name, lay, w, h, align, photo_send(first, enabled), photo_send(next, enabled)})
+def photo_send(enabled: Bool, t: P.UI) -> P.UI:
+  match enabled t:
+    case False{} tree: tree
+    case True{} P.Last{}: P.Last{}
+    case True{} P.Leaf{name, shape, w, h, align, next}: P.Leaf{name, shape, w, h, align, photo_send(True{}, next)}
+    case True{} P.Node{"button · Dictar", lay, w, h, align, first, next}: with_next(K.button_tree(K.send_button(False{})), photo_send(True{}, next))
+    case True{} P.Node{name, lay, w, h, align, first, next}: P.Node{name, lay, w, h, align, photo_send(True{}, first), photo_send(True{}, next)}
 def photo_box(+picture: K.Picture, +box: U32, +room: U32) -> U32:
   match picture:
     case K.Picture{asset, +width, +height, label}:
@@ -65,12 +66,27 @@ def photo_preview(+picture: K.Picture, +sending: Bool, +box: U32, +room: U32) ->
   +remove = K.renamed(K.button_tree(K.glass_button(K.Intent.Close{})), "button · Quitar foto")
   +pw = U32.max(K.width(bubble), K.width(remove))
   K.Said{K.Bubble{P.layout("Photo draft", P.Depth{}, 0, 0, pw, U32.max(K.height(bubble), K.height(remove)), P.Trailing{}, K.append_trees([K.placed_at("Photo", U32.sub(pw, K.width(bubble)), 0, bubble)], Bool.pick(List<&2, P.UI>, sending, [], [K.placed_at("Remove", U32.sub(pw, K.width(remove)), 0, remove)])))}}
+# Named canvas content lets the native host scroll the thread independently.
+def scroll_name(+name: String) -> String:
+  Bool.pick(String, String.starts_with(name, "button · "), "button · scroll:" ++ String.drop(name, 9n),
+  Bool.pick(String, String.starts_with(name, "button, disabled · "), "button, disabled · scroll:" ++ String.drop(name, 19n), "Scroll content · " ++ name))
+def scroll_content(t: P.UI) -> P.UI:
+  match t:
+    case P.Last{}: P.Last{}
+    case P.Leaf{name, shape, w, h, align, next}: P.Leaf{scroll_name(name), shape, w, h, align, scroll_content(next)}
+    case P.Node{name, lay, w, h, align, first, next}: P.Node{scroll_name(name), lay, w, h, align, scroll_content(first), scroll_content(next)}
+def scroll_thread(t: P.UI) -> P.UI:
+  match t:
+    case P.Last{}: P.Last{}
+    case P.Leaf{name, shape, w, h, align, next}: P.Leaf{name, shape, w, h, align, scroll_thread(next)}
+    case P.Node{"Thread area", lay, +w, +h, align, first, next}:
+      with_next(P.layout("Thread area", P.Depth{}, 0, 0, w, h, P.Leading{}, [P.rounded("Scroll viewport · Conversation", P.Fill.None{}, w, h, P.Corner{0}, P.NoStroke{}, P.Leading{}), K.aligned(scroll_content(first), P.Leading{})]), scroll_thread(next))
+    case P.Node{name, lay, w, h, align, first, next}: P.Node{name, lay, w, h, align, scroll_thread(first), scroll_thread(next)}
 def conversation(+placeholder: String, +draft: String, history: List<&2, K.Item>, +focus: K.Focus, +status: String, +attachment: Bool, +disabled: Bool, +layers: List<&2, P.UI>, +w: U32, +h: U32) -> P.UI:
-  +room = K.thread_room(placeholder, box(w), box_h(h), draft, focus, K.AttachMenu.Closed{})
-  +shown = K.newest(history, box(w), U32.sub(room, Bool.pick(U32, String.is_empty(status), 0, 56)))
+  +shown = history
   +messages = Bool.pick(K.Remote<&2, List<&2, K.Item>>, String.is_empty(status), K.Ready{shown}, K.Failed{Some{shown}})
-  +body = disable_send(photo_send(K.conversation_tree(K.conversation(placeholder, box(w), box_h(h), K.Settled{}, K.SettledState{messages, draft, focus, K.AttachMenu.Closed{}})), attachment && String.is_empty(draft)), disabled, attachment)
-  +base = P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, [K.placed_at("Body", margin(), body_y(), body), K.placed_at("Header", margin(), 16, header(w))])
+  +body = disable_send(photo_send(attachment && String.is_empty(draft), K.conversation_tree(K.conversation(placeholder, box(w), box_h(h), K.Settled{}, K.SettledState{messages, draft, focus, K.AttachMenu.Closed{}}))), disabled, attachment)
+  +base = P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, [K.placed_at("Body", margin(), body_y(), scroll_thread(body)), K.placed_at("Header", margin(), 16, header(w))])
   P.layout("Near", P.Depth{}, 0, 0, w, h, P.Leading{}, K.append_trees([Bool.pick(P.UI, has_layers(layers), inactive(base), base)], layers))
 
 def text_of(t: P.UI) -> String:
@@ -150,8 +166,8 @@ def replace_composer(t: P.UI, +composer: P.UI) -> P.UI:
   match t:
     case P.Last{}: P.Last{}
     case P.Leaf{name, shape, w, h, align, next}: P.Leaf{blocked(name), shape, w, h, align, replace_composer(next, composer)}
-    case P.Node{+name, lay, w, h, align, first, +next}:
-      Bool.pick(P.UI, String.eq(name, "group · Escribir mensaje"), with_next(composer, replace_composer(next, composer)), P.Node{blocked(name), lay, w, h, align, replace_composer(first, composer), replace_composer(next, composer)})
+    case P.Node{"group · Escribir mensaje", lay, w, h, align, first, next}: with_next(composer, replace_composer(next, composer))
+    case P.Node{name, lay, w, h, align, first, next}: P.Node{blocked(name), lay, w, h, align, replace_composer(first, composer), replace_composer(next, composer)}
 def recording_view(history: List<&2, K.Item>, +elapsed_ms: U32, +phase: String, +level: U32, +error: String, +w: U32, +h: U32) -> P.UI:
   +error_h = Bool.pick(U32, String.is_empty(error), 0, 56)
   +base = conversation("Mensaje", "", history, K.Focus.Blurred{}, "", False{}, True{}, [], w, U32.sub(h, error_h))
@@ -188,14 +204,18 @@ def copy_text(+text: String, +lang: K.Lang) -> String:
   Bool.pick(String, String.starts_with(text, "Enviando mensaje de voz… "), K.es_en(lang, "Enviando mensaje de voz… ", "Sending voice message… ") ++ drop_u(text, 24),
   Bool.pick(String, String.starts_with(text, "Grabando · "), K.es_en(lang, "Grabando · ", "Recording · ") ++ drop_u(text, 11),
   Bool.pick(String, String.starts_with(text, "Grabación lista · "), K.es_en(lang, "Grabación lista · ", "Recording ready · ") ++ drop_u(text, 18), action_copy(K.intents(), text, lang))))))))))))))
+def history_copy(+text: String, +lang: K.Lang) -> String:
+  Bool.pick(String, String.eq(text, "Mensajes anteriores"), K.es_en(lang, "Mensajes anteriores", "Earlier messages"), Bool.pick(String, String.eq(text, "Mensajes recientes"), K.es_en(lang, "Mensajes recientes", "Latest messages"), copy_text(text, lang)))
+def scroll_copy(+text: String, +lang: K.Lang) -> String:
+  Bool.pick(String, String.starts_with(text, "scroll:"), "scroll:" ++ history_copy(drop_u(text, 7), lang), history_copy(text, lang))
 def locale_name(+name: String, +lang: K.Lang) -> String:
-  Bool.pick(String, String.starts_with(name, "button, disabled · "), "button, disabled · " ++ copy_text(drop_u(name, 19), lang),
-  Bool.pick(String, String.starts_with(name, "button · "), "button · " ++ copy_text(drop_u(name, 9), lang),
+  Bool.pick(String, String.starts_with(name, "button, disabled · "), "button, disabled · " ++ scroll_copy(drop_u(name, 19), lang),
+  Bool.pick(String, String.starts_with(name, "button · "), "button · " ++ scroll_copy(drop_u(name, 9), lang),
   Bool.pick(String, String.starts_with(name, "textbox · "), "textbox · " ++ copy_text(drop_u(name, 10), lang),
   Bool.pick(String, String.starts_with(name, "heading · "), "heading · " ++ copy_text(drop_u(name, 10), lang),
-  Bool.pick(String, String.starts_with(name, "dialog · "), "dialog · " ++ copy_text(drop_u(name, 9), lang),
+  Bool.pick(String, String.starts_with(name, "dialog · "), "dialog · " ++ scroll_copy(drop_u(name, 9), lang),
   Bool.pick(String, String.starts_with(name, "group · "), "group · " ++ copy_text(drop_u(name, 8), lang),
-  Bool.pick(String, String.starts_with(name, "status · "), "status · " ++ copy_text(drop_u(name, 9), lang), name)))))))
+  Bool.pick(String, String.starts_with(name, "status · "), "status · " ++ scroll_copy(drop_u(name, 9), lang), name)))))))
 def empty_value(t: P.UI) -> Bool:
   match t:
     case P.Leaf{name, shape, w, h, align, next}: String.eq(name, "value · ")
@@ -210,14 +230,14 @@ def localize_shape(+shape: P.Shape, +lang: K.Lang, +copy: Bool) -> P.Shape:
   match shape:
     case P.Shape{geometry, fill, stroke, effects}:
       match geometry:
-        case P.Text{+text, text_type}: P.Shape{P.Text{Bool.pick(String, copy, copy_text(text, lang), text), text_type}, fill, stroke, effects}
+        case P.Text{+text, text_type}: P.Shape{P.Text{Bool.pick(String, copy, history_copy(text, lang), text), text_type}, fill, stroke, effects}
         case _: P.Shape{geometry, fill, stroke, reference_effects(effects)}
 def localized_go(t: P.UI, +lang: K.Lang, +copy: Bool) -> P.UI:
   match t:
     case P.Last{}: P.Last{}
     case P.Leaf{+name, shape, w, h, align, next}: P.Leaf{locale_name(name, lang), localize_shape(shape, lang, copy), w, h, align, localized_go(next, lang, copy)}
     case P.Node{+name, lay, w, h, align, +first, next}:
-      +own_copy = Bool.pick(Bool, String.starts_with(name, "button · ") || String.starts_with(name, "button, disabled · "), True{}, Bool.pick(Bool, String.starts_with(name, "listitem · ") || String.eq(name, "Snippet"), False{}, Bool.pick(Bool, String.starts_with(name, "textbox · "), empty_value(first), copy)))
+      +own_copy = Bool.pick(Bool, String.starts_with(name, "button · ") || String.starts_with(name, "button, disabled · "), True{}, Bool.pick(Bool, String.starts_with(name, "listitem · ") || String.starts_with(name, "Scroll content · listitem · ") || String.eq(name, "Snippet"), False{}, Bool.pick(Bool, String.starts_with(name, "textbox · "), empty_value(first), copy)))
       P.Node{locale_name(name, lang), lay, w, h, align, localized_go(first, lang, own_copy), localized_go(next, lang, copy)}
 def localized(t: P.UI, lang: K.Lang) -> P.UI: localized_go(t, lang, True{})
 def view(t: P.UI) -> K.UI: K.UI.Drawn{r => localized(t, K.lang_of(r))}

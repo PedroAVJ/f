@@ -5,6 +5,7 @@ import ../f/bend2/std/F/ui/kit.bend as K
 import ../f/bend2/std/F/ui/primitives.bend as P
 import ../f/bend2/std/F/ai/wire_json.bend as J
 import ./components/mobile_conversation.bend as C
+import ./components/mobile_rich_text.bend as Rich
 import ../f/bend2/std/F/ui/tokens.bend as T
 
 type Message is Data:
@@ -555,10 +556,13 @@ def image_files_value(value: Local) -> List<&2, ImageFile>:
     case Local{language, query, voice, call, physical, audioId, photo, files}: files
 def image_files(+state: State) -> List<&2, ImageFile>: image_files_value(State.local(state))
 def status(+state: State) -> String: Bool.pick(String, String.is_empty(State.error(state)), cache_error(image_files(state)), State.error(state))
-def text_item(role: K.Role, text: String, +w: U32) -> K.Item:
+def role_label(role: K.Role) -> String:
   match role:
-    case K.Role.Mine{}: K.Said{K.bubble(K.Role.Mine{}, K.Delivery.Sent{}, K.Said.Words{text}, K.Presence.Shown{}, K.content_width(C.box(w)))}
-    case K.Role.Near{}: K.Said{K.bubble(K.Role.Near{}, Unit{}, K.Said.Words{text}, K.Presence.Shown{}, K.content_width(C.box(w)))}
+    case K.Role.Mine{}: "Tú"
+    case K.Role.Near{}: "Near"
+def text_item(+role: K.Role, +text: String, +w: U32) -> K.Item:
+  +content = K.aligned(Rich.view(text, K.text_max(K.content_width(C.box(w)))), P.Middle{})
+  K.Said{K.Bubble{K.renamed(K.pill(role_align(role), Bool.pick(T.SurfaceRole, is_mine(role), T.SurfaceRole.Mine{}, T.SurfaceRole.Surface{}), content, P.NoStroke{}), "listitem · " ++ role_label(role) ++ ": " ++ text)}}
 def picture_asset(value: K.Picture) -> String:
   match value:
     case K.Picture{asset, width, height, label}: asset
@@ -577,10 +581,6 @@ def picture_item(role: K.Role, value: K.Picture, +files: List<&2, ImageFile>, +w
       +shown : K.Picture = K.Picture{cached, width, height, label}
       Bool.pick(K.Item, String.starts_with(cached, "error:"), K.Said{K.Bubble{K.status_line(K.alert(), "No se pudo cargar la foto.")}},
       Bool.pick(K.Item, String.is_empty(cached), K.Said{K.Bubble{K.status_line(K.spinner(14), "Cargando foto…")}}, picture_bubble(role, shown, w)))
-def role_label(role: K.Role) -> String:
-  match role:
-    case K.Role.Mine{}: "Tú"
-    case K.Role.Near{}: "Near"
 def captioned_picture(+item: K.Item, +text: String, +role: K.Role, +w: U32) -> K.Item:
   match item:
     case K.Said{+bubble}:
@@ -611,13 +611,17 @@ def photo_items(value: Photo, +w: U32, +h: U32) -> List<&2, K.Item>:
   match value:
     case Photo{+phase, id, +asset, width, height, requestId}:
       Bool.pick(List<&2, K.Item>, String.is_empty(asset), [], [C.photo_preview(K.Picture{asset, width, height, "Foto"}, String.eq(phase, "uploading"), C.box(w), U32.sub(C.box_h(h), 72))])
+def history_controls(+thread: Thread, +items: List<&2, K.Item>) -> List<&2, K.Item>:
+  +older : K.Item = K.Said{K.Bubble{K.button_tree(K.say(K.ButtonKind.Quiet{}, "Mensajes anteriores"))}}
+  +latest : K.Item = K.Said{K.Bubble{K.button_tree(K.say(K.ButtonKind.Quiet{}, "Mensajes recientes"))}}
+  K.append_items(Bool.pick(List<&2, K.Item>, Thread.historyHasMore(thread), [older], []), K.append_items(items, Bool.pick(List<&2, K.Item>, Thread.historyIsLatest(thread), [], [latest])))
 def panel_view(+state: State, panel: Panel, history: List<&2, Message>) -> K.UI:
   match panel:
     case Search{}: C.view(C.search_view(query(state), message_items(history, State.width(state), image_files(state)), State.width(state), State.height(state)))
     case Jumped{index, highlighted}: C.view(C.conversation(placeholder(), State.draft(state), jump_items(history, index, highlighted, State.width(state), image_files(state)), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), [], State.width(state), State.height(state)))
     case Recording{}: C.view(C.recording_view(message_items(history, State.width(state), image_files(state)), voice_duration(state), voice_phase(state), voice_level(voice(state)), State.error(state), State.width(state), State.height(state)))
     case Calling{}: C.view(call_tree(state))
-    case _: C.view(C.conversation(placeholder(), State.draft(state), K.append_items(message_items(history, State.width(state), image_files(state)), K.append_items(photo_items(photo(state), State.width(state), State.height(state)), Bool.pick(List<&2, K.Item>, working(state), [K.Waiting{K.still_indicator()}], []))), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), panel_tree(state), State.width(state), State.height(state)))
+    case _: C.view(C.conversation(placeholder(), State.draft(state), K.append_items(history_controls(current(state), message_items(history, State.width(state), image_files(state))), K.append_items(photo_items(photo(state), State.width(state), State.height(state)), Bool.pick(List<&2, K.Item>, working(state), [K.Waiting{K.still_indicator()}], []))), State.focus(state), status(state), has_photo(state), Bool.not(can_send(state)), panel_tree(state), State.width(state), State.height(state)))
 def f(+state: State) -> K.UI: panel_view(state, State.panel(state), Thread.messages(current(state)))
 def request_pending(pending: Maybe<&2, Request>, +state: State, +text: String, +thread: String) -> Request:
   match pending:
@@ -779,11 +783,13 @@ def digits_until(s: String) -> String:
 def found_index(+label: String) -> U32:
   +raw = Bool.pick(String, String.starts_with(label, "Ir al mensaje "), String.drop(label, 14n), String.drop(label, 14n))
   U32.sub(read_number(U32.read(digits_until(raw))), 1)
+def fetch_earlier(+state: State) -> IO(State):
+  IO.bind(Host.Reply, State, Host.fetch("/api/session?before=" ++ Thread.historyBefore(current(state))), reply => session_media(apply_reply(state, reply, False{})))
 def refresh(+state: State, panel: Panel) -> IO(State):
   match panel:
     case Search{}: IO.pure(State, state)
     case Jumped{index, highlighted}: IO.pure(State, State.with_panel(state, Jumped{index, False{}}))
-    case _: fetch_session(state)
+    case _: Bool.pick(IO(State), Thread.historyIsLatest(current(state)), fetch_session(state), IO.pure(State, state))
 def photo_command(+state: State, +action: String, extra: String) -> IO(State):
   IO.bind(Host.Reply, State, Host.request(12, "{\"action\":" ++ J.quote(action) ++ ",\"session\":" ++ J.quote(physical(state)) ++ extra ++ "}"), reply => command_reply(state, reply))
 def pick_photo(+state: State) -> IO(State):
@@ -833,6 +839,8 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
   match input:
     case Native.Typed{label, +value}: Bool.pick(IO(State), is_search(State.panel(state)), fetch_search(with_query(state, value)), IO.pure(State, update(state, input)))
     case Native.Clicked{+label}:
+      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensajes anteriores", "Earlier messages") && Thread.historyHasMore(current(state)), fetch_earlier(state),
+      Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensajes recientes", "Latest messages"), fetch_session(state),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Adjuntar", "Attach") && Bool.not(has_pending(State.pending(state))) && Bool.not(has_photo(state)), pick_photo(state),
       Bool.pick(IO(State), matches(label, "Quitar foto", "Remove photo") && photo_ready(state), cancel_photo(state),
       Bool.pick(IO(State), is_search(State.panel(state)) && (String.starts_with(label, "Ir al mensaje ") || String.starts_with(label, "Go to message ")), IO.pure(State, State.with_panel(state, Jumped{found_index(label), True{}})),
@@ -854,7 +862,7 @@ def input_step(+state: State, +input: Native.Input) -> IO(State):
       Bool.pick(IO(State), matches(label, "Buscar", "Search"), fetch_search(State.with_panel(state, Search{})),
       Bool.pick(IO(State), is_search(State.panel(state)) && matches(label, "Cerrar", "Close"), fetch_session(State.with_panel(state, Closed{})),
       Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Enviar", "Send") && can_send(state), send(state),
-      Bool.pick(IO(State), matches(label, "Detener", "Stop") && working(state), stop(state), IO.pure(State, update(state, input))))))))))))))))))))))))
+      Bool.pick(IO(State), matches(label, "Detener", "Stop") && working(state), stop(state), IO.pure(State, update(state, input))))))))))))))))))))))))))
     case Native.Focused{label}: Bool.pick(IO(State), is_closed(State.panel(state)) && matches(label, "Mensaje", "Message"), fetch_session(update(State.with_panel(state, Closed{}), input)), IO.pure(State, update(state, input)))
     case _: IO.pure(State, update(state, input))
 def session_prefix(+state: State, +prefix: String) -> State:
