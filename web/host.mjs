@@ -11,14 +11,14 @@ export function createDotHost({ root, deliver }) {
     maxImageBytes: Number.isSafeInteger(imageLimit) && imageLimit >= 65536 && imageLimit <= 5 * 1024 * 1024 ? imageLimit : undefined,
   });
   let restored = false, initialized = false, refreshQueued = false, thread, atBottom = true, lastHeight = 0, prepend = false;
-  let displayedReview, pendingReview;
+  let displayedReview, pendingReview, browserSession, processingRefresh = false;
   const observeSnapshot = text => {
     const snapshot = JSON.parse(text);
     pendingReview = { provider: snapshot.provider, context: snapshot.reviewContext ?? null };
     return snapshot;
   };
   const viewport = () => ({ action: 'resize', width: Math.max(320, Math.floor(root.clientWidth)), height: Math.max(240, Math.floor(globalThis.visualViewport?.height ?? innerHeight)) });
-  const resize = () => event(viewport());
+  const resize = () => { if (initialized) event(viewport()); };
   const refresh = () => {
     if (!document.hidden && !refreshQueued) { refreshQueued = true; event({ action: 'refresh' }); }
   };
@@ -50,14 +50,18 @@ export function createDotHost({ root, deliver }) {
     if (operation === 9) {
       if (!initialized) {
         initialized = true;
-        event({ action: 'session', value: crypto.randomUUID() });
+        browserSession = crypto.randomUUID();
+        event({ action: 'session', value: browserSession });
         event({ action: 'language', value: navigator.language.startsWith('es') ? 'es' : 'en' });
       }
       return JSON.stringify(viewport());
     }
     if (operation === 7 || operation === 8) return '';
     if (operation >= 10 && operation <= 13) {
-      const text = await media.request(operation, JSON.parse(data), signal);
+      const spec = JSON.parse(data);
+      // Session initialization is queued before these startup photo events.
+      if (operation === 12 && spec.action === 'load' && !spec.session) spec.session = browserSession;
+      const text = await media.request(operation, spec, signal);
       if (operation === 11 || operation === 13) observeSnapshot(text);
       return text;
     }
@@ -95,9 +99,12 @@ export function createDotHost({ root, deliver }) {
 
   return {
     request,
+    eventConsumed(text) {
+      try { processingRefresh = JSON.parse(text).action === 'refresh'; } catch { processingRefresh = false; }
+    },
     rendered() {
+      if (processingRefresh) { refreshQueued = false; processingRefresh = false; }
       if (pendingReview) { displayedReview = pendingReview; pendingReview = undefined; }
-      refreshQueued = false;
       for (const button of root.querySelectorAll('[data-bend-event="button · Speaker"],[data-bend-event="button · Altavoz"]')) {
         button.disabled = true;
         button.title = 'Audio output is selected in your device’s audio controls.';
