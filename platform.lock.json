@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "platform": {
-    "repository": "https://github.com/PedroAVJ/f-platform.git",
-    "version": "0.1.0",
-    "revision": "2b5132ba88cf41d9e6bafffdcc5f50a833155da4",
-    "path": "bend2/std/F"
-  }
-}

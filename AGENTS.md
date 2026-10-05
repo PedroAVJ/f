@@ -27,10 +27,9 @@ cluster.
                         builds its CLI once, with Lean v4.34.0
     bend2/base.bend     the base library
     bend2/effs/         IO effect sources per backend; related effects may share
-    bend2/std/F/        versioned f-platform Git submodule; initialize with
-                        git submodule update --init --recursive. Its revision
-                        and version are pinned in platform.lock.json.
-                        Keep platform changes in its own repository.
+    bend2/std/F/        copied F implementation and internal browser support;
+                        from near-bend's packages/function, MIT, each
+                        tree's LICENSE beside it (THIRD_PARTY_NOTICES.md).
                         Explicit UI and V imports select bare public bindings.
     bend2/pack/         package.json, tsconfig.json, bun.lock
     bend2/docs/         the papers' Typst sources, the film, gen_pins.ts (the
