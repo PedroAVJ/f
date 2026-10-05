@@ -121,7 +121,7 @@ export function startBend(root, options = {}) {
   // A textbox's text outlives the page: each edit is kept in localStorage by the textbox's name, and a
   // textbox that appears empty gets its kept text back as an edit, so Bend keeps it in the input's state.
   const store = (() => { try { return localStorage; } catch { return null; } })();
-  const kept = field => 'bend-input:' + field.dataset.bendField, restored = new WeakSet();
+  const kept = field => host?.storageKey?.('bend-input:' + field.dataset.bendField) ?? 'bend-input:' + field.dataset.bendField, restored = new WeakSet();
   let painting = false;
   const event = e => {
     const target = e.target.closest('[data-bend-event]');
