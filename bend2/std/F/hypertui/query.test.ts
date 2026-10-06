@@ -23,7 +23,7 @@ test('installed harness policies retain mutations and mixed tools and disable on
  const entries:any[]=[{backend:'codex',server:'notes',name:'read',class:'query'},{backend:'codex',server:'notes',name:'write',class:'mutation'},{backend:'codex',server:'notes',name:'execute',class:'mixed'},{backend:'chrome',name:'read_page',class:'query'},{backend:'chrome',name:'computer',class:'mixed'}];
  const args=codexPolicy(entries,[{name:'notes',enabled:true,transport:{type:'stdio',command:'notes',args:[]}}]);
  expect(args.join(' ')).toContain('"enabled_tools"=["write","execute"]');expect(args.join(' ')).not.toContain('plugins.');
- expect(claudePolicy(entries)).toEqual(['--disallowedTools','mcp__claude-in-chrome__read_page']);
+ expect(claudePolicy(entries)[1]).toContain('mcp__claude-in-chrome__read_page');expect(claudePolicy(entries)[1]).toContain('mcp__claude-in-chrome__computer');expect(claudePolicy(entries)[1]).toContain('mcp__codex_worker__worker_submit');
 });
 test('real media decoders render seekable audio and video images',async()=>{
  const root=await mkdtemp(join(tmpdir(),'hyper-media-test-'));

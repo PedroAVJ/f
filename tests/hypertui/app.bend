@@ -2,6 +2,7 @@ import Base
 import ../../bend2/std/F/browser/scene.bend as Scene
 import ../../bend2/std/F/ui/kit.bend as K
 import ../../bend2/std/F/hypertui/ui.bend as H
+import ../../bend2/std/F/hypertui/tree.bend as R
 import ../../bend2/std/F/ui/primitives.bend as P
 import ../../bend2/std/F/ai/wire_json.bend as J
 
@@ -16,8 +17,8 @@ def f(state: State) -> K.UI:
   match state:
     case State{+count}:
       K.screen([K.app_title(K.Text{"Shared F screen", "Pantalla F"}), K.caption(K.Text{"Before image", "Antes"}), H.image("Visual challenge", "challenge.png", 512, 320), K.caption(K.Text{"After image", "Después"}), K.caption(K.Text{U32.show(count), U32.show(count)}), H.query(K.Text{"Code", "Código"}, "hypertui://demo/code"), H.mutation("increment", K.Text{"Increment", "Incrementar"}, schema(), True{})])
-def hypertui_page(state: State, +uri: String) -> P.UI:
-  H.draw(Bool.pick(K.UI, String.eq(uri, "hypertui://demo/code"), K.screen([H.code("bend", "def answer() -> U32: 42"), H.query(K.Text{"Home", "Inicio"}, "hypertui://demo/")]), f(state)))
+def hypertui_page(state: State, +uri: String) -> R.UI():
+  H.render_tree(Bool.pick(K.UI, String.eq(uri, "hypertui://demo/code"), K.screen([H.code("bend", "def answer() -> U32: 42"), H.query(K.Text{"Home", "Inicio"}, "hypertui://demo/")]), f(state)))
 def amount(value: Maybe<&2, J.Json>) -> U32:
   match value:
     case Some{J.Number{s}}: Maybe.default(&2, U32, U32.read(s), 0)

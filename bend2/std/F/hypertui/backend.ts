@@ -5,8 +5,8 @@ export class RpcProcess {
   private child: ChildProcessWithoutNullStreams;
   private serial = 0;
   private pending = new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
-  constructor(command: string, args: string[], cwd?: string) {
-    this.child = spawn(command,args,{cwd,stdio:['pipe','pipe','pipe']});
+  constructor(command: string, args: string[], cwd?: string, env?: NodeJS.ProcessEnv) {
+    this.child = spawn(command,args,{cwd,env:{...process.env,...env},stdio:['pipe','pipe','pipe']});
     this.child.stderr.on('data',() => {});
     this.child.on('error',error => this.fail(error));
     this.child.on('exit',code => this.fail(Error('Backend exited: '+code)));
@@ -61,14 +61,18 @@ export class CodexQueries {
 export class McpQueries {
   private rpc?: RpcProcess;
   private ready?: Promise<void>;
-  constructor(private command: string, private args: string[], private cwd?: string) {}
+  constructor(private command: string, private args: string[], private cwd?: string, private env?: NodeJS.ProcessEnv) {}
   private start(): Promise<void> {
     if (!this.ready) this.ready = (async () => {
-      this.rpc = new RpcProcess(this.command,this.args,this.cwd);
+      this.rpc = new RpcProcess(this.command,this.args,this.cwd,this.env);
       await this.rpc.call('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'F-HyperTUI-queries',version:'0.1.0'}});
       this.rpc.notify('notifications/initialized');
     })();
     return this.ready;
+  }
+  async listTools() {
+    await this.start();
+    return this.rpc!.call('tools/list',{});
   }
   async call(tool: string, args: unknown) {
     await this.start();

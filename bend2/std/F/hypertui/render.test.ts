@@ -40,6 +40,6 @@ test('code page has a fence and no previous page actions',async () => {
 });
 test('image resolver rejects paths outside the asset root and unsupported schema keywords fail closed',async () => {
   await expect(localImage(assets,'../../README.md')).rejects.toThrow('outside');
-  expect(() => checkSchema({type:'string',pattern:'.*'} as any)).toThrow('Unsupported');
+  expect(() => checkSchema({type:'string',unsupportedConstraint:true} as any)).toThrow('Unsupported');
   expect(() => validate({type:'object',properties:{},additionalProperties:false},{extra:1})).toThrow('Unknown');
 });

@@ -48,3 +48,11 @@ The Codex portion has 624 tools: 346 queries, including 304 connector methods an
 - Remote adapter: `/Users/pedroantoniovillanuevajuarez/Developer/hypertui-target-20261006/hypertui`
 
 Open Dot's baseline snapshot `34785cf` preserves the original tracked/untracked Bend overlay and is separate from this feature change. Original source trees were not modified.
+
+## Page-scoped Claude follow-up (2026-10-06)
+
+This supersedes the earlier Claude mixed-tool exposure description. Owned Claude launches now expose only `hyper_queries.hyperTUI`, `hyper_queries.hyperTUI_action`, and `codex_worker.present_ui`. All Chrome and worker operations are reached through shared F pages. Queries use URI links; mutations and mixed operations advertise exact native JSON schemas on the current page, validate before invocation, invalidate on invocation, and return an explicit redirect. Codex retains its previously described mutation/mixed policy.
+
+The renderer now traverses the concrete `Tree(Branch, Path)` specialization in `tree.bend`, preserving the same F primitive shapes for human rendering and MCP text/images. This is a concrete renderer implementation, not a proof of all SPEC laws. External JSON programs retain credentials entirely in operator configuration. Local text writes are hash/inode-checked and restricted to the workspace; Bend/N files and ownership manifests have no generic write action.
+
+Checks: 11 F tests / 59 assertions; backend HyperTUI9, provider33, workers18 checks. The legacy server_media interpreter test printed25 successful checks before its existing machine-stack limit; it is not reported as passing. The scoped native compound regression is owned by the native implementation checkout. Seven changed transport/renderer files passed the deterministic anti-slop scan after fixing a discarded binding type.

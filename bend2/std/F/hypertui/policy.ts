@@ -23,5 +23,7 @@ export function codexPolicy(entries:PolicyEntry[],servers:any[]):string[] {
   return overrides.flatMap(value=>['-c',value]);
 }
 export function claudePolicy(entries:Entry[]):string[] {
-  return ['--disallowedTools',entries.filter(e=>e.backend==='chrome'&&e.class==='query').map(e=>'mcp__claude-in-chrome__'+e.name).join(',')];
+  const browser=entries.filter(e=>e.backend==='chrome').map(e=>'mcp__claude-in-chrome__'+e.name);
+  const workers=['worker_list','worker_status','worker_start','worker_submit','worker_stop'].map(name=>'mcp__codex_worker__'+name);
+  return ['--disallowedTools',[...browser,...workers].join(',')];
 }

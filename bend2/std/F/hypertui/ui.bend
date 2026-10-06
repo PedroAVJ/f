@@ -1,6 +1,7 @@
 import Base
 import ../ui/kit.bend as K
 import ../ui/primitives.bend as P
+import ./tree.bend as R
 import ../ai/wire_json.bend as J
 
 # Metadata wraps, but does not replace, the tree painted by human targets.
@@ -36,3 +37,7 @@ def pdf(title: K.Text, page: String, width: U32, height: U32, navigation: List<&
 
 def draw(ui: K.UI) -> P.UI:
   K.draw(ui, K.Rendering{K.Lang.En{}, []})
+
+# Human and HyperTUI targets start from the same concrete paths.
+def render_tree(ui: K.UI) -> R.UI():
+  R.lower(draw(ui))
