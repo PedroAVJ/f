@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export const forkRoot = resolve(import.meta.dir, '../../../..');
+export const forkRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 export type Dependency = { name: string; repository: string; path: string; revision: string; version: string };
 export type Connection = { id: string; name: string; subtitle: string; origin: string };
 type Blob = { text?: string; left?: Blob; right?: Blob };
