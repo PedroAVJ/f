@@ -223,6 +223,31 @@ static char* ios_audio_upload(NSString* text, unsigned* status) {
   NSURL* url = [NSURL URLWithString:href relativeToURL:ios_origin].absoluteURL;
   if (!ios_same_origin(url) || ![url.path isEqual:@"/api/audio"] || url.query.length || url.fragment.length)
     return ios_dup(@"audio upload requires the configured /api/audio endpoint");
+  NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+  NSDictionary* companion = payload[@"attachment"];
+  NSData* companionBytes = nil;
+  NSString* companionKey = nil;
+  NSDictionary* companionDraft = nil;
+  if (companion) {
+    if (![companion isKindOfClass:NSDictionary.class]) return ios_dup(@"invalid voice attachment");
+    NSMutableDictionary* attached = [companion mutableCopy];
+    if ([companion[@"kind"] isEqual:@"file"]) {
+      companionKey = ios_file_draft_key; companionDraft = [defaults dictionaryForKey:companionKey];
+      if (!ios_file_metadata(companionDraft) || ![companion[@"fileId"] isEqual:companionDraft[@"fileId"]]) return ios_dup(@"voice attachment no longer matches the selected file");
+      companionBytes = ios_file_bytes(ios_file_url(companionDraft[@"fileId"], companionDraft[@"name"]));
+      if (companionBytes.length != [companionDraft[@"size"] unsignedLongLongValue]) return ios_dup(@"voice attachment is missing");
+      for (NSString* key in @[@"name", @"mimeType", @"size"]) attached[key] = companionDraft[key];
+    } else if ([companion[@"kind"] isEqual:@"image"]) {
+      companionKey = ios_image_draft_key; companionDraft = [defaults dictionaryForKey:companionKey];
+      if (!ios_clip_id(companion[@"imageId"]) || ![companion[@"imageId"] isEqual:companionDraft[@"imageId"]]) return ios_dup(@"voice attachment no longer matches the selected photo");
+      companionBytes = [NSData dataWithContentsOfURL:ios_image_file(companion[@"imageId"]) options:NSDataReadingMappedIfSafe error:NULL];
+      NSDictionary* dimensions = ios_image_dimensions(companionBytes);
+      if (!dimensions) return ios_dup(@"voice photo is missing or invalid");
+      [attached addEntriesFromDictionary:dimensions]; attached[@"mimeType"] = @"image/jpeg";
+    } else return ios_dup(@"unsupported voice attachment");
+    if (!companionBytes) return ios_dup(@"voice attachment is missing");
+    NSMutableDictionary* wire = [payload mutableCopy]; wire[@"attachment"] = attached; payload = wire; companion = attached;
+  }
   NSURL* file = ios_audio_file(payload[@"clipId"], NO);
   NSNumber* size = nil; [file getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
   if (!size || !size.unsignedLongLongValue || size.unsignedLongLongValue > IOS_AUDIO_LIMIT)
@@ -231,8 +256,16 @@ static char* ios_audio_upload(NSString* text, unsigned* status) {
   NSData* metadata = [NSJSONSerialization dataWithJSONObject:payload options:NSJSONWritingSortedKeys error:NULL];
   if (!clip.length || clip.length > IOS_AUDIO_LIMIT || !metadata || metadata.length > 131072)
     return ios_dup(@"invalid audio metadata or file");
-  NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
   @synchronized(defaults) {
+    NSDictionary* pending = [defaults dictionaryForKey:ios_pending_key];
+    if (pending && ![pending isEqual:payload]) return ios_dup(@"another send is still awaiting its receipt");
+    if (companionDraft) {
+      if (companionDraft[@"requestId"] && (![companionDraft[@"requestId"] isEqual:payload[@"requestId"]] || ![companionDraft[@"caption"] isEqual:payload[@"text"]])) return ios_dup(@"voice attachment retry must preserve the original message");
+      NSMutableDictionary* remembered = [companionDraft mutableCopy];
+      remembered[@"requestId"] = payload[@"requestId"]; remembered[@"threadId"] = payload[@"threadId"]; remembered[@"caption"] = payload[@"text"] ?: @"";
+      BOOL saved = [companionKey isEqual:ios_file_draft_key] ? ios_file_save(remembered) : ios_image_draft(remembered);
+      if (!saved) return ios_dup(@"could not retain the voice attachment for retry");
+    }
     [defaults setObject:payload forKey:ios_pending_key];
     if (![defaults synchronize] || ![[defaults dictionaryForKey:ios_pending_key] isEqual:payload])
       return ios_dup(@"No se pudo guardar el envío de audio en este dispositivo.");
@@ -250,6 +283,14 @@ static char* ios_audio_upload(NSString* text, unsigned* status) {
   [multipart appendData:[before dataUsingEncoding:NSUTF8StringEncoding]]; [multipart appendData:metadata];
   NSString* between = [NSString stringWithFormat:@"\r\n--%@\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"%@.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n", boundary, payload[@"clipId"]];
   [multipart appendData:[between dataUsingEncoding:NSUTF8StringEncoding]]; [multipart appendData:clip];
+  if (companion) {
+    NSString* filename = [companion[@"kind"] isEqual:@"image"] ? @"Photo.jpg" : companion[@"name"];
+    filename = [filename stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"]];
+    NSString* mime = companion[@"mimeType"];
+    if (![mime isKindOfClass:NSString.class] || [mime rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/!#$&^_.+-"].invertedSet].location != NSNotFound) return ios_dup(@"invalid voice attachment type");
+    [multipart appendData:[[NSString stringWithFormat:@"\r\n--%@\r\nContent-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\nContent-Type: %@\r\n\r\n", boundary, companion[@"kind"], filename, mime] dataUsingEncoding:NSUTF8StringEncoding]];
+    [multipart appendData:companionBytes];
+  }
   [multipart appendData:[[NSString stringWithFormat:@"\r\n--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
   NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url
     cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30];
@@ -1298,6 +1339,7 @@ static BendIOSController* ios_controller;
     ios_voice_restore();
     ios_image_restore();
     ios_file_restore();
+    ios_share_import();
     if ((([ios_boot_pending[@"kind"] isEqual:@"file"] && ios_clip_id(ios_boot_pending[@"fileId"])) ||
          ([ios_boot_pending[@"kind"] isEqual:@"image"] && ios_clip_id(ios_boot_pending[@"imageId"]))) &&
         [ios_boot_pending[@"requestId"] isKindOfClass:NSString.class] &&
@@ -1459,6 +1501,7 @@ static void* ios_run(void* ignored) {
 }
 - (void)applicationDidBecomeActive:(UIApplication*)application {
   [ios_notifications active];
+  if (ios_controller.restoredPending) ios_share_import();
   [self.refreshTimer invalidate];
   self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(refresh:)
     userInfo:nil repeats:YES];

@@ -93,6 +93,7 @@ static BOOL ios_image_draft(NSDictionary* metadata) {
 }
 
 static void ios_image_acknowledged(NSDictionary* pending) {
+  if ([pending[@"attachment"] isKindOfClass:NSDictionary.class]) pending = pending[@"attachment"];
   if (![pending[@"kind"] isEqual:@"image"] || !ios_clip_id(pending[@"imageId"])) return;
   NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
   if ([[defaults dictionaryForKey:ios_image_draft_key][@"imageId"] isEqual:pending[@"imageId"]])
@@ -631,6 +632,8 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
       });
     }); return nil;
   }
+  if ([action isEqual:@"cancel"] && ios_clip_id(command[@"imageId"]) &&
+      [command[@"imageId"] isEqual:[NSUserDefaults.standardUserDefaults dictionaryForKey:ios_image_draft_key][@"imageId"]] && !self.camera && !self.picker) self.session = session;
   if (![session isEqual:self.session]) return @"image session is no longer active";
   if ([action isEqual:@"camera-capture"]) return [self capturePhoto];
   if ([action isEqual:@"camera-flip"]) return [self flipCamera];
@@ -648,7 +651,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
   NSDictionary* draft = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_image_draft_key];
   if (command[@"imageId"] && ![command[@"imageId"] isEqual:draft[@"imageId"]]) return @"image draft no longer matches";
   NSDictionary* pending = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key];
-  if (draft[@"imageId"] && [pending[@"imageId"] isEqual:draft[@"imageId"]]) return ios_audio_words(@"This photograph is awaiting its send receipt.", @"Esta fotografía está esperando su confirmación de envío.");
+  if (draft[@"imageId"] && ([pending[@"imageId"] isEqual:draft[@"imageId"]] || [pending[@"attachment"][@"imageId"] isEqual:draft[@"imageId"]])) return ios_audio_words(@"This photograph is awaiting its send receipt.", @"Esta fotografía está esperando su confirmación de envío.");
   ++self.generation; [self.loading cancel]; self.loading = nil;
   [self.picker dismissViewControllerAnimated:YES completion:nil]; self.picker = nil;
   if (ios_clip_id(draft[@"imageId"])) [NSFileManager.defaultManager removeItemAtURL:ios_image_file(draft[@"imageId"]) error:NULL];

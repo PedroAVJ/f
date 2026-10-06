@@ -11,7 +11,7 @@ type List<T> = { $: string; head?: T; tail?: List<T> };
 export type Config = {
   name: string; bundle: string; version: string; minimum_os: string; origin: string; submit_label: string;
   camera_reason: string; microphone_reason: string; speech_reason: string;
-  dependencies: Dependency[]; assets: { name: string; mime: string; base64: Blob }[]; connections: Connection[];
+  shareGroup?: string; dependencies: Dependency[]; assets: { name: string; mime: string; base64: Blob }[]; connections: Connection[];
 };
 function list<T>(node: List<T>): T[] {
   const result: T[] = [];
@@ -27,6 +27,10 @@ export async function loadConfig(file: string): Promise<Config> {
   const config = { ...raw, dependencies: list<Dependency>(raw.dependencies), assets: list<Config['assets'][number]>(raw.assets), connections: list<Connection>(raw.connections) } as Config;
   if (!/^[A-Za-z][A-Za-z0-9_-]{0,60}$/.test(config.name) || !/^[A-Za-z0-9.-]+$/.test(config.bundle)
     || !/^\d+(\.\d+){0,2}$/.test(config.version) || !/^\d+\.\d+$/.test(config.minimum_os)) throw Error('Invalid app identity or version.');
+  if (typeof module.share_group === 'function') {
+    config.shareGroup = module.share_group();
+    if (!/^group\.[A-Za-z0-9.-]+$/.test(config.shareGroup ?? '')) throw Error('Invalid share group identifier.');
+  }
   const seen = new Set<string>();
   for (const item of config.connections) {
     const url = new URL(item.origin);

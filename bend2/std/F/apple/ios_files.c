@@ -52,6 +52,7 @@ static BOOL ios_file_save(NSDictionary* metadata) {
 }
 
 static void ios_file_acknowledged(NSDictionary* pending) {
+  if ([pending[@"attachment"] isKindOfClass:NSDictionary.class]) pending = pending[@"attachment"];
   if (![pending[@"kind"] isEqual:@"file"]) return;
   NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
   if ([[defaults dictionaryForKey:ios_file_draft_key][@"fileId"] isEqual:pending[@"fileId"]])
@@ -191,10 +192,13 @@ static BendIOSFile* ios_file;
       });
     }); return nil;
   }
+  if ([action isEqual:@"cancel"] && ios_clip_id(command[@"fileId"]) &&
+      [command[@"fileId"] isEqual:[defaults dictionaryForKey:ios_file_draft_key][@"fileId"]] && !self.picker && !self.loading) self.session = session;
   if (![session isEqual:self.session]) return @"file session is no longer active";
   if (![action isEqual:@"cancel"]) return @"unsupported file action";
   NSDictionary* draft = [defaults dictionaryForKey:ios_file_draft_key];
-  if (draft[@"fileId"] && [[defaults dictionaryForKey:ios_pending_key][@"fileId"] isEqual:draft[@"fileId"]])
+  NSDictionary* pending = [defaults dictionaryForKey:ios_pending_key];
+  if (draft[@"fileId"] && ([pending[@"fileId"] isEqual:draft[@"fileId"]] || [pending[@"attachment"][@"fileId"] isEqual:draft[@"fileId"]]))
     return ios_audio_words(@"This file is awaiting its send receipt.", @"Este archivo está esperando su confirmación de envío.");
   ++self.generation; self.loading = NO; self.selecting = NO;
   [self.picker dismissViewControllerAnimated:YES completion:nil]; self.picker = nil;
@@ -247,6 +251,46 @@ static void ios_file_restore(void) {
   }
   NSMutableDictionary* restored = [draft mutableCopy]; restored[@"restored"] = @YES;
   [ios_file emit:@"selected" metadata:restored];
+}
+
+static void ios_share_import(void) {
+  NSString* group = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendShareGroup"];
+  if (!group.length || !ios_session_prefix.length) return;
+  NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+  if ([defaults dictionaryForKey:ios_pending_key] || [defaults dictionaryForKey:ios_file_draft_key] ||
+      [defaults dictionaryForKey:ios_image_draft_key] || [defaults dictionaryForKey:ios_audio_draft_key] ||
+      ios_image.camera || ios_file.picker || ios_file.loading) return;
+  NSURL* root = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:group];
+  if (!root) return;
+  root = [root URLByAppendingPathComponent:@"BendShareInbox" isDirectory:YES];
+  NSArray<NSURL*>* entries = [NSFileManager.defaultManager contentsOfDirectoryAtURL:root includingPropertiesForKeys:@[NSURLCreationDateKey] options:NSDirectoryEnumerationSkipsHiddenFiles error:NULL];
+  entries = [entries sortedArrayUsingComparator:^NSComparisonResult(NSURL* a, NSURL* b) {
+    NSDate *first = nil, *second = nil;
+    [a getResourceValue:&first forKey:NSURLCreationDateKey error:NULL]; [b getResourceValue:&second forKey:NSURLCreationDateKey error:NULL];
+    return first && second ? [first compare:second] : [a.lastPathComponent compare:b.lastPathComponent];
+  }];
+  for (NSURL* entry in entries) {
+    if (![entry.pathExtension isEqual:@"ready"] || !ios_clip_id(entry.lastPathComponent.stringByDeletingPathExtension)) continue;
+    NSURL* manifestURL = [entry URLByAppendingPathComponent:@"manifest.json"];
+    NSNumber* manifestSize = nil; [manifestURL getResourceValue:&manifestSize forKey:NSURLFileSizeKey error:NULL];
+    if (!manifestSize || manifestSize.unsignedLongLongValue > 65536) continue;
+    id manifest = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:manifestURL] ?: [NSData data] options:0 error:NULL];
+    NSArray* files = [manifest isKindOfClass:NSDictionary.class] && [manifest[@"files"] isKindOfClass:NSArray.class] ? manifest[@"files"] : nil;
+    if (files.count != 1 || ![files.firstObject isKindOfClass:NSDictionary.class]) continue;
+    NSMutableDictionary* draft = [files.firstObject mutableCopy];
+    NSString* caption = [defaults stringForKey:ios_scoped_key(@"bend-input:textbox · Message")] ?: [defaults stringForKey:ios_scoped_key(@"bend-input:textbox · Mensaje")] ?: @"";
+    draft[@"caption"] = caption;
+    if (!ios_file_metadata(draft)) continue;
+    NSURL* source = [entry URLByAppendingPathComponent:draft[@"fileId"]];
+    NSNumber* symlink = nil; [source getResourceValue:&symlink forKey:NSURLIsSymbolicLinkKey error:NULL];
+    NSData* bytes = symlink.boolValue ? nil : ios_file_bytes(source);
+    if (!bytes || bytes.length != [draft[@"size"] unsignedLongLongValue]) continue;
+    NSURL* retained = ios_file_url(draft[@"fileId"], draft[@"name"]);
+    if (!retained || ![bytes writeToURL:retained options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL] || !ios_file_save(draft)) return;
+    // Retire the inbox copy only after the normal composer draft is durable.
+    [NSFileManager.defaultManager removeItemAtURL:entry error:NULL];
+    ios_file_restore(); return;
+  }
 }
 
 static char* ios_file_request(NSString* text, unsigned* status) {

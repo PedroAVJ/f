@@ -72,6 +72,13 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
   if (![draft[@"clipId"] isEqual:pending[@"clipId"]]) return;
   if ([pending[@"processing"] isEqual:@"server"]) {
     [defaults removeObjectForKey:ios_audio_draft_key];
+    // The composer is recreated after recording; do not restore its sent caption.
+    if ([pending[@"text"] isKindOfClass:NSString.class]) {
+      for (NSString* name in @[@"textbox · Message", @"textbox · Mensaje"]) {
+        NSString* key = ios_scoped_key([@"bend-input:" stringByAppendingString:name]);
+        if ([[defaults stringForKey:key] isEqual:pending[@"text"]]) [defaults removeObjectForKey:key];
+      }
+    }
     ios_audio_remove_sources(draft);
     return;
   }

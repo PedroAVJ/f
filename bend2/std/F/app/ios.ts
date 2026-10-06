@@ -14,7 +14,7 @@ const configPath = resolve(args.shift() ?? 'config.bend');
 const root = dirname(configPath);
 const fork = forkRoot;
 if (args.includes('--help')) {
-  console.log('bend build ios [simulator|device|both] [--profile PATH] [--identity SHA1] [--keychain PATH] [--origin HTTPS_URL] [--version X.Y.Z] [--build N]');
+  console.log('bend build ios [simulator|device|both] [--profile PATH] [--share-profile PATH] [--identity SHA1] [--keychain PATH] [--origin HTTPS_URL] [--version X.Y.Z] [--build N]');
   process.exit(0);
 }
 const development = args.includes('--development');
@@ -25,7 +25,7 @@ if (!['simulator', 'device', 'both'].includes(target)) throw new Error('Target m
 const flags: Record<string, string> = {};
 for (let i = 0; i < args.length; i += 2) {
   const flag = args[i];
-  if (!['--profile', '--identity', '--keychain', '--origin', '--version', '--build'].includes(flag) || !args[i + 1] || args[i + 1].startsWith('--')) {
+  if (!['--profile', '--share-profile', '--identity', '--keychain', '--origin', '--version', '--build'].includes(flag) || !args[i + 1] || args[i + 1].startsWith('--')) {
     throw new Error('Unknown option or missing value: ' + flag);
   }
   if (flags[flag] !== undefined) throw new Error('Duplicate option: ' + flag);
@@ -55,7 +55,7 @@ function plist(value: unknown): string {
 const readPlist = (file: string) => JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', file], true));
 const match = (pattern: string, value: string) => pattern.endsWith('*') ? value.startsWith(pattern.slice(0, -1)) : pattern === value;
 type Signing = { path: string; uuid: string; name: string; expires: string; team: string; appID: string; certificate: string; devices: number; entitlements: Record<string, unknown> };
-function developmentSigning(bundle: string): Signing {
+function developmentSigning(bundle: string, profilePath = flags['--profile'], shareGroup?: string): Signing {
   const identities = run('security', ['find-identity', '-v', '-p', 'codesigning', ...(flags['--keychain'] ? [resolve(flags['--keychain'])] : [])], true);
   const valid = [...identities.matchAll(/\b([A-Fa-f0-9]{40}) "((?:Apple Development|iPhone Developer):[^"\n]+)"/g)].map(m => m[1].toUpperCase());
   if (flags['--identity']) {
@@ -63,7 +63,7 @@ function developmentSigning(bundle: string): Signing {
     if (!valid.includes(requested)) throw new Error('--identity must match an available Apple Development SHA1.');
     valid.splice(0, valid.length, requested);
   }
-  const paths = flags['--profile'] ? [resolve(flags['--profile'])] : [
+  const paths = profilePath ? [resolve(profilePath)] : [
     join(homedir(), 'Library/Developer/Xcode/UserData/Provisioning Profiles'),
     join(homedir(), 'Library/MobileDevice/Provisioning Profiles'),
   ].flatMap(dir => existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.mobileprovision')).sort().map(n => join(dir, n)) : []);
@@ -80,12 +80,14 @@ print(json.dumps({k:p.get(k) for k in ['UUID','Name','Platform','TeamIdentifier'
       const appID = prefix + '.' + bundle;
       const certificate = profile.certificateSha1.find((c: string) => valid.includes(c));
       if (!profile.Platform?.includes('iOS') || !profile.ProvisionedDeviceCount || profile.ProvisionsAllDevices || e['get-task-allow'] !== true || new Date(profile.ExpirationDate).getTime() <= Date.now() || !team || !prefix || !certificate || !match(e['application-identifier'] ?? '', appID)) continue;
+      if (shareGroup && !e['com.apple.security.application-groups']?.includes(shareGroup)) continue;
       if (!e['keychain-access-groups']?.some((group: string) => match(group, appID))) continue;
       return { path, uuid: profile.UUID, name: profile.Name, expires: profile.ExpirationDate, team, appID, certificate, devices: profile.ProvisionedDeviceCount,
         entitlements: { 'application-identifier': appID, 'com.apple.developer.team-identifier': team, 'get-task-allow': true, 'keychain-access-groups': [appID],
+          ...(shareGroup ? { 'com.apple.security.application-groups': [shareGroup] } : {}),
           ...(e['application-identifier'] === appID && ['development', 'production'].includes(e['aps-environment']) ? { 'aps-environment': e['aps-environment'] } : {}) } };
     } catch (problem) {
-      if (flags['--profile']) throw new Error('Could not decode --profile as a cached development profile.', { cause: problem });
+      if (profilePath) throw new Error('Could not decode --profile as a cached development profile.', { cause: problem });
     }
   }
   throw new Error('No unexpired cached iOS development profile matches this app and an available development identity. No provisioning changes were made.');
@@ -115,7 +117,9 @@ try {
   const version = flags['--version'] ?? config.version;
   const build = flags['--build'] ?? String(Math.floor(Date.now() / 1000));
   if (!/^\d+(\.\d+){0,2}$/.test(version) || !/^\d+(\.\d+){0,2}$/.test(build)) throw new Error('--version and --build require one to three numbers.');
-  const signing = target === 'simulator' ? undefined : developmentSigning(bundle);
+  const signing = target === 'simulator' ? undefined : developmentSigning(bundle, flags['--profile'], config.shareGroup);
+  const shareSigning = target === 'simulator' || !config.shareGroup ? undefined : developmentSigning(bundle + '.share', flags['--share-profile'], config.shareGroup);
+  if (shareSigning && (shareSigning.team !== signing!.team || shareSigning.certificate !== signing!.certificate)) throw Error('App and share extension must use the same signing team and certificate.');
   materializeAssets(config, source);
   const native = join(stage, 'native');
   mkdirSync(native);
@@ -162,10 +166,33 @@ try {
       NSCameraUsageDescription: config.camera_reason,
       NSMicrophoneUsageDescription: config.microphone_reason, NSSpeechRecognitionUsageDescription: config.speech_reason,
       UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'], BendOrigin: originURL.origin, BendSubmitLabel: config.submit_label, BendConnections: config.connections.map(({id,name,subtitle,origin}) => ({id,name,subtitle,origin:origin === config.origin ? originURL.origin : origin})),
+      ...(config.shareGroup ? { BendShareGroup: config.shareGroup } : {}),
       BendAPNSEnvironment: signing?.entitlements['aps-environment'] ?? '',
     }));
+    if (config.shareGroup) {
+      const extension = join(app, 'PlugIns', 'Share.appex');
+      mkdirSync(extension, {recursive:true});
+      run('xcrun', [...cc, ...objc, '-fapplication-extension', '-O2', join(compiler, 'std/F/apple/ios_share.c'), '-framework', 'UIKit', '-framework', 'Foundation', '-framework', 'UniformTypeIdentifiers', '-e', '_NSExtensionMain', '-o', join(extension, 'Share')]);
+      writeFileSync(join(extension, 'Info.plist'), plist({
+        CFBundleDevelopmentRegion:'en', CFBundleDisplayName:config.name, CFBundleExecutable:'Share', CFBundleIdentifier:bundle + '.share',
+        CFBundleInfoDictionaryVersion:'6.0', CFBundleName:'Share', CFBundlePackageType:'XPC!', CFBundleShortVersionString:version, CFBundleVersion:build,
+        CFBundleSupportedPlatforms:[simulator ? 'iPhoneSimulator' : 'iPhoneOS'], MinimumOSVersion:minimum, UIDeviceFamily:[1],
+        BendShareGroup:config.shareGroup, BendContainingAppName:config.name,
+        NSExtension:{NSExtensionPointIdentifier:'com.apple.share-services', NSExtensionPrincipalClass:'BendShareController', NSExtensionAttributes:{
+          NSExtensionActivationRule:'extensionItems.@count > 0 AND SUBQUERY(extensionItems, $item, $item.attachments.@count > 0 AND SUBQUERY($item.attachments, $attachment, $attachment.registeredTypeIdentifiers.@count > 0).@count == $item.attachments.@count).@count == extensionItems.@count',
+        }},
+      }));
+      const extensionEntitlements = join(objects, 'share-entitlements.plist');
+      writeFileSync(extensionEntitlements, plist(simulator ? {'com.apple.security.application-groups':[config.shareGroup]} : shareSigning!.entitlements));
+      if (!simulator) copyFileSync(shareSigning!.path, join(extension, 'embedded.mobileprovision'));
+      run('codesign', ['--force', '--timestamp=none', '--sign', simulator ? '-' : shareSigning!.certificate, '--entitlements', extensionEntitlements, '--generate-entitlement-der', ...(flags['--keychain'] ? ['--keychain', resolve(flags['--keychain'])] : []), extension]);
+    }
     let signingMetadata: unknown = { kind: 'ad-hoc-simulator' };
-    if (simulator) run('codesign', ['--force', '--timestamp=none', '--sign', '-', app]);
+    if (simulator) {
+      const entitlements = join(objects, 'entitlements.plist');
+      if (config.shareGroup) writeFileSync(entitlements, plist({'com.apple.security.application-groups':[config.shareGroup]}));
+      run('codesign', ['--force', '--timestamp=none', '--sign', '-', ...(config.shareGroup ? ['--entitlements', entitlements] : []), app]);
+    }
     else {
       const selected = signing!;
       copyFileSync(selected.path, join(app, 'embedded.mobileprovision'));
