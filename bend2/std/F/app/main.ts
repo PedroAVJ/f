@@ -1,6 +1,6 @@
 import { resolve, dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { loadConfig, verifyApplicationSources, verifyDependencies } from './config.ts';
+import { loadConfig, loadDependencies, verifyApplicationSources, verifyDependencies } from './config.ts';
 
 const [configuration, command = 'check', ...args] = process.argv.slice(2);
 if (!configuration) throw Error('Usage: app CONFIG.bend check|ios|web|server [arguments]');
@@ -19,6 +19,8 @@ if (command === 'check') {
   if (!entry?.endsWith('.bend') || !runtimeConfig) throw Error('Server requires a Bend entry and a runtime JSON configuration file outside source control.');
   if (flags.length && (flags.length !== 1 || flags[0] !== '--development')) throw Error('Unknown server option.');
   const development = flags[0] === '--development';
+  verifyDependencies(root, {dependencies:await loadDependencies(join(root, 'package.bend'))}, development);
+  if (!development) verifyApplicationSources(root);
   const {run} = await import('../server/host.ts');
   const config = JSON.parse(readFileSync(resolve(runtimeConfig), 'utf8'));
   await run(resolve(root, entry), {...config, development});
