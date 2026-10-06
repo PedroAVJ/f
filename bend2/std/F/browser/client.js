@@ -307,6 +307,10 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     const video = document.createElement('video'); video.muted = true; video.autoplay = true; video.playsInline = true;
     video.style.cssText = 'width:100%;height:100%;object-fit:cover;pointer-events:none;display:block';
     camera = { session: spec.session, video };
+    if (typeof spec.captureSound === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*\.wav$/.test(spec.captureSound)) {
+      camera.sound = new Audio(new URL(spec.captureSound, options.origin || location.href).href);
+      camera.sound.preload = 'auto';
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
       if (closed || generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
@@ -324,15 +328,25 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     if (spec.action === 'camera-capture') {
       const held = camera;
       if (!held || held.session !== spec.session || !held.video.videoWidth) throw Error(notice('camera-unavailable'));
+      if (held.capturing) return;
+      held.capturing = true;
       image(spec.session, 'camera-capturing');
-      const canvas = document.createElement('canvas'); canvas.width = held.video.videoWidth; canvas.height = held.video.videoHeight;
-      canvas.getContext('2d').drawImage(held.video, 0, 0);
-      const captured = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-      if (!captured) throw Error(notice('photo-encode'));
-      const prepared = await preparePhoto(captured, maxImageBytes);
-      if (camera !== held) return;
-      cameraDraft = { kind: 'image', id: crypto.randomUUID(), session: spec.session, ...prepared };
-      image(spec.session, 'camera-preview', { imageId: cameraDraft.id, url: urlFor(prepared.blob), width: prepared.width, height: prepared.height });
+      const canvas = document.createElement('canvas');
+      try {
+        const scale = Math.min(1, config.photoMaxEdge / Math.max(held.video.videoWidth, held.video.videoHeight));
+        canvas.width = Math.max(1, Math.round(held.video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(held.video.videoHeight * scale));
+        canvas.getContext('2d').drawImage(held.video, 0, 0, canvas.width, canvas.height);
+        const captured = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        if (camera !== held) return;
+        if (!captured) throw Error(notice('photo-encode'));
+        const prepared = await preparePhoto(captured, maxImageBytes);
+        if (camera !== held) return;
+        cameraDraft = { kind: 'image', id: crypto.randomUUID(), session: spec.session, ...prepared };
+        image(spec.session, 'camera-preview', { imageId: cameraDraft.id, url: urlFor(prepared.blob), width: prepared.width, height: prepared.height });
+      } catch (error) {
+        if (camera === held) image(spec.session, 'camera-ready', { error: error.message });
+      } finally { held.capturing = false; canvas.width = canvas.height = 0; }
       return;
     }
     if (spec.action === 'camera-attach') {
@@ -438,6 +452,12 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
         }
 
       }
+    },
+    gesture(name) {
+      if (!camera?.sound || camera.capturing || !rule('capture-gesture', { name })) return;
+      // Safari requires playback in the click handler, before the compiled event loop resumes.
+      try { camera.sound.currentTime = 0; camera.sound.play().catch(() => {}); }
+      catch { /* Capture remains available when audio playback is unavailable. */ }
     },
     busy() { return !!call || recorder?.state === 'recording' || !!microphone; },
     edited(caption) {
@@ -562,6 +582,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
   const recordScroll = () => { atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < config.scrollMargin; };
   const click = e => {
     const button = e.target.closest('[data-bend-event]');
+    if (button && !button.disabled) media.gesture(button.dataset.bendEvent);
     if (button && !button.disabled && isSend(button.dataset.bendEvent)) sendContexts.push({ ...displayedContext });
     const prefix = rule('link-prefix');
     if (!button?.dataset.bendEvent.startsWith(prefix)) return;
