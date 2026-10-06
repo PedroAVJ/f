@@ -174,7 +174,7 @@ static NSString* bp_check_shape(NSArray* c) {
   if ([gk isEqual:@"rounded"]) {
     if (g.count != 4 || !bp_number(g[1]) || !bp_number(g[2]) || !bp_number(g[3])) return @"invalid Rounded geometry";
   } else if ([gk isEqual:@"text"]) {
-    if (g.count != 4 || !bp_string(g[1]) || !bp_number(g[2]) || !bp_number(g[3])) return @"invalid Text geometry";
+    if ((g.count != 4 && g.count != 5) || !bp_string(g[1]) || !bp_number(g[2]) || !bp_number(g[3]) || (g.count == 5 && ![g[4] isEqual:@"monospace"])) return @"invalid Text geometry";
   } else if ([gk isEqual:@"path"]) {
     if (g.count != 2 || !bp_array(g[1]) || [g[1] count] > BP_MAX) return @"invalid Path geometry";
     for (id p in g[1]) {
@@ -308,7 +308,7 @@ NSArray* bend_paint_texts(NSArray* commands) {
   for (id c in commands) {
     if (!bp_array(c) || [c count] != 10 || ![c[0] isEqual:@"shape"] || !bp_array(c[6])) continue;
     NSArray* g = c[6];
-    if (g.count == 4 && [g[0] isEqual:@"text"] && bp_string(g[1])) [out addObject:g[1]];
+    if ((g.count == 4 || g.count == 5) && [g[0] isEqual:@"text"] && bp_string(g[1])) [out addObject:g[1]];
   }
   return out;
 }
@@ -408,9 +408,9 @@ typedef struct {
 static int16_t bp_be16(const uint8_t* p) {
   return (int16_t)((p[0] << 8) | p[1]);
 }
-static BpFont bp_font(double size, double weight) {
+static BpFont bp_font(double size, double weight, BOOL monospace) {
   static NSMutableDictionary* cache;
-  NSString* key = [NSString stringWithFormat:@"%g/%g", size, weight];
+  NSString* key = [NSString stringWithFormat:@"%g/%g/%d", size, weight, monospace];
   @synchronized (NSNull.class) {
     if (!cache) cache = [NSMutableDictionary dictionary];
     NSArray* hit = cache[key];
@@ -418,7 +418,7 @@ static BpFont bp_font(double size, double weight) {
   }
   CTFontRef font;
   if (weight >= 1 && weight <= 1000) {
-    CTFontRef base = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size, NULL);
+    CTFontRef base = monospace ? CTFontCreateWithName(CFSTR("Menlo"), size, NULL) : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size, NULL);
     NSDictionary* attrs = @{(id)kCTFontVariationAttribute: @{@(0x77676874): @(weight)}};
     CTFontDescriptorRef d = CTFontDescriptorCreateWithAttributes((__bridge CFDictionaryRef)attrs);
     font = CTFontCreateCopyWithAttributes(base, size, NULL, d);
@@ -909,7 +909,7 @@ static void bp_text(CGContextRef c, NSArray* g, NSArray* fill, double height, do
   double size = [g[2] doubleValue];
   double weight = [g[3] doubleValue];
   if (size == 0 && weight >= 1 && weight <= 1000) return;
-  BpFont f = bp_font(size, weight);
+  BpFont f = bp_font(size, weight, g.count > 4 && [g[4] isEqual:@"monospace"]);
   NSDictionary* attrs = @{(id)kCTFontAttributeName: (__bridge id)f.font, (id)kCTForegroundColorFromContextAttributeName: @YES};
   // Canvas draws one line: ASCII whitespace is replaced by spaces.
   NSString* value = g[1];
