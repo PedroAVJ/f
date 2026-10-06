@@ -372,7 +372,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
   });
   return nil;
 }
-- (void)photoOutput:(AVCapturePhotoOutput*)output willCapturePhotoForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings {
+- (void)captureOutput:(AVCapturePhotoOutput*)output willCapturePhotoForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (output == self.photoOutput && settings.uniqueID == self.captureID && self.customCaptureSound) {
       self.captureSound.currentTime = 0;
@@ -380,7 +380,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
     }
   });
 }
-- (void)photoOutput:(AVCapturePhotoOutput*)output didFinishProcessingPhoto:(AVCapturePhoto*)photo error:(NSError*)error {
+- (void)captureOutput:(AVCapturePhotoOutput*)output didFinishProcessingPhoto:(AVCapturePhoto*)photo error:(NSError*)error {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (output != self.photoOutput || photo.resolvedSettings.uniqueID != self.captureID || ![self.cameraPhase isEqual:@"camera-capturing"]) return;
     if (error) { [self cameraUnavailable:@"capture" message:ios_audio_words(@"Could not capture this photograph. Try again.", @"No se pudo capturar esta fotografía. Reintenta.")]; return; }
@@ -413,7 +413,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
     });
   });
 }
-- (void)photoOutput:(AVCapturePhotoOutput*)output didFinishCaptureForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings error:(NSError*)error {
+- (void)captureOutput:(AVCapturePhotoOutput*)output didFinishCaptureForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings error:(NSError*)error {
   if (!error) return;
   dispatch_async(dispatch_get_main_queue(), ^{
     if (output == self.photoOutput && settings.uniqueID == self.captureID)
@@ -475,6 +475,10 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
         if (![asset isKindOfClass:NSString.class] || ![asset length] || [asset length] > 128 || ![asset isEqual:[asset lastPathComponent]]) return @"invalid capture sound asset";
         NSURL* file = [NSBundle.mainBundle URLForResource:asset withExtension:nil];
         NSError* error = nil;
+        // Ambient follows the Ring/Silent switch and cannot retain voice playback's receiver route.
+        AVAudioSession* audioSession = AVAudioSession.sharedInstance;
+        if (![audioSession setCategory:AVAudioSessionCategoryAmbient mode:AVAudioSessionModeDefault options:0 error:&error] ||
+            ![audioSession setActive:YES error:&error]) return error.localizedDescription ?: @"capture sound is unavailable";
         AVAudioPlayer* player = file ? [[AVAudioPlayer alloc] initWithContentsOfURL:file error:&error] : nil;
         if (!player || !isfinite(player.duration) || player.duration > 2 || ![player prepareToPlay]) return error.localizedDescription ?: @"capture sound asset is unavailable";
         self.captureSound = player;
