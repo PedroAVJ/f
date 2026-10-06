@@ -153,7 +153,7 @@ def path_html(d: S.Drawing, +f: P.Fill, stroke: P.Stroke, +id: U32) -> String: p
 def shape_in(s: P.Shape, head: String, id: U32, +scheme: T.Scheme) -> String:
   match s:
     case P.Shape{P.Text{text, P.TextType{name, size, weight}}, P.TextFill.Solid{role, state}, stroke, effects}:
-      head ++ "color:" ++ T.text(role,state,scheme) ++ ";white-space:pre;font-family:system-ui;font-size:" ++ U32.show(size) ++ "px;font-weight:" ++ U32.show(weight) ++ ";" ++ style_in(P.NoStroke{},effects,scheme) ++ "\">" ++ escape(text) ++ "</div>"
+      head ++ "color:" ++ T.text(role,state,scheme) ++ ";white-space:pre;font-family:" ++ Bool.pick(String, String.eq(name, "Code"), "Menlo,ui-monospace,monospace", "system-ui") ++ ";font-size:" ++ U32.show(size) ++ "px;font-weight:" ++ U32.show(weight) ++ ";" ++ style_in(P.NoStroke{},effects,scheme) ++ "\">" ++ escape(text) ++ "</div>"
     case P.Shape{P.Rounded{+width, +height, r}, +f, +stroke, effects}:
       head ++ "width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;border-radius:" ++ radius(r,width,height) ++ "px;overflow:hidden;" ++ fill_css_in(f,scheme) ++ style_in(stroke,effects,scheme) ++ "\" " ++ stroke_attr(stroke) ++ ">" ++ fill_html(f) ++ "</div>"
     case P.Shape{P.Path{drawing}, f, +stroke, effects}:
@@ -289,7 +289,7 @@ def effect_commands(xs: List<&2, P.Effect>) -> String: effect_commands_in(xs,T.S
 def paint_in(s: P.Shape, head: String, +scheme: T.Scheme) -> String:
   match s:
     case P.Shape{P.Text{text,P.TextType{name,size,weight}},P.TextFill.Solid{role,state},stroke,effects}:
-      head ++ "[\"text\"," ++ J.quote(text) ++ "," ++ U32.show(size) ++ "," ++ U32.show(weight) ++ "],[\"solid\"," ++ J.quote(T.text(role,state,scheme)) ++ "]," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
+      head ++ "[\"text\"," ++ J.quote(text) ++ "," ++ U32.show(size) ++ "," ++ U32.show(weight) ++ Bool.pick(String, String.eq(name, "Code"), ",\"monospace\"", "") ++ "],[\"solid\"," ++ J.quote(T.text(role,state,scheme)) ++ "]," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
     case P.Shape{P.Rounded{+w,+h,r},f,stroke,effects}:
       head ++ "[\"rounded\"," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ radius(r,w,h) ++ "]," ++ fill_json_in(f,scheme) ++ "," ++ stroke_json_in(stroke,scheme) ++ ",[" ++ effect_commands_in(effects,scheme) ++ "]]"
     case P.Shape{P.Path{d},f,stroke,effects}:

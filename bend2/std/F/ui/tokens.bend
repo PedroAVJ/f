@@ -31,6 +31,10 @@ type State is Data:
 type TextRole is Data:
   TextRole.Ink{}
   TextRole.Muted{}
+  TextRole.CodeKeyword{}
+  TextRole.CodeType{}
+  TextRole.CodeName{}
+  TextRole.CodeLiteral{}
 type SurfaceRole is Data:
   SurfaceRole.Background{}
   SurfaceRole.Surface{}
@@ -65,6 +69,10 @@ def text_tone(r: TextRole) -> Tone:
   match r:
     case TextRole.Ink{}: ink()
     case TextRole.Muted{}: muted()
+    case TextRole.CodeKeyword{}: Tone{350.0, 0.09, 0.64}
+    case TextRole.CodeType{}: Tone{200.0, 0.07, 0.64}
+    case TextRole.CodeName{}: Tone{250.0, 0.09, 0.64}
+    case TextRole.CodeLiteral{}: Tone{145.0, 0.08, 0.64}
 def surface_tone(r: SurfaceRole) -> Tone:
   match r:
     case SurfaceRole.Background{}: background()
@@ -190,6 +198,10 @@ def text_name(r: TextRole) -> String:
   match r:
     case TextRole.Ink{}: "Ink"
     case TextRole.Muted{}: "Muted"
+    case TextRole.CodeKeyword{}: "Code keyword"
+    case TextRole.CodeType{}: "Code type"
+    case TextRole.CodeName{}: "Code name"
+    case TextRole.CodeLiteral{}: "Code literal"
 def surface_name(r: SurfaceRole) -> String:
   match r:
     case SurfaceRole.Background{}: "Background"
@@ -218,7 +230,7 @@ def text_surfaces() -> List<&2, SurfaceRole>:
   [SurfaceRole.Background{}, SurfaceRole.Surface{}, SurfaceRole.Raised{}, SurfaceRole.Accent{}, SurfaceRole.Danger{}, SurfaceRole.Field{}, SurfaceRole.Mine{}]
 def neutral() -> List<&2, SurfaceRole>:
   [SurfaceRole.Background{}, SurfaceRole.Surface{}, SurfaceRole.Raised{}, SurfaceRole.Field{}]
-def text_roles() -> List<&2, TextRole>: [TextRole.Ink{}, TextRole.Muted{}]
+def text_roles() -> List<&2, TextRole>: [TextRole.Ink{}, TextRole.Muted{}, TextRole.CodeKeyword{}, TextRole.CodeType{}, TextRole.CodeName{}, TextRole.CodeLiteral{}]
 # Lines that carry meaning (icons, strokes, focus) and so take the 3:1 law.
 # Edge is not among them: see decorative().
 def line_roles() -> List<&2, LineRole>: [LineRole.Ink{}, LineRole.Muted{}, LineRole.Line{}, LineRole.Accent{}]
@@ -239,6 +251,7 @@ def text_on(r: TextRole) -> List<&2, SurfaceRole>:
   match r:
     case TextRole.Ink{}: text_surfaces()
     case TextRole.Muted{}: neutral()
+    case _: neutral()
 # Lines on Field: Ink (icons) and Accent (the focus ring); Muted and Line
 # are not used there.
 def line_on(r: LineRole) -> List<&2, SurfaceRole>:
