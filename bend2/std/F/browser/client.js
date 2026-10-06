@@ -124,7 +124,7 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
   let closed = false, recordingGeneration = 0;
   const urls = new Set();
   const urlFor = blob => { const url = URL.createObjectURL(blob); urls.add(url); return url; };
-  const voice = (session, mode, phase, values = {}) => event(rule('media-event', { kind: 'audio', session, mode, phase, values }));
+  const voice = (session, mode, phase, values = {}) => event(rule('media-event', { kind: 'audio', session, mode, phase, values }), ['elapsed', 'playhead'].includes(phase) ? `audio:${session}:${mode}:${phase}` : undefined);
   const image = (session, phase, values = {}) => event(rule('media-event', { kind: 'image', session, phase, values }));
   const documentEvent = (session, phase, values = {}) => event(rule('media-event', { kind: 'file', session, phase, values }));
   let fileEdits = Promise.resolve(), documentSession;
@@ -412,6 +412,19 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
   return {
     acknowledge,
     rendered(root) {
+      for (const marker of root.querySelectorAll('[data-bend-shape^="Motion panel · "]')) {
+        if (marker.parentElement.dataset.bendMotionPanel) continue;
+        const parent = marker.parentElement, panel = document.createElement('div');
+        const x = parseFloat(marker.style.left), y = parseFloat(marker.style.top), width = parseFloat(marker.style.width), height = parseFloat(marker.style.height);
+        const viewport = root.getBoundingClientRect();
+        const targetX = Math.max(12, Math.min(x, viewport.width - width - 12));
+        const targetY = Math.max(12, Math.min(y, (window.visualViewport?.height || innerHeight) - viewport.top - height - 12));
+        panel.dataset.bendMotionPanel = marker.dataset.bendShape.slice(15);
+        panel.style.cssText = `position:absolute;left:${targetX}px;top:${targetY}px;width:${width}px;height:${height}px;border-radius:${marker.style.borderRadius};overflow:hidden;background:#000;isolation:isolate;z-index:${marker.style.zIndex}`;
+        const children = []; for (let node = marker; node; node = node.nextElementSibling) children.push(node);
+        parent.insertBefore(panel, marker);
+        for (const node of children) { node.style.left = `${parseFloat(node.style.left) - x}px`; node.style.top = `${parseFloat(node.style.top) - y}px`; panel.append(node); }
+      }
       if (camera) {
         const surface = [...root.querySelectorAll('[data-bend-shape]')].find(node => node.dataset.bendShape === 'Camera preview · ' + camera.session);
         if (surface && camera.video.parentNode !== surface) surface.append(camera.video);
@@ -521,7 +534,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
     }
     if (owner === scope) await services.importLegacy();
   })();
-  const event = value => deliver(JSON.stringify(value));
+  const event = (value, coalesce) => deliver(JSON.stringify(value), undefined, undefined, coalesce);
   const imageLimit = Number(root.dataset.maxImageBytes);
   const media = createMediaHost(event, {
     maxImageBytes: rule('image-limit', { bytes: Number.isSafeInteger(imageLimit) ? imageLimit : 0 }),

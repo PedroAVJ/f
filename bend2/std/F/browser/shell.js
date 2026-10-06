@@ -110,9 +110,10 @@ export function startBend(root, options = {}) {
     host?.eventConsumed?.(entry.text);
     return entry.text;
   };
-  const deliver = (text, field, version) => {
+  const deliver = (text, field, version, coalesce) => {
     if (stopped) return;
-    const entry = {text, field, version};
+    const entry = {text, field, version, coalesce};
+    if (coalesce) { const index = events.findIndex(value => value.coalesce === coalesce); if (index >= 0) events.splice(index, 1); }
     if (waiter) { const w = waiter; waiter = null; w(entry); }
     else if (events.length < 256) events.push(entry);
   };
