@@ -37,6 +37,7 @@ export function captureSources(root: string, destination: string, development: b
 export function capturedConfig(snapshot: ReturnType<typeof captureSources>, name: string): Config {
   // A fresh loader resolves Base and every config import inside this snapshot.
   const program = 'const {loadConfig} = await import(process.argv[1]); process.stdout.write(JSON.stringify(await loadConfig(process.argv[2])));';
-  const output = execFileSync(process.execPath, [...(process.versions.bun ? ['--smol'] : []), '-e', program, join(snapshot.fork, 'bend2/std/F/app/config.ts'), join(snapshot.source, name)], {cwd:snapshot.source, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
+  const limits = process.versions.bun ? ['--smol'] : process.execArgv.filter(arg => /^--(?:stack-size|max-old-space-size)=/.test(arg));
+  const output = execFileSync(process.execPath, [...limits, '-e', program, join(snapshot.fork, 'bend2/std/F/app/config.ts'), join(snapshot.source, name)], {cwd:snapshot.source, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
   return JSON.parse(output);
 }
