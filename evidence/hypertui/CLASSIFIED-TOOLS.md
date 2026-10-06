@@ -1,6 +1,6 @@
 # Classified harness tools
 
-Captured installed catalog: **646 tools** — **351 query**, **278 mutation**, **17 mixed**. Query entries move to URI pages; mutation and mixed entries stay native. Config readback proves Codex filtering, but filtered Codex model routing remains unverified. Filtered Claude model use is verified.
+Captured installed catalog: **646 tools** — **351 query**, **278 mutation**, **17 mixed**. In Codex, query entries move to URI pages while mutation and mixed entries stay native. In owned Claude, every entry is reached through a page: query links or typed mutation/mixed actions. Only hyperTUI, hyperTUI_action and present_ui remain native. The dispositions below describe the original Codex policy; catalog.json additionally records each Claude page disposition. Config readback proves Codex filtering, but filtered Codex model routing remains unverified. Filtered Claude model use is verified.
 
 The catalog includes full schemas and classification reasons in [catalog.json](catalog.json). The separate [active public manifest](active-tools.json) lists 595 names and marks the already-running session as immutable; it is not the same manifest as a newly launched harness. Internal bookkeeping is excluded.
 

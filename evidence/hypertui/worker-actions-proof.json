@@ -1,0 +1,93 @@
+{
+  "sessionId": "5e90e4f7-4145-4cde-915b-adc661a72d08",
+  "tools": [
+    "mcp__codex_worker__present_ui",
+    "mcp__hyper_queries__hyperTUI",
+    "mcp__hyper_queries__hyperTUI_action"
+  ],
+  "model": "claude-opus-5-5",
+  "result": "I started `hypertui-proof`, gave it the assignment, saw it working, then stopped it. The status page now shows the request **cancelled** and the worker **idle**. I used only HyperTUI and never touched `original`.\n\n1. **Start:** `worker_start` returned `status: \"running\"`, pid 64982, port 56949, thread `118b93cb-f3cb-4b11-87a6-88cc29ea1b23`. The workspace resolved to `/private/var/folders/yc/3dq1ll3s7nn0hpmfncpy0vdr0000gn/T/hypertui-full-proof-Pclzr7/worker-workspace`. When I followed the redirect, the worker page showed `status: \"idle\"` and no messages.\n2. **Submit:** `worker_submit` returned `accepted: true` with request id `claude-front:92aa93ac\u2026b6ac40`. It also said `alreadyDeduplicatedOnRetry: true`. The tool sends your full request and adds the assignment as the scoped portion.\n3. **Live status:** the request phase was `submitted` and the worker's overall status was `working`.\n4. **Stop:** `worker_stop`, aimed only at `hypertui-proof`, returned `stopRequested: true`.\n5. **Status after stop:** the request phase was `cancelled` and the worker's overall status was `idle`. The worker process is still up (`live: true`).\n\nThe worker never produced any output, including `HYPERTUI_WORKER_DONE`. I stopped it before it finished, so we don't know if `/bin/sleep 30` ever started. I also didn't check the workspace for file changes, because the task said to use only HyperTUI.",
+  "calls": [
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://programs/"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://workers/"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI_action",
+      "input": {
+        "uri": "hypertui://workers/",
+        "name": "worker_start",
+        "arguments": {
+          "workerId": "hypertui-proof",
+          "workspace": "/var/folders/yc/3dq1ll3s7nn0hpmfncpy0vdr0000gn/T/hypertui-full-proof-Pclzr7/worker-workspace"
+        }
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://results/144d1738-ec94-49ee-a699-32ef75f83cb8"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://workers/hypertui-proof"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI_action",
+      "input": {
+        "uri": "hypertui://workers/hypertui-proof",
+        "name": "worker_submit",
+        "arguments": {
+          "workerId": "hypertui-proof",
+          "assignment": "Run /bin/sleep 30 once in this exact workspace then output HYPERTUI_WORKER_DONE, no file changes."
+        }
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://results/9eb68b47-457a-43c3-a6ad-4c377d3e816c"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://workers/hypertui-proof"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI_action",
+      "input": {
+        "uri": "hypertui://workers/hypertui-proof",
+        "name": "worker_stop",
+        "arguments": {
+          "workerId": "hypertui-proof"
+        }
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://results/79888169-6cc5-4617-a57e-a9627bd94204"
+      }
+    },
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "input": {
+        "uri": "hypertui://workers/hypertui-proof"
+      }
+    }
+  ],
+  "scope": "Owned synthetic manager, isolated worker and fixture workspace; existing original workers untouched. Owned processes cleaned up after model readback."
+}
