@@ -1,0 +1,78 @@
+{
+  "activatedAt": "2026-10-06T22:35:43Z",
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832",
+  "compiledModuleSHA256": "54f8aa408b2205ab913d37b1151b6fcb33ac15bf8ab09c791a76144b19a48afb",
+  "verifiedSnapshotFiles": {
+    "f": 252,
+    "openDot": 77
+  },
+  "frontBefore": 67082,
+  "frontAfter": 71633,
+  "frontHealth": {
+    "status": "ok",
+    "runtime": "bend-claude-front+codex-fallback+detached-worker",
+    "provider": "claude",
+    "providers": {
+      "codex": {
+        "ready": true
+      },
+      "claude": {
+        "ready": true,
+        "model": null,
+        "recoveryWarnings": null
+      }
+    }
+  },
+  "frontRssKiB": 793584,
+  "managerPidPreserved": 66777,
+  "harnessPidPreserved": 2372,
+  "workerPidsPreserved": {
+    "hypertui-reachability-proof": 27961,
+    "hypertui-storyboard": 28070,
+    "dot-receiving-web": 36477,
+    "dot-ui-review-20261006": 27108
+  },
+  "runtimeConfigUnchanged": true,
+  "selectedThreadUnchanged": true,
+  "allMessageAndCardContentUnchanged": true,
+  "provenance": {
+    "fCommit": "052a88327ba23b5e9789f2ee160ca54b32546e9d",
+    "openDotCommit": "a350814783afa8bf5461986e7c572e4a0543b5ae",
+    "verifiedSnapshotFiles": {
+      "f": 252,
+      "openDot": 77
+    },
+    "compilerSources": [
+      {
+        "name": "tool.ts",
+        "sha256": "478842afe8f4ff2b9760fa95e2389f6c2ef49d46a5a5f7f95c1e80fb58001111",
+        "transpiledSHA256": "167b43d1b31a958dc71268a7ae6aaf851f6a3a268abddfaf782170aa165cc795"
+      },
+      {
+        "name": "main.ts",
+        "sha256": "58dd4a40d24c3edefcd05459e960b64fb5aa8fc71a434a7a67edb589e4cd9e00",
+        "transpiledSHA256": "83cd687a55b0dd707841c0404295fbd8c601cf59f2388a7a6da0a4ddbc7f3408"
+      },
+      {
+        "name": "bend.ts",
+        "sha256": "cf73092593a6358b3c72db77292c5a42e0b32022401aaf4908cd6a0ed423d8c7",
+        "transpiledSHA256": "3a4683828e859a33bee610c60c44890167c68487aec7fb3d9bce53a49170fc18"
+      },
+      {
+        "name": "safe.ts",
+        "sha256": "547bb8a65c13157aa2bebfd7a78031afc1546684f3887643555e2be325e6bc76",
+        "transpiledSHA256": "a128eba6ac0718ac861b6af5e716999d46d7f477861cc416cce74905804b535c"
+      },
+      {
+        "name": "comp.ts",
+        "sha256": "a11128452a496f3d651d3607967778ca66a0cbb410b546021e9d196ffe0e2fb2",
+        "transpiledSHA256": "1d775bf2da6f6f7887cbc0aba7afa8f98307b5f555ba75b22be2a09ec6c17c0d"
+      }
+    ],
+    "compiledModuleSHA256": "54f8aa408b2205ab913d37b1151b6fcb33ac15bf8ab09c791a76144b19a48afb",
+    "runnerSHA256": "24f8d1b2b1d7fa4064748f3df741c86d53d3136dce728fc2156a4c8cefa8da15",
+    "emitter": "Comp.js_lib(await Main.book_read(captured server/main.bend), true)",
+    "proofClaudeSession": "5bda98aa-b925-4910-b066-3cc5d38587f7",
+    "semanticDifference": "None: captured server branch adds development:true and invokes the same effect host. Compiled form removes on-launch source compilation."
+  }
+}

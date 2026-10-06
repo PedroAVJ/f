@@ -1,0 +1,17 @@
+{
+  "origin": "http://127.0.0.1:57566",
+  "threadId": "b46988fd-95e1-4333-a4f9-3c0a691fd948",
+  "cardId": "spec-source-validation",
+  "claudeSession": "5bda98aa-b925-4910-b066-3cc5d38587f7",
+  "exactSourceSha256": "81f987c7178ddc47647b3232110ae4d7004a6d89eb6fbfdb799b57881fbf6ecd",
+  "revision": "81f987c7178ddc47647b3232110ae4d7004a6d89eb6fbfdb799b57881fbf6ecd",
+  "readOnly": true,
+  "fullScreenMobile": true,
+  "fullScreenDesktop": true,
+  "scroll": {
+    "client": 660,
+    "total": 1320
+  },
+  "mutations": [],
+  "errors": []
+}
