@@ -76,7 +76,7 @@ export class McpQueries {
   }
   async call(tool: string, args: unknown) {
     await this.start();
-    return this.rpc!.call('tools/call',{name:tool,arguments:args});
+    return this.rpc!.call('tools/call',{name:tool,arguments:args},tool==='worker_start'?150000:60000);
   }
   close() {this.rpc?.close();}
 }
