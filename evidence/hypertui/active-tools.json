@@ -5210,7 +5210,7 @@
       "class": "query",
       "reason": "Native operation semantics; immutable active orchestration surface.",
       "exposure": "immutable-active-session",
-      "replacementUri": "hypertui://files/",
+      "replacementUri": "hypertui://file/?path=ENCODED_ABSOLUTE_PATH",
       "status": "prepared-for-owned-launch"
     },
     {
@@ -5344,6 +5344,15 @@
       "provenance": "direct active orchestrator tool namespace",
       "class": "mixed",
       "reason": "Mutates state or accepts general execution/input",
+      "exposure": "immutable-active-session",
+      "replacementUri": null,
+      "status": "retained-native"
+    },
+    {
+      "name": "functions.request_user_input_async",
+      "provenance": "direct active orchestrator tool namespace",
+      "class": "mutation",
+      "reason": "Requests user interaction and changes task flow; optional current-session capability.",
       "exposure": "immutable-active-session",
       "replacementUri": null,
       "status": "retained-native"

@@ -1,7 +1,8 @@
 import {test,expect} from 'bun:test';
-import {mkdtemp,writeFile,symlink,rm,open} from 'node:fs/promises';
+import {mkdtemp,writeFile,symlink,rm,open,copyFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {QueryGateway} from './gateway.ts';
 import {codexPolicy,claudePolicy} from './policy.ts';
@@ -35,3 +36,21 @@ test('real media decoders render seekable audio and video images',async()=>{
   }
  } finally {await rm(root,{recursive:true,force:true});}
 },30000);
+
+test('explicit absolute image paths and file URIs preserve image bytes outside the workspace',async()=>{
+ const workspace=await mkdtemp(join(tmpdir(),'hyper-workspace-'));
+ const outside=await mkdtemp(join(tmpdir(),'hyper-explicit-'));
+ const path=join(outside,'image with spaces.png');
+ const gateway=new QueryGateway([],workspace,'unused','unused');
+ try {
+  await copyFile(resolve(import.meta.dir,'../../../../tests/hypertui/challenge.png'),path);
+  const expected=(await readFile(path)).toString('base64');
+  for(const address of [path,pathToFileURL(path).href,'hypertui://file/?path='+encodeURIComponent(path)]) {
+   const result=await gateway.open(address);
+   expect(result.content.find((v:any)=>v.type==='image')).toEqual({type:'image',mimeType:'image/png',data:expected});
+   expect(result.content.filter((v:any)=>v.type==='text').map((v:any)=>v.text).join(' ').includes('Explicit file: '+path)).toBe(true);
+  }
+  await expect(gateway.open(outside)).rejects.toThrow('regular files');
+  await expect(gateway.open('hypertui://file/?path=relative.png')).rejects.toThrow('absolute path');
+ } finally {gateway.close();await rm(workspace,{recursive:true,force:true});await rm(outside,{recursive:true,force:true});}
+});

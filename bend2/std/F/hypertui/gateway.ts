@@ -1,7 +1,8 @@
 import { createInterface } from 'node:readline';
 import { readFile, readdir, realpath, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { resolve, relative, isAbsolute, extname } from 'node:path';
+import { resolve, relative, isAbsolute, extname, dirname, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { encode } from '../server/host.ts';
 import { render, localImage, type Content } from './render.ts';
 import { CodexQueries, McpQueries } from './backend.ts';
@@ -35,14 +36,16 @@ export class QueryGateway {
     });
     return {content:result.content};
   }
-  private async files(url:URL) {
-    const root = await realpath(this.workspace), requested = decodeURIComponent(url.pathname).replace(/^\//,'');
+  private async files(url:URL, absolutePath?:string) {
+    const root = await realpath(absolutePath ? dirname(absolutePath) : this.workspace);
+    const requested = absolutePath ? basename(absolutePath) : decodeURIComponent(url.pathname).replace(/^\//,'');
     const file = await realpath(resolve(root,requested)), subpath = relative(root,file);
-    if (subpath.startsWith('..') || isAbsolute(subpath)) throw Error('File is outside this workspace.');
+    if (!absolutePath && (subpath.startsWith('..') || isAbsolute(subpath))) throw Error('File is outside this workspace.');
     const handle = await open(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
-    const blocks:Block[] = [link('Programs','hypertui://programs/')];
+    const blocks:Block[] = [link('Programs','hypertui://programs/'),...(absolutePath ? [words('Explicit file: '+absolutePath)] : [])];
     try {
       const stat = await handle.stat();
+      if (absolutePath && !stat.isFile()) throw Error('Explicit absolute paths must identify regular files.');
       if (stat.isDirectory()) {
         const names = (await readdir(file,{withFileTypes:true})).filter(entry => !entry.isSymbolicLink()).sort((a,b) => a.name.localeCompare(b.name));
         if (names.length > 1000) throw Error('Directory has more than 1000 entries; open a narrower path.');
@@ -56,7 +59,7 @@ export class QueryGateway {
         return await this.page(subpath,[...blocks,...media.blocks],media.images);
       }
       if (['.png','.jpg','.jpeg','.webp'].includes(extname(file).toLowerCase())) {
-        const image = await localImage(root,subpath), asset='image:current';
+        const image = await localImage(absolutePath ? dirname(file) : root,absolutePath ? basename(file) : subpath), asset='image:current';
         blocks.push({kind:'image',label:subpath,asset});
         return await this.page(subpath,blocks,new Map([[asset,image]]));
       }
@@ -69,8 +72,19 @@ export class QueryGateway {
     } finally {await handle.close();}
   }
   async open(address: string) {
-    const url = new URL(address);
-    if (url.protocol !== 'hypertui:' || address.length > 131072) throw Error('Expected a bounded HyperTUI URI.');
+    if (typeof address !== 'string' || address.length > 131072) throw Error('Expected a bounded HyperTUI URI or absolute file path.');
+    let url = isAbsolute(address) ? new URL('hypertui://file/') : new URL(address);
+    if (isAbsolute(address)) url.searchParams.set('path',address);
+    else if (url.protocol === 'file:') {
+      const file=fileURLToPath(url), search=url.search;
+      url=new URL('hypertui://file/');url.search=search;url.searchParams.set('path',file);
+    }
+    if (url.protocol !== 'hypertui:') throw Error('Expected a HyperTUI or local file URI.');
+    if (url.hostname === 'file') {
+      const path=url.searchParams.get('path');
+      if (!path || !isAbsolute(path)) throw Error('The explicit file page requires an absolute path.');
+      return this.files(url,path);
+    }
     if (url.hostname === 'files') return this.files(url);
     if (url.hostname === 'workers') {
       if (!this.worker) throw Error('This gateway has no worker binding.');
@@ -144,7 +158,7 @@ export async function serveQueries(config:{catalog:string;workspace:string;codex
         let result:unknown;
         if (message.method === 'initialize') result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'F HyperTUI programs',version:'0.1.0'}};
         else if (message.method === 'ping') result={};
-        else if (message.method === 'tools/list') result={tools:[{name:'hyperTUI',description:'Open an F program page. Start at hypertui://programs/. Queries are URI links; tools moved here retain their original input schema and result.',inputSchema:{type:'object',properties:{uri:{type:'string'}},required:['uri'],additionalProperties:false},annotations:{readOnlyHint:true}}]};
+        else if (message.method === 'tools/list') result={tools:[{name:'hyperTUI',description:'Open an F program page. Start at hypertui://programs/. Explicit local files may use an absolute path, file:/// URI, or hypertui://file/?path=ENCODED_ABSOLUTE_PATH. Filesystem permissions still apply. Queries are URI links; tools moved here retain their original input schema and result.',inputSchema:{type:'object',properties:{uri:{type:'string'}},required:['uri'],additionalProperties:false},annotations:{readOnlyHint:true}}]};
         else if (message.method === 'tools/call' && message.params?.name === 'hyperTUI') {
           try {result=await gateway.open(message.params.arguments.uri);}
           catch(error) {result={isError:true,content:[{type:'text',text:error instanceof Error ? error.message : String(error)}]};}
