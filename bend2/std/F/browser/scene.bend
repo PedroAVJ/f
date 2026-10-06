@@ -159,10 +159,10 @@ def shape_in(s: P.Shape, head: String, id: U32, +scheme: T.Scheme) -> String:
     case P.Shape{P.Path{drawing}, f, +stroke, effects}:
       head ++ style_in(P.NoStroke{},effects,scheme) ++ "\">" ++ path_html_in(drawing,f,stroke,id,scheme) ++ "</div>"
 def shape(s: P.Shape, head: String, id: U32) -> String: shape_in(s,head,id,T.Scheme.Light{})
-def box_at_in(b: P.Box, id: U32, +scheme: T.Scheme) -> String:
+def box_at_in(b: P.Box, +id: U32, +scheme: T.Scheme) -> String:
   match b:
     case P.Box{+name, P.Draw{s}, x, y, width, height, level, layer}:
-      shape_in(s,"<div style=\"position:absolute;box-sizing:border-box;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;",id,scheme)
+      shape_in(s,"<div data-bend-shape=\"" ++ escape(name) ++ "\" style=\"position:absolute;pointer-events:none;box-sizing:border-box;left:" ++ U32.show(x) ++ "px;top:" ++ U32.show(y) ++ "px;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px;z-index:" ++ U32.show(id) ++ ";",id,scheme)
     case _: ""
 def box_at(b: P.Box, id: U32) -> String: box_at_in(b,id,T.Scheme.Light{})
 def box_in(b: P.Box, +scheme: T.Scheme) -> String: box_at_in(b,0,scheme)
@@ -170,6 +170,7 @@ def box(b: P.Box) -> String: box_in(b,T.Scheme.Light{})
 def boxes_at_in(xs: List<&2, P.Box>, +id: U32, +scheme: T.Scheme) -> String:
   match xs:
     case Nil{}: ""
+    case Con{P.Box{name,P.Spacing{axis},x,y,w,h,level,layer},tail}: boxes_at_in(tail,id,scheme)
     case Con{x, tail}: box_at_in(x,id,scheme) ++ boxes_at_in(tail,U32.inc(id),scheme)
 def boxes_at(xs: List<&2, P.Box>, +id: U32) -> String: boxes_at_in(xs,id,T.Scheme.Light{})
 def boxes_in(xs: List<&2, P.Box>, +scheme: T.Scheme) -> String: boxes_at_in(xs,0,scheme)
