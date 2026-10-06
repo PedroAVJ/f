@@ -1,0 +1,83 @@
+{
+  "recordedAt": "2026-10-06T23:19:12Z",
+  "scope": "owned isolated source-card proof instance only",
+  "proofPort": 57566,
+  "supervisorPid": 69974,
+  "childPid": 69975,
+  "signal": "SIGTERM to owned supervisor",
+  "supervisorExitCode": 0,
+  "bothOwnedProcessesAbsentAfterCleanup": true,
+  "productionProcessesSignaled": [],
+  "frontPidStillAlive": 71633,
+  "originalHarnessPidStillAlive": 2372,
+  "originalWorkerPidsStillAlive": [
+    27961,
+    28070,
+    36477,
+    27108
+  ],
+  "currentManagerPidObserved": 73553,
+  "managerNote": "The previously recorded PID66777 had changed before this cleanup; current manager uses the same captured source/config. This cleanup did not signal it.",
+  "frontendReportedAcceptance": {
+    "finalPersistedSpecMobileDesktopReadOnlySmoke": "pass",
+    "exactSourceHash": "pass",
+    "atomicStaticDeploymentAssetHashReadback": "15 assets pass",
+    "productionPhoneDesktopGetOnlySmoke": "pass; zero errors or mutations",
+    "evidenceOwner": "dot-web-20261006/qa/evidence"
+  },
+  "retainedEvidence": [
+    "source-card-proof.json",
+    "source-card-browser-proof.json",
+    "compiled-front-activation.json"
+  ],
+  "finalManagerReadback": {
+    "recordedAt": "2026-10-06T23:19:55.114300+00:00",
+    "managerPid": 73553,
+    "startedAtUtc": "2026-10-06T22:43:37+00:00",
+    "healthHttpStatus": 200,
+    "health": {
+      "status": "ok",
+      "runtime": "independent-codex-worker-manager"
+    },
+    "registryHttpStatus": 200,
+    "registryCount": 5,
+    "registryStatusCounts": {
+      "registered": 1,
+      "running": 4
+    },
+    "managerConfigPath": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/workers/manager-config.json",
+    "managerConfigSha256": "ee9f8d7d1962f5f2e33d6d0762e9e8867e90394f3aaafe04470a9041890bf663",
+    "sourceIdentity": {
+      "appConfig": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/open-dot/config.bend",
+        "sha256": "0794511434c2e134467fa00601612640aabfffb9b21722095f26f0ffe3dc6fb3"
+      },
+      "launcher": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/f/bend2/std/F/app/main.ts",
+        "sha256": "5d9309a8014e2bddab677fd05a3c9cfd3cf5ca27626301b60d44b09b8108e6a3"
+      },
+      "workerModule": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/open-dot/server/codex_server.bend",
+        "sha256": "e2b07e08c41e3df5a620409b47e4c1217c20be1d30c0422f87d0b1e79c227152"
+      },
+      "queryLauncher": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/f/bend2/std/F/hypertui/launch.ts",
+        "sha256": "b5cd96333682456e3b6b6c0bf86d179c45831d320bb1e9d4975801980e7eadc6"
+      },
+      "queryCatalog": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/f/evidence/hypertui/catalog.json",
+        "sha256": "655c11ba3a6d08415735f7b5b21ca4dad1ba192de67cbf1d79e85c19c78a1ae5"
+      },
+      "managerModule": {
+        "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/open-dot/server/workers.bend",
+        "sha256": "5ce6d2ea60abc389ac6d93f78d429feb495f1de3003dcd19a91e91b0bb6394bc"
+      }
+    },
+    "pidChangeAttribution": "observed only; cause not established; no manager signals or restarts performed by cleanup",
+    "frontHealth": {
+      "httpStatus": 200,
+      "status": "ok",
+      "pidStillAlive": 71633
+    }
+  }
+}
