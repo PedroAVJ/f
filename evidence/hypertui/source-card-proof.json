@@ -1,0 +1,72 @@
+{
+  "scope": "Isolated exact-release front proof",
+  "origin": "http://127.0.0.1:57566",
+  "threadId": "b46988fd-95e1-4333-a4f9-3c0a691fd948",
+  "requestId": "source-viewer-98d816ab-f9ee-4712-868a-a47cbbad839a",
+  "claudeSession": "5bda98aa-b925-4910-b066-3cc5d38587f7",
+  "receiptPhase": "completed",
+  "cardPresent": true,
+  "exactText": true,
+  "exactPath": true,
+  "exactRevision": true,
+  "card": {
+    "id": "spec-source-validation",
+    "version": 1,
+    "status": "ready",
+    "values": {},
+    "root": {
+      "type": "source",
+      "id": "spec-source",
+      "label": "SPEC.bend",
+      "language": "bend",
+      "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832/f/bend2/std/F/SPEC.bend",
+      "revision": "81f987c7178ddc47647b3232110ae4d7004a6d89eb6fbfdb799b57881fbf6ecd",
+      "text": "# N / F specification\n# Ownership: types and laws are authored and signed by the user; agents fill\n# bodies only. This transcribes the user-approved specification. A separate\n# cryptographic signature has not been supplied; this file does not forge one.\n# Proofs are defs, never unfilled `law` axioms. The deferred effect symbol\n# is an explicit type parameter, so this specification adds no effect axiom.\n\nimport Base\n\ndef Command() -> Type:\n  Enum([\"Move\", \"Line\", \"Curve\", \"Arc\", \"Close\"])\n\ndef Path() -> Type:\n  List<Command()>\n\ndef Axis() -> Type:\n  Enum([\"Horizontal\", \"Vertical\", \"Depth\"])\n\ndef UI() -> Type:\n  Tree(Axis(), Path())\n\n# Action is an opaque effect type, supplied in the effects pass. Unchanged\n# denotes `after == before` for that action. Both are parameters until their\n# semantics are defined; no inhabitant or purity proof is assumed here.\ndef Query(Action: Type, -Unchanged: @-action: Action -> Type) -> Type:\n  Exists(Action, action => Unchanged(action))\n\ndef Mutation(Action: Type) -> Type:\n  Action\n\ndef Store(Action: Type, -Unchanged: @-action: Action -> Type) -> Type:\n  Pair(Record(Query(Action, Unchanged)), Record(Mutation(Action)))\n\ndef State(Action: Type, -Unchanged: @-action: Action -> Type) -> Type:\n  Record(Store(Action, Unchanged))\n\ndef Component(Action: Type, -Unchanged: @-action: Action -> Type) -> Type:\n  Injective(Pair(UI(), State(Action, Unchanged)), UI())\n\n# To prove with defs, not axioms:\n# Injective: for any a and b, component(a) == component(b) implies a == b.\n# Locality: changing one input tree position changes only its matching output\n# position. Position correspondence and the effects observation are still to\n# be defined; neither statement is claimed proven by this specification.\n"
+    }
+  },
+  "compiledModuleSHA256": "54f8aa408b2205ab913d37b1151b6fcb33ac15bf8ab09c791a76144b19a48afb",
+  "compilerSources": [
+    {
+      "name": "tool.ts",
+      "sha256": "478842afe8f4ff2b9760fa95e2389f6c2ef49d46a5a5f7f95c1e80fb58001111",
+      "transpiledSHA256": "167b43d1b31a958dc71268a7ae6aaf851f6a3a268abddfaf782170aa165cc795"
+    },
+    {
+      "name": "main.ts",
+      "sha256": "58dd4a40d24c3edefcd05459e960b64fb5aa8fc71a434a7a67edb589e4cd9e00",
+      "transpiledSHA256": "83cd687a55b0dd707841c0404295fbd8c601cf59f2388a7a6da0a4ddbc7f3408"
+    },
+    {
+      "name": "bend.ts",
+      "sha256": "cf73092593a6358b3c72db77292c5a42e0b32022401aaf4908cd6a0ed423d8c7",
+      "transpiledSHA256": "3a4683828e859a33bee610c60c44890167c68487aec7fb3d9bce53a49170fc18"
+    },
+    {
+      "name": "safe.ts",
+      "sha256": "547bb8a65c13157aa2bebfd7a78031afc1546684f3887643555e2be325e6bc76",
+      "transpiledSHA256": "a128eba6ac0718ac861b6af5e716999d46d7f477861cc416cce74905804b535c"
+    },
+    {
+      "name": "comp.ts",
+      "sha256": "a11128452a496f3d651d3607967778ca66a0cbb410b546021e9d196ffe0e2fb2",
+      "transpiledSHA256": "1d775bf2da6f6f7887cbc0aba7afa8f98307b5f555ba75b22be2a09ec6c17c0d"
+    }
+  ],
+  "sourceCommits": {
+    "f": "052a8832",
+    "openDot": "a350814"
+  },
+  "proofBoundary": "Isolated instance of exact captured source and effect host, compiled with the same js_lib emitter. Real API acceptance and Claude model execution. Not a production conversation, not a rendered-browser or physical-device claim.",
+  "toolCalls": [
+    {
+      "name": "mcp__hyper_queries__hyperTUI",
+      "uri": "hypertui://file/?path=%2FUsers%2Fpedroantoniovillanuevajuarez%2FLibrary%2FApplication%20Support%2FOpenDot%2Freleases%2F20261006-hypertui-052a8832%2Ff%2Fbend2%2Fstd%2FF%2FSPEC.bend",
+      "cardId": null
+    },
+    {
+      "name": "mcp__codex_worker__present_ui",
+      "uri": null,
+      "cardId": "spec-source-validation"
+    }
+  ]
+}
