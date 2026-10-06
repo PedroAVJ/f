@@ -102,9 +102,9 @@ def advance(n: U32) -> U32: U32.div(U32.mul(n, 8428), 1000)
 def columns(w: U32) -> U32: U32.max(1, U32.div(U32.mul(w, 1000), 8428))
 def span_view(+kind: String, +text: String, +at: U32) -> P.UI:
   +width = U32.sub(advance(U32.add(at, U32.from_nat(String.length(text)))), advance(at))
-  K.placed_at("Code run", advance(at), 0, P.text("Code " ++ kind, text, text_type(), color(kind), width, 20, P.Leading{}))
+  P.text("Code " ++ kind, text, text_type(), color(kind), width, 20, P.Leading{})
 def line_view(items: List<&2, P.UI>, w: U32) -> P.UI:
-  P.layout("Code line", P.Depth{}, 0, 0, w, 20, P.Leading{}, items)
+  P.layout("Code line", P.Horizontal{}, 0, 0, w, 20, P.Leading{}, items)
 def span_size(xs: List<&2, Span>) -> Nat:
   match xs:
     case []: 0n
@@ -139,18 +139,28 @@ def preview_lines(n: Nat, xs: List<&2, String>) -> List<&2, String>:
 def preview_with_limit(text: String, limit: U32, +w: U32) -> P.UI:
   P.layout("Source preview", P.Vertical{}, 0, 0, w, 0, P.Leading{}, source_lines(preview_lines(6n, String.split(String.take(normalized(text), U32.to_nat(limit)), '\n')), w))
 
-def clipped(xs: List<&2, Span>, +start: Nat, +size: Nat) -> List<&2, Span>:
-  match xs:
-    case []: []
-    case Span{+kind, +text} <> +rest:
+def span_text(value: Span) -> String:
+  match value:
+    case Span{kind, text}: text
+def span_kind(value: Span) -> String:
+  match value:
+    case Span{kind, text}: kind
+def window_go(fuel: Nat, +s: String, +start: Nat, +size: Nat) -> List<&2, Span>:
+  match fuel:
+    case 0n: []
+    case Succ{+remaining}:
+      +value = token(s)
+      +span = token_value(value)
+      +text = span_text(span)
       +length = String.length(text)
-      choose(List<&2, Span>, Nat.is_eq(size, 0n), u => [], u => choose(List<&2, Span>, Nat.is_ge(start, length), u => clipped(rest, Nat.sub(start, length), size), u => Span{kind, String.take(String.drop(text, start), size)} <> clipped(rest, 0n, Nat.sub(size, Nat.sub(length, start)))))
+      choose(List<&2, Span>, String.is_empty(s) || Nat.is_eq(size, 0n), u => [], u => choose(List<&2, Span>, Nat.is_ge(start, length), u => window_go(remaining, token_rest(value), Nat.sub(start, length), size), u => Span{span_kind(span), String.take(String.drop(text, start), size)} <> window_go(remaining, token_rest(value), 0n, Nat.sub(size, Nat.sub(length, start)))))
+def window(+s: String, start: Nat, size: Nat) -> List<&2, Span>: window_go(String.length(s), s, start, size)
 def page_lines(xs: List<&2, String>, +start: Nat, +size: Nat, +w: U32) -> List<&2, P.UI>:
   match xs:
     case []: []
     case +line <> +rest:
       +length = Nat.add(String.length(line), 1n)
-      choose(List<&2, P.UI>, Nat.is_eq(size, 0n), u => [], u => choose(List<&2, P.UI>, Nat.is_ge(start, length), u => page_lines(rest, Nat.sub(start, length), size, w), u => K.append_trees(rows(clipped(spans(line), start, size), w), page_lines(rest, 0n, Nat.sub(size, Nat.sub(length, start)), w))))
+      choose(List<&2, P.UI>, Nat.is_eq(size, 0n), u => [], u => choose(List<&2, P.UI>, Nat.is_ge(start, length), u => page_lines(rest, Nat.sub(start, length), size, w), u => K.append_trees(rows(window(line, start, size), w), page_lines(rest, 0n, Nat.sub(size, Nat.sub(length, start)), w))))
 def page_size() -> U32: 2048
 def page(+text: String, offset: U32, +w: U32) -> P.UI:
   P.layout("Read-only source", P.Vertical{}, 0, 0, w, 0, P.Leading{}, page_lines(String.split(normalized(text), '\n'), U32.to_nat(offset), U32.to_nat(page_size()), w))
