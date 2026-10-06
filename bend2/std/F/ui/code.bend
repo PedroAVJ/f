@@ -71,6 +71,11 @@ def token_value(value: Token) -> Span:
 def token_rest(value: Token) -> String:
   match value:
     case Token{span, rest}: rest
+def nat_chars_go(s: String, acc: Nat) -> Nat:
+  match s:
+    case SNil{}: acc
+    case SCon{char, rest}: nat_chars_go(rest, Succ{acc})
+def nat_chars(s: String) -> Nat: nat_chars_go(s, 0n)
 def spans_go(fuel: Nat, +s: String) -> List<&2, Span>:
   match fuel:
     case 0n: []
@@ -80,7 +85,7 @@ def spans_go(fuel: Nat, +s: String) -> List<&2, Span>:
         case _:
           +next = token(s)
           token_value(next) <> spans_go(remaining, token_rest(next))
-def spans(+s: String) -> List<&2, Span>: spans_go(String.length(s), s)
+def spans(+s: String) -> List<&2, Span>: spans_go(nat_chars(s), s)
 def normalized_go(s: String, acc: String) -> String:
   match s:
     case SNil{}: String.reverse(acc)
@@ -88,6 +93,27 @@ def normalized_go(s: String, acc: String) -> String:
     case SCon{Chr{13}, rest}: normalized_go(rest, acc)
     case SCon{char, rest}: normalized_go(rest, SCon{char, acc})
 def normalized(s: String) -> String: normalized_go(s, "")
+def chars_go(s: String, count: U32) -> U32:
+  match s:
+    case SNil{}: count
+    case SCon{char, rest}: chars_go(rest, U32.inc(count))
+def chars(s: String) -> U32: chars_go(s, 0)
+def display_length_go(s: String, count: U32) -> U32:
+  match s:
+    case SNil{}: count
+    case SCon{Chr{9}, rest}: display_length_go(rest, U32.add(count, 4))
+    case SCon{Chr{13}, rest}: display_length_go(rest, count)
+    case SCon{char, rest}: display_length_go(rest, U32.inc(count))
+def display_length(s: String) -> U32: display_length_go(s, 0)
+def drop(+s: String, +n: U32) -> String:
+  match s:
+    case SNil{}: ""
+    case SCon{char, rest}: choose(String, U32.is_eq(n, 0), u => s, u => drop(rest, U32.sub(n, 1)))
+def take_go(s: String, +n: U32, +acc: String) -> String:
+  match s:
+    case SNil{}: String.reverse(acc)
+    case SCon{char, rest}: choose(String, U32.is_eq(n, 0), u => String.reverse(acc), u => take_go(rest, U32.sub(n, 1), SCon{char, acc}))
+def take(s: String, n: U32) -> String: take_go(s, n, "")
 def color(kind: String) -> T.TextRole:
   match kind:
     case "keyword": T.TextRole.CodeKeyword{}
@@ -101,14 +127,18 @@ def text_type() -> P.TextType: P.TextType{"Code", 14, 400}
 def advance(n: U32) -> U32: U32.div(U32.mul(n, 8428), 1000)
 def columns(w: U32) -> U32: U32.max(1, U32.div(U32.mul(w, 1000), 8428))
 def span_view(+kind: String, +text: String, +at: U32) -> P.UI:
-  +width = U32.sub(advance(U32.add(at, U32.from_nat(String.length(text)))), advance(at))
+  +width = U32.sub(advance(U32.add(at, chars(text))), advance(at))
   P.text("Code " ++ kind, text, text_type(), color(kind), width, 20, P.Leading{})
 def line_view(items: List<&2, P.UI>, w: U32) -> P.UI:
   P.layout("Code line", P.Horizontal{}, 0, 0, w, 20, P.Leading{}, items)
-def span_size(xs: List<&2, Span>) -> Nat:
+def row_fuel(xs: List<&2, Span>, acc: Nat) -> Nat:
   match xs:
-    case []: 0n
-    case Span{kind, text} <> rest: Nat.add(String.length(text), span_size(rest))
+    case []: acc
+    case Span{kind, text} <> rest: row_fuel(rest, Succ{nat_chars_go(text, acc)})
+def doubled(n: Nat, acc: Nat) -> Nat:
+  match n:
+    case 0n: acc
+    case 1n+rest: doubled(rest, Succ{Succ{acc}})
 def rows_go(fuel: Nat, xs: List<&2, Span>, +w: U32, +at: U32, +items: List<&2, P.UI>) -> List<&2, P.UI>:
   match fuel:
     case 0n: [line_view(items, w)]
@@ -116,13 +146,13 @@ def rows_go(fuel: Nat, xs: List<&2, Span>, +w: U32, +at: U32, +items: List<&2, P
       match xs:
         case []: [line_view(items, w)]
         case Span{+kind, +text} <> +rest:
-          +length = U32.from_nat(String.length(text))
+          +length = chars(text)
           +room = U32.sub(columns(w), at)
-          +head = String.take(text, U32.to_nat(room))
-          +tail = String.drop(text, U32.to_nat(room))
+          +head = take(text, room)
+          +tail = drop(text, room)
           choose(List<&2, P.UI>, U32.is_le(length, room), u => rows_go(remaining, rest, w, U32.add(at, length), K.append_trees(items, [span_view(kind, text, at)])), u => line_view(K.append_trees(items, [span_view(kind, head, at)]), w) <> rows_go(remaining, Span{kind, tail} <> rest, w, 0, []))
 def rows(+xs: List<&2, Span>, w: U32) -> List<&2, P.UI>:
-  rows_go(Nat.add(1n, Nat.mul(2n, Nat.add(span_size(xs), List.length(&2, Span, xs)))), xs, w, 0, [])
+  rows_go(Succ{doubled(row_fuel(xs, 0n), 0n)}, xs, w, 0, [])
 def source_lines(xs: List<&2, String>, +w: U32) -> List<&2, P.UI>:
   match xs:
     case []: []
@@ -137,7 +167,7 @@ def preview_lines(n: Nat, xs: List<&2, String>) -> List<&2, String>:
         case []: []
         case line <> rest: line <> preview_lines(remaining, rest)
 def preview_with_limit(text: String, limit: U32, +w: U32) -> P.UI:
-  P.layout("Source preview", P.Vertical{}, 0, 0, w, 0, P.Leading{}, source_lines(preview_lines(6n, String.split(String.take(normalized(text), U32.to_nat(limit)), '\n')), w))
+  P.layout("Source preview", P.Vertical{}, 0, 0, w, 0, P.Leading{}, source_lines(preview_lines(6n, String.split(take(normalized(text), limit), '\n')), w))
 
 def span_text(value: Span) -> String:
   match value:
@@ -145,22 +175,25 @@ def span_text(value: Span) -> String:
 def span_kind(value: Span) -> String:
   match value:
     case Span{kind, text}: kind
-def window_go(fuel: Nat, +s: String, +start: Nat, +size: Nat) -> List<&2, Span>:
+def window_go(fuel: Nat, +s: String, +start: U32, +size: U32) -> List<&2, Span>:
   match fuel:
     case 0n: []
     case Succ{+remaining}:
-      +value = token(s)
-      +span = token_value(value)
-      +text = span_text(span)
-      +length = String.length(text)
-      choose(List<&2, Span>, String.is_empty(s) || Nat.is_eq(size, 0n), u => [], u => choose(List<&2, Span>, Nat.is_ge(start, length), u => window_go(remaining, token_rest(value), Nat.sub(start, length), size), u => Span{span_kind(span), String.take(String.drop(text, start), size)} <> window_go(remaining, token_rest(value), 0n, Nat.sub(size, Nat.sub(length, start)))))
-def window(+s: String, start: Nat, size: Nat) -> List<&2, Span>: window_go(String.length(s), s, start, size)
-def page_lines(xs: List<&2, String>, +start: Nat, +size: Nat, +w: U32) -> List<&2, P.UI>:
+      match size:
+        case 0: []
+        case _:
+          +value = token(s)
+          +span = token_value(value)
+          +text = span_text(span)
+          +length = chars(text)
+          choose(List<&2, Span>, String.is_empty(s), u => [], u => choose(List<&2, Span>, U32.is_ge(start, length), u => window_go(remaining, token_rest(value), U32.sub(start, length), size), u => Span{span_kind(span), take(drop(text, start), size)} <> window_go(remaining, token_rest(value), 0, U32.sub(size, U32.min(size, U32.sub(length, start))))))
+def window(+s: String, start: U32, size: U32) -> List<&2, Span>: window_go(nat_chars(s), s, start, size)
+def page_lines(xs: List<&2, String>, +start: U32, +size: U32, +w: U32) -> List<&2, P.UI>:
   match xs:
     case []: []
     case +line <> +rest:
-      +length = Nat.add(String.length(line), 1n)
-      choose(List<&2, P.UI>, Nat.is_eq(size, 0n), u => [], u => choose(List<&2, P.UI>, Nat.is_ge(start, length), u => page_lines(rest, Nat.sub(start, length), size, w), u => K.append_trees(rows(window(line, start, size), w), page_lines(rest, 0n, Nat.sub(size, Nat.sub(length, start)), w))))
+      +length = U32.inc(chars(line))
+      choose(List<&2, P.UI>, U32.is_eq(size, 0), u => [], u => choose(List<&2, P.UI>, U32.is_ge(start, length), u => page_lines(rest, U32.sub(start, length), size, w), u => K.append_trees(rows(window(line, start, size), w), page_lines(rest, 0, U32.sub(size, U32.min(size, U32.sub(length, start))), w))))
 def page_size() -> U32: 2048
 def page(+text: String, offset: U32, +w: U32) -> P.UI:
-  P.layout("Read-only source", P.Vertical{}, 0, 0, w, 0, P.Leading{}, page_lines(String.split(normalized(text), '\n'), U32.to_nat(offset), U32.to_nat(page_size()), w))
+  P.layout("Read-only source", P.Vertical{}, 0, 0, w, 0, P.Leading{}, page_lines(String.split(normalized(text), '\n'), offset, page_size(), w))
