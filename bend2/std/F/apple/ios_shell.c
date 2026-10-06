@@ -18,11 +18,20 @@ extern NSString* bend_paint_check(NSArray*);
 extern NSString* bend_paint_prepare(NSArray*);
 extern void bend_paint_set_dark(BOOL);
 
+#ifdef BEND_UIKIT_NODES
+#import "uikit_nodes.h"
+#define FNativeHost FUIKitHost
+#else
+#define FNativeHost FSwiftUIHost
+#endif
+
 #ifdef BEND_SWIFTUI
 @interface FSwiftUIHost : NSObject
 + (UIViewController*)controllerWithAction:(void (^)(NSDictionary*))action;
 + (void)apply:(NSDictionary*)packet;
 @end
+#endif
+#if defined(BEND_SWIFTUI) || defined(BEND_UIKIT_NODES)
 static UIViewController* ios_native_controller;
 #endif
 
@@ -910,13 +919,13 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
       atomic_fetch_sub(&ios_active, 1); return ios_dup(@"too many pending requests");
     }
     char* reply = NULL;
-#ifdef BEND_SWIFTUI
+#if defined(BEND_SWIFTUI) || defined(BEND_UIKIT_NODES)
     if (op == 21) {
       id packet = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:data length:len] options:0 error:NULL];
       if ([packet isKindOfClass:NSDictionary.class] && [packet[@"version"] isEqual:@1] && [packet[@"tree"] isKindOfClass:NSDictionary.class]) {
-        dispatch_sync(dispatch_get_main_queue(), ^{ [FSwiftUIHost apply:packet]; });
+        dispatch_sync(dispatch_get_main_queue(), ^{ [FNativeHost apply:packet]; });
         *status = 1; reply = ios_dup(@"");
-      } else reply = ios_dup(@"invalid SwiftUI node packet");
+      } else reply = ios_dup(@"invalid native node packet");
     } else
 #endif
     if (op == 2) reply = ios_event(status);
@@ -1010,8 +1019,8 @@ static void* ios_run(void* ignored) {
   ios_controller = [BendIOSController new];
   ios_notifications = [BendIOSNotifications new];
   self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-#ifdef BEND_SWIFTUI
-  ios_native_controller = [FSwiftUIHost controllerWithAction:^(NSDictionary* action) { ios_action(action); }];
+#if defined(BEND_SWIFTUI) || defined(BEND_UIKIT_NODES)
+  ios_native_controller = [FNativeHost controllerWithAction:^(NSDictionary* action) { ios_action(action); }];
   self.window.rootViewController = ios_native_controller;
 #else
   self.window.rootViewController = ios_controller;
@@ -1028,7 +1037,7 @@ static void* ios_run(void* ignored) {
   return YES;
 }
 - (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary*)options {
-#ifdef BEND_SWIFTUI
+#if defined(BEND_SWIFTUI) || defined(BEND_UIKIT_NODES)
   NSArray* types = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleURLTypes"];
   BOOL registered = NO;
   for (NSDictionary* type in types) if ([type[@"CFBundleURLSchemes"] containsObject:url.scheme]) registered = YES;

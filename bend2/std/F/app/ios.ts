@@ -17,7 +17,10 @@ if (args.includes('--help')) {
   console.log('bend build ios [simulator|device|both] [--profile PATH] [--identity SHA1] [--keychain PATH] [--origin HTTPS_URL] [--version X.Y.Z] [--build N]');
   process.exit(0);
 }
+const uikitNodes = args.includes('--uikit-nodes');
+if (uikitNodes) args.splice(args.indexOf('--uikit-nodes'), 1);
 const swiftui = args.includes('--swiftui');
+if (swiftui && uikitNodes) throw Error('Choose one native node renderer.');
 if (swiftui) args.splice(args.indexOf('--swiftui'), 1);
 const development = args.includes('--development');
 if (development) args.splice(args.indexOf('--development'), 1);
@@ -134,7 +137,7 @@ try {
     const arch = simulator && process.arch === 'x64' ? 'x86_64' : 'arm64';
     const triple = arch + '-apple-ios' + minimum + (simulator ? '-simulator' : '');
     const cc = ['--sdk', sdkName, 'clang', '-target', triple, '-isysroot', sdk];
-    const objc = [...(swiftui ? ['-DBEND_SWIFTUI=1'] : []), '-x', 'objective-c', '-fobjc-arc', '-fmodules'];
+    const objc = [...(swiftui ? ['-DBEND_SWIFTUI=1'] : []), ...(uikitNodes ? ['-DBEND_UIKIT_NODES=1'] : []), '-x', 'objective-c', '-fobjc-arc', '-fmodules'];
     const output = join(stage, 'ios-' + platform);
     const objects = join(native, platform);
     const app = join(output, config.name + '.app');
@@ -147,7 +150,7 @@ try {
       const sources = readdirSync(join(compiler, 'std/F/apple/swiftui')).filter(name => name.endsWith('.swift')).map(name => join(compiler, 'std/F/apple/swiftui', name));
       run('xcrun', ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk, '-module-name', 'FNativeUI', '-parse-as-library', '-whole-module-optimization', '-O', '-emit-object', ...sources, '-o', join(objects, 'SwiftUI.o')]);
     }
-    run('xcrun', [...(swiftui ? ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk] : cc), ...(swiftui ? [join(objects, 'SwiftUI.o')] : []), join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...['SwiftUI', 'UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers', 'UserNotifications'].flatMap(name => ['-framework', name]), '-o', join(app, config.name)]);
+    run('xcrun', [...(swiftui ? ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk] : cc), ...(swiftui ? [join(objects, 'SwiftUI.o')] : []), join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...[...(swiftui ? ['SwiftUI'] : []), 'UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers', 'UserNotifications'].flatMap(name => ['-framework', name]), '-o', join(app, config.name)]);
     const assets = join(objects, 'Assets.xcassets');
     const icon = join(assets, 'AppIcon.appiconset');
     mkdirSync(icon, { recursive: true });
@@ -166,7 +169,7 @@ try {
       CFBundleInfoDictionaryVersion: '6.0', CFBundleName: config.name, CFBundlePackageType: 'APPL', CFBundleShortVersionString: version, CFBundleVersion: build,
       CFBundleSupportedPlatforms: [simulator ? 'iPhoneSimulator' : 'iPhoneOS'], MinimumOSVersion: minimum, DTPlatformName: sdkName, DTSDKName: sdkName + sdkVersion,
       ...(flags['--url-scheme'] ? {CFBundleURLTypes:[{CFBundleURLSchemes:[flags['--url-scheme']],CFBundleURLName:bundle}]} : {}),
-      UIDeviceFamily: [1], UILaunchScreen: {}, ...(swiftui ? {} : {UIUserInterfaceStyle:'Dark'}), UIApplicationSupportsIndirectInputEvents: true,
+      UIDeviceFamily: [1], UILaunchScreen: {}, ...((swiftui || uikitNodes) ? {} : {UIUserInterfaceStyle:'Dark'}), UIApplicationSupportsIndirectInputEvents: true,
       NSCameraUsageDescription: config.camera_reason,
       NSMicrophoneUsageDescription: config.microphone_reason, NSSpeechRecognitionUsageDescription: config.speech_reason,
       UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'], BendOrigin: originURL.origin, BendSubmitLabel: config.submit_label, BendConnections: config.connections.map(({id,name,subtitle,origin}) => ({id,name,subtitle,origin:origin === config.origin ? originURL.origin : origin})),
@@ -185,7 +188,7 @@ try {
     run('codesign', ['--verify', '--deep', '--strict', app]);
     const appFiles = files(app).map(file => ({ name: relative(app, file), bytes: statSync(file).size, sha256: fileDigest(file) }));
     writeFileSync(join(output, 'build.json'), JSON.stringify({ bendIOS: 1, version, dependencies, builtAt: new Date().toISOString(), target: platform, bundle, minimumOS: minimum,
-      sdk: { name: sdkName, version: sdkVersion, architecture: arch }, origin: originURL.origin, compiler: 'PedroAVJ/f Bend2 C', renderer: swiftui ? 'SwiftUI' : 'UIKit-CoreGraphics', defines: ['BEND_NATIVE=1', 'BEND_IOS=1'], checkoutAtSnapshot: checkouts,
+      sdk: { name: sdkName, version: sdkVersion, architecture: arch }, origin: originURL.origin, compiler: 'PedroAVJ/f Bend2 C', renderer: swiftui ? 'SwiftUI' : uikitNodes ? 'UIKit-LiquidGlass' : 'UIKit-CoreGraphics', defines: ['BEND_NATIVE=1', 'BEND_IOS=1'], checkoutAtSnapshot: checkouts,
       capturedInputs: inputs.sort((a, b) => a.name.localeCompare(b.name)), generatedCSha256: fileDigest(join(native, 'app.c')), appFiles, signing: signingMetadata,
       verification: { codeSignature: 'verified', installedOnDevice: false, inputTested: false, developmentOnly: development },
     }, null, 2) + '\n');
