@@ -952,10 +952,11 @@ def bubble_range(+text: String, +box: U32) -> Range:
 type Badge is Data:
   Badge{tree: P.UI}
 def badge_max() -> U32: U32.div(U32.mul(column(), 5), 8)
-def badge(+text: String) -> Badge:
-  +shown = M.truncate(text, badge_max(), name_type())
+def badge_limit(+text: String, limit: U32) -> Badge:
+  +shown = M.truncate(text, U32.min(limit, badge_max()), name_type())
   +w = U32.max(32, U32.add(M.width(shown, name_type()), 30))
   Badge{P.layout(named(A11yRole.Text{}, text), P.Depth{}, 0, 0, w, 32, P.Middle{}, [glassy("Container", w, 32, P.Full{}, T.Backdrop.Content{}), words("Text", shown, name_type(), ink(), P.Middle{})])}
+def badge(text: String) -> Badge: badge_limit(text, badge_max())
 def badge_tree(b: Badge) -> P.UI:
   match b:
     case Badge{tree}: tree
