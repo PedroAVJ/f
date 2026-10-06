@@ -399,8 +399,22 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
 @property(copy) NSString* key;
 @property(copy) NSString* name;
 @property NSUInteger version;
+@property BOOL multiline;
+@property(strong) CAShapeLayer* textClip;
 @end
 @implementation BendIOSEditor
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  if (!self.multiline) { self.layer.mask = nil; return; }
+  if (!self.textClip) self.textClip = [CAShapeLayer layer];
+  [CATransaction begin]; [CATransaction setDisableActions:YES];
+  self.textClip.frame = self.bounds;
+  CGRect visible = UIEdgeInsetsInsetRect((CGRect){CGPointZero, self.bounds.size},
+    UIEdgeInsetsMake(self.textContainerInset.top, 0, self.textContainerInset.bottom, 0));
+  self.textClip.path = [UIBezierPath bezierPathWithRect:visible].CGPath;
+  self.layer.mask = self.textClip;
+  [CATransaction commit];
+}
 @end
 
 @interface BendIOSButton : UIButton
@@ -451,13 +465,100 @@ static NSArray* ios_content_projection(NSArray* commands) {
 }
 
 @interface BendIOSCanvas : UIView
-@property(strong) NSArray* commands;
+@property(nonatomic,strong) NSArray* commands;
+@property(strong) NSSet* nativeSurfaces;
 @property CGSize canvasSize;
 @property BOOL transparentBackground;
 @property BOOL viewportOnly;
 @property CGPoint drawingOrigin;
+@property(strong) NSArray* spokenElements;
+@property(strong) NSArray* spokenCommands;
+@property CGPoint spokenOrigin;
+@property(strong) NSDictionary<NSString*, NSNumber*>* bobPhases;
+@property(strong) CADisplayLink* motionClock;
 @end
 @implementation BendIOSCanvas
+- (instancetype)initWithFrame:(CGRect)frame {
+  self = [super initWithFrame:frame];
+  if (self) for (NSString* name in @[UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification, UIAccessibilityReduceMotionStatusDidChangeNotification])
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(motionPreferenceChanged:) name:name object:nil];
+  return self;
+}
+- (void)updateMotionClock {
+  BOOL running = self.window && self.bobPhases.count && !UIAccessibilityIsReduceMotionEnabled() && UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+  if (running && !self.motionClock) {
+    self.motionClock = [CADisplayLink displayLinkWithTarget:self selector:@selector(motionFrame:)];
+    self.motionClock.preferredFramesPerSecond = 30;
+    [self.motionClock addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+  } else if (!running) { [self.motionClock invalidate]; self.motionClock = nil; }
+}
+- (void)motionPreferenceChanged:(NSNotification*)notification {
+  if ([notification.name isEqual:UIApplicationWillResignActiveNotification]) {
+    [self.motionClock invalidate]; self.motionClock = nil;
+  } else [self updateMotionClock];
+  [self setNeedsDisplay];
+}
+- (void)didMoveToWindow { [super didMoveToWindow]; [self updateMotionClock]; }
+- (void)motionFrame:(CADisplayLink*)clock { [self setNeedsDisplay]; }
+- (void)setCommands:(NSArray*)commands {
+  _commands = commands;
+  NSMutableDictionary* phases = [NSMutableDictionary dictionary];
+  for (NSArray* command in commands) {
+    if (command.count != 10 || ![command[0] isEqual:@"shape"]) continue;
+    NSString* name = command[1];
+    NSString* plain = [name hasPrefix:@"Scroll content · "] ? [name substringFromIndex:17] : name;
+    if ([plain hasPrefix:@"Motion bob · "]) phases[name] = @([[plain substringFromIndex:[@"Motion bob · " length]] doubleValue] / 1000.0);
+  }
+  self.bobPhases = phases;
+  [self updateMotionClock];
+}
+- (NSArray*)accessibilityElements {
+  if (self.spokenElements && [self.spokenCommands isEqual:self.commands] && CGPointEqualToPoint(self.spokenOrigin, self.drawingOrigin)) {
+    NSMutableArray* current = [self.spokenElements mutableCopy];
+    for (UIView* child in self.subviews) if (!child.accessibilityElementsHidden && !child.hidden) [current addObject:child];
+    return current;
+  }
+  NSMutableArray* result = [NSMutableArray array];
+  NSArray* controls = bend_paint_regions(self.commands) ?: @[];
+  UIAccessibilityElement* paragraph = nil;
+  CGRect previous = CGRectZero;
+  for (NSArray* command in self.commands) {
+    if (command.count != 10 || ![command[0] isEqual:@"shape"]) continue;
+    BOOL image = [command[7][0] isEqual:@"photo"];
+    BOOL text = [command[6][0] isEqual:@"text"] && [command[6][2] doubleValue] > 0;
+    if (!image && !text) continue;
+    CGRect box = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    BOOL owned = NO;
+    for (NSDictionary* control in controls) if (CGRectContainsRect(ios_rect(control), box)) { owned = YES; break; }
+    if (owned || (text && ![command[6][1] length])) continue;
+    if (self.viewportOnly) box = CGRectOffset(box, -self.drawingOrigin.x, -self.drawingOrigin.y);
+    if (image) {
+      UIAccessibilityElement* photo = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:self];
+      photo.accessibilityTraits = UIAccessibilityTraitImage;
+      NSString* label = command[1];
+      photo.accessibilityLabel = [label hasPrefix:@"Scroll content · "] ? [label substringFromIndex:17] : label;
+      photo.accessibilityFrameInContainerSpace = box;
+      [result addObject:photo];
+      paragraph = nil;
+      continue;
+    }
+    BOOL adjacent = paragraph && fabs(box.origin.x - previous.origin.x) < 1 && fabs(box.origin.y - CGRectGetMaxY(previous)) <= 2;
+    if (adjacent) {
+      paragraph.accessibilityLabel = [paragraph.accessibilityLabel stringByAppendingFormat:@" %@", command[6][1]];
+      paragraph.accessibilityFrameInContainerSpace = CGRectUnion(paragraph.accessibilityFrameInContainerSpace, box);
+    } else {
+      paragraph = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:self];
+      paragraph.accessibilityTraits = UIAccessibilityTraitStaticText;
+      paragraph.accessibilityLabel = command[6][1];
+      paragraph.accessibilityFrameInContainerSpace = box;
+      [result addObject:paragraph];
+    }
+    previous = box;
+  }
+  self.spokenCommands = self.commands; self.spokenOrigin = self.drawingOrigin; self.spokenElements = [result copy];
+  for (UIView* child in self.subviews) if (!child.accessibilityElementsHidden && !child.hidden) [result addObject:child];
+  return result;
+}
 - (void)drawRect:(CGRect)rect {
   if (!self.commands) return;
   NSMutableArray* fields = [NSMutableArray array], *editing = [NSMutableArray array];
@@ -468,6 +569,7 @@ static NSArray* ios_content_projection(NSArray* commands) {
   }
   NSMutableArray* projected = [NSMutableArray arrayWithCapacity:self.commands.count];
   for (NSArray* source in self.commands) {
+    if ([self.nativeSurfaces containsObject:source]) continue;
     NSArray* command = source;
     if (self.viewportOnly) {
       if ([source[0] isEqual:@"frame"]) {
@@ -482,6 +584,14 @@ static NSArray* ios_content_projection(NSArray* commands) {
         shifted[3] = @(box.origin.y - self.drawingOrigin.y);
         command = shifted;
       }
+    }
+    NSNumber* bob = command.count > 1 ? self.bobPhases[command[1]] : nil;
+    if (bob && !UIAccessibilityIsReduceMotionEnabled()) {
+      double phase = fmod(CACurrentMediaTime() - bob.doubleValue, 1.0);
+      double lift = phase < .5 ? (1 - cos(phase * 4 * M_PI)) * 2 : 0;
+      NSMutableArray* moving = [command mutableCopy];
+      moving[3] = @([command[3] doubleValue] - lift);
+      command = moving;
     }
     BOOL hide = NO;
     if (command.count >= 7 && [command[0] isEqual:@"shape"] && [command[6] isKindOfClass:NSArray.class]) {
@@ -504,6 +614,16 @@ static NSArray* ios_content_projection(NSArray* commands) {
     bend_paint_overlay(UIGraphicsGetCurrentContext(), projected, self.bounds.size.width, self.bounds.size.height);
   else
     bend_paint(UIGraphicsGetCurrentContext(), ios_content_projection(projected), self.bounds.size.width, self.bounds.size.height);
+}
+@end
+
+// Only declared surface controls intercept input; the rest passes through.
+@interface BendIOSMotionOverlay : UIView
+@end
+@implementation BendIOSMotionOverlay
+- (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
+  UIView* hit = [super hitTest:point withEvent:event];
+  return hit == self ? nil : hit;
 }
 @end
 
@@ -538,6 +658,10 @@ static NSString* ios_thread_name(NSString* name) {
 @property(strong) UIScrollView* conversationScroll;
 @property(strong) BendIOSCanvas* conversationCanvas;
 @property CGRect conversationViewport;
+@property CGRect inputRegion;
+@property CGFloat conversationTopInset;
+@property(copy) NSString* inputTransitionState;
+@property CGRect inputTransitionRect;
 @property BOOL hasConversation;
 @property BOOL connectionList;
 @property BOOL messageDetail;
@@ -546,10 +670,26 @@ static NSString* ios_thread_name(NSString* name) {
 @property(strong) BendIOSCanvas* canvas;
 @property(strong) NSMutableDictionary<NSString*, BendIOSEditor*>* fields;
 @property(strong) NSMutableDictionary<NSString*, BendIOSButton*>* buttons;
-@property CGRect keyboardFrame;
+@property(strong) NSMutableDictionary<NSString*, UIVisualEffectView*>* glass;
+@property(weak) UIWindow* motionWindow;
+@property(weak) UIWindow* frontWindow;
+@property(strong) BendIOSMotionOverlay* motionOverlay;
+@property(strong) UIView* motionSurface;
+@property(strong) BendIOSCanvas* motionCanvas;
+@property(strong) UIView* motionSnapshot;
+@property(strong) NSMutableDictionary<NSString*, NSValue*>* motionOrigins;
+@property(strong) NSMutableDictionary<NSString*, NSValue*>* motionDestinations;
+@property(strong) NSMutableDictionary<NSString*, UIImage*>* motionDestinationImages;
+@property(copy) NSString* motionName;
+@property(copy) NSString* motionHiddenDestination;
+@property(strong) NSMutableSet* motionHiddenPhotos;
+@property CGRect motionRect;
+@property NSUInteger motionGeneration;
 @property CGSize sentViewport;
 @property BOOL painting;
 @property BOOL restoredPending;
+@property(copy) NSArray<NSString*>* arrivalKeys;
+@property(strong) NSArray* lastCommands;
 - (void)apply:(NSArray*)commands;
 - (void)scheme:(BOOL)dark;
 - (BOOL)canRefreshConversation;
@@ -560,6 +700,11 @@ static BendIOSController* ios_controller;
 - (void)viewDidLoad {
   [super viewDidLoad];
   self.fields = [NSMutableDictionary dictionary]; self.buttons = [NSMutableDictionary dictionary];
+  self.glass = [NSMutableDictionary dictionary];
+  for (NSString* name in @[UIAccessibilityReduceTransparencyStatusDidChangeNotification, UIAccessibilityReduceMotionStatusDidChangeNotification])
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(accessibilityChanged:) name:name object:nil];
+  self.motionOrigins = [NSMutableDictionary dictionary];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShown:) name:UIWindowDidBecomeVisibleNotification object:nil];
   self.conversationScroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
   self.conversationScroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
   self.conversationScroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
@@ -580,13 +725,129 @@ static BendIOSController* ios_controller;
   self.canvas = [[BendIOSCanvas alloc] initWithFrame:CGRectZero];
   self.canvas.opaque = NO;
   [self.scroll addSubview:self.canvas]; [self.view addSubview:self.scroll];
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:)
-    name:UIKeyboardWillChangeFrameNotification object:nil];
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:)
-    name:UIKeyboardWillHideNotification object:nil];
+  self.scroll.translatesAutoresizingMaskIntoConstraints = NO;
+  [NSLayoutConstraint activateConstraints:@[
+    [self.scroll.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+    [self.scroll.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+    [self.scroll.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+    [self.scroll.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor]
+  ]];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(assetsChanged:)
     name:@"BendPaintAssetsChanged" object:nil];
   [self scheme:ios_dark];
+}
+- (void)accessibilityChanged:(NSNotification*)notification {
+  if (UIAccessibilityIsReduceMotionEnabled()) [self.conversationCanvas.layer removeAnimationForKey:@"declared-arrival"];
+  if (self.lastCommands) [self apply:self.lastCommands];
+}
+- (void)windowShown:(NSNotification*)notification {
+  UIWindow* window = [notification.object isKindOfClass:UIWindow.class] ? notification.object : nil;
+  if (window && (!self.frontWindow || window.windowLevel >= self.frontWindow.windowLevel)) self.frontWindow = window;
+}
+- (void)motion:(NSArray*)commands rect:(CGRect)rect name:(NSString*)name radius:(CGFloat)radius {
+  if (!name.length) {
+    if (!self.motionName.length) return;
+    NSString* previous = self.motionName;
+    self.motionName = nil;
+    NSUInteger generation = ++self.motionGeneration;
+    CGRect destination = [self.motionDestinations[previous] CGRectValue];
+    UIImage* captured = self.motionDestinationImages[previous];
+    BOOL attaching = !CGRectIsEmpty(destination) && captured != nil;
+    self.motionHiddenDestination = attaching ? previous : nil;
+    self.motionHiddenPhotos = [NSMutableSet set];
+    UIView* leaving;
+    if (attaching) {
+      UIImageView* photo = [[UIImageView alloc] initWithImage:captured];
+      photo.contentMode = UIViewContentModeScaleAspectFill;
+      photo.clipsToBounds = YES;
+      photo.layer.cornerCurve = kCACornerCurveContinuous;
+      photo.layer.cornerRadius = self.motionSurface.layer.cornerRadius;
+      leaving = photo;
+    } else leaving = self.motionSnapshot ?: [self.motionSurface snapshotViewAfterScreenUpdates:NO];
+    self.motionSnapshot = nil;
+    leaving.frame = self.motionSurface.frame;
+    [self.motionOverlay addSubview:leaving];
+    self.motionSurface.hidden = YES;
+    CGRect origin = attaching ? destination : [self.view convertRect:[self.motionOrigins[previous] CGRectValue] toView:self.motionOverlay];
+    if (CGRectIsEmpty(origin)) origin = self.motionSurface.frame;
+    NSTimeInterval duration = UIAccessibilityIsReduceMotionEnabled() ? 0 : .4;
+    [UIView animateWithDuration:duration delay:0 options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{
+      leaving.frame = origin;
+      leaving.alpha = attaching ? 1 : 0;
+      if (attaching) leaving.layer.cornerRadius = 20;
+    } completion:^(BOOL finished) {
+      [leaving removeFromSuperview];
+      if (self.motionGeneration == generation) {
+        [self.motionOverlay removeFromSuperview];
+        self.motionHiddenDestination = nil;
+        NSMutableSet* visible = [self.canvas.nativeSurfaces mutableCopy];
+        [visible minusSet:self.motionHiddenPhotos];
+        self.canvas.nativeSurfaces = visible;
+        [self.motionHiddenPhotos removeAllObjects];
+        [self.canvas setNeedsDisplay];
+      }
+    }];
+    return;
+  }
+  BOOL opening = ![self.motionName isEqual:name];
+  if (!self.motionOverlay) {
+    self.motionOverlay = [[BendIOSMotionOverlay alloc] initWithFrame:CGRectZero];
+    self.motionOverlay.backgroundColor = UIColor.clearColor;
+    self.motionSurface = [[UIView alloc] initWithFrame:CGRectZero];
+    self.motionSurface.backgroundColor = UIColor.blackColor;
+    self.motionSurface.clipsToBounds = YES;
+    self.motionSurface.layer.cornerCurve = kCACornerCurveContinuous;
+    self.motionCanvas = [[BendIOSCanvas alloc] initWithFrame:CGRectZero];
+    self.motionCanvas.opaque = NO; self.motionCanvas.transparentBackground = YES; self.motionCanvas.viewportOnly = YES;
+    [self.motionSurface addSubview:self.motionCanvas];
+    [self.motionOverlay addSubview:self.motionSurface];
+  }
+  self.motionName = name; self.motionRect = rect;
+  UIWindow* top = self.view.window;
+  for (UIWindow* window in self.view.window.windowScene.windows)
+    if (!window.hidden && window.windowLevel >= top.windowLevel) top = window;
+  if (self.frontWindow && !self.frontWindow.hidden && self.frontWindow.windowLevel >= top.windowLevel) top = self.frontWindow;
+  self.motionWindow = top;
+  CGPoint originInWindow = [self.view convertPoint:CGPointZero toView:top];
+  CGPoint xInWindow = [self.view convertPoint:CGPointMake(1, 0) toView:top];
+  CGPoint yInWindow = [self.view convertPoint:CGPointMake(0, 1) toView:top];
+  self.motionOverlay.bounds = self.view.bounds;
+  self.motionOverlay.transform = CGAffineTransformMake(xInWindow.x - originInWindow.x, xInWindow.y - originInWindow.y,
+    yInWindow.x - originInWindow.x, yInWindow.y - originInWindow.y, 0, 0);
+  self.motionOverlay.center = [self.view convertPoint:CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds)) toView:top];
+  if (self.motionOverlay.superview != top) [top addSubview:self.motionOverlay];
+  else [top bringSubviewToFront:self.motionOverlay];
+  self.motionOverlay.overrideUserInterfaceStyle = self.overrideUserInterfaceStyle;
+  CGRect target = [self.canvas convertRect:rect toView:self.motionOverlay];
+  CGRect available = CGRectInset(self.motionOverlay.bounds, 12, 12);
+  available.origin.y = MAX(available.origin.y, self.view.safeAreaInsets.top + 12);
+  available.size.height = CGRectGetMaxY(self.motionOverlay.bounds) - 12 - available.origin.y;
+  target.origin.x = MAX(CGRectGetMinX(available), MIN(target.origin.x, CGRectGetMaxX(available) - target.size.width));
+  target.origin.y = MAX(CGRectGetMinY(available), MIN(target.origin.y, CGRectGetMaxY(available) - target.size.height));
+  self.motionCanvas.frame = (CGRect){CGPointZero, rect.size};
+  self.motionCanvas.canvasSize = rect.size; self.motionCanvas.drawingOrigin = rect.origin;
+  self.motionCanvas.commands = commands;
+  [self.motionCanvas setNeedsDisplay];
+  self.motionSurface.hidden = NO;
+  if (opening) {
+    ++self.motionGeneration;
+    CGRect origin = [self.view convertRect:[self.motionOrigins[name] CGRectValue] toView:self.motionOverlay];
+    if (CGRectIsEmpty(origin)) origin = target;
+    self.motionSurface.bounds = (CGRect){CGPointZero, target.size};
+    self.motionSurface.center = CGPointMake(CGRectGetMidX(origin), CGRectGetMidY(origin));
+    self.motionSurface.transform = CGAffineTransformMakeScale(origin.size.width / target.size.width, origin.size.height / target.size.height);
+    self.motionSurface.layer.cornerRadius = radius;
+    [UIView animateWithDuration:UIAccessibilityIsReduceMotionEnabled() ? 0 : .4 delay:0 usingSpringWithDamping:.8 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+      self.motionSurface.transform = CGAffineTransformIdentity;
+      self.motionSurface.center = CGPointMake(CGRectGetMidX(target), CGRectGetMidY(target));
+    } completion:nil];
+  } else if (!self.motionSurface.layer.animationKeys.count) {
+    self.motionSurface.frame = target;
+  }
+  self.motionSurface.layer.cornerRadius = radius;
+}
+- (void)scrollViewWillBeginDragging:(UIScrollView*)scrollView {
+  if (scrollView == self.conversationScroll) [self.conversationCanvas.layer removeAnimationForKey:@"declared-arrival"];
 }
 - (void)scrollViewDidScroll:(UIScrollView*)scrollView {
   if (scrollView != self.conversationScroll) return;
@@ -603,24 +864,14 @@ static BendIOSController* ios_controller;
   return !thread.dragging && !thread.decelerating && thread.contentOffset.y >= bottom - 24;
 }
 - (void)assetsChanged:(NSNotification*)notification { [self.canvas setNeedsDisplay]; [self.conversationCanvas setNeedsDisplay]; }
-- (void)keyboard:(NSNotification*)notification {
-  self.keyboardFrame = [notification.name isEqual:UIKeyboardWillHideNotification]
-    ? CGRectZero : [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-  [self.view setNeedsLayout];
-  [UIView animateWithDuration:[notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue]
-    animations:^{ [self.view layoutIfNeeded]; }];
-}
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
-  CGRect viewport = UIEdgeInsetsInsetRect(self.view.bounds, self.view.safeAreaInsets);
-  if (!CGRectIsEmpty(self.keyboardFrame)) {
-    CGRect keyboard = [self.view convertRect:self.keyboardFrame fromView:nil];
-    CGRect covered = CGRectIntersection(viewport, keyboard);
-    if (!CGRectIsNull(covered) && covered.size.width > viewport.size.width / 2)
-      viewport.size.height = MAX(1, CGRectGetMinY(covered) - viewport.origin.y);
+  CGRect viewport = self.scroll.frame;
+  if (self.hasConversation) {
+    CGRect frame = CGRectOffset(self.conversationViewport, viewport.origin.x, viewport.origin.y);
+    if (self.conversationTopInset > 0) { frame.origin.y -= viewport.origin.y; frame.size.height += viewport.origin.y; }
+    self.conversationScroll.frame = frame;
   }
-  self.scroll.frame = viewport;
-  if (self.hasConversation) self.conversationScroll.frame = CGRectOffset(self.conversationViewport, viewport.origin.x, viewport.origin.y);
   CGSize size = CGSizeMake(MAX(1, floor(viewport.size.width)), MAX(1, floor(viewport.size.height)));
   if (!CGSizeEqualToSize(size, self.sentViewport)) {
     self.sentViewport = size;
@@ -669,7 +920,7 @@ static BendIOSController* ios_controller;
 }
 - (BOOL)textView:(UITextView*)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString*)text {
   NSString* submit = ios_submit_label;
-  if (textView.superview == self.canvas && !self.expandedEditor && [text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
+  if (!((BendIOSEditor*)textView).multiline && textView.superview == self.canvas && !self.expandedEditor && [text isEqual:@"\n"] && submit.length && textView.markedTextRange == nil) {
     NSString* name = [@"button · " stringByAppendingString:submit];
     for (BendIOSButton* button in self.buttons.allValues)
       if (button.enabled && [button.eventName isEqual:name]) { ios_deliver(name, nil, 0); return NO; }
@@ -686,7 +937,9 @@ static BendIOSController* ios_controller;
     return;
   }
   NSString* submit = ios_submit_label;
-  if (!submit.length || ![button.eventName isEqual:[@"button · " stringByAppendingString:submit]])
+  if (button.superview == self.motionCanvas) self.motionSnapshot = [self.motionSurface snapshotViewAfterScreenUpdates:NO];
+  BOOL input = button.superview == self.canvas && CGRectContainsPoint(self.inputRegion, button.center);
+  if (!input && button.superview != self.motionCanvas && (!submit.length || ![button.eventName isEqual:[@"button · " stringByAppendingString:submit]]))
     [self.view endEditing:YES];
   ios_deliver(button.eventName, nil, 0);
 }
@@ -707,7 +960,12 @@ static BendIOSController* ios_controller;
   return field;
 }
 - (void)apply:(NSArray*)commands {
+  self.lastCommands = commands;
   CGRect conversation = CGRectZero;
+  CGRect inputTransitionRect = CGRectZero;
+  NSString* inputTransitionState = nil;
+  self.inputRegion = CGRectZero;
+  self.conversationTopInset = 0;
   BOOL modal = NO, detail = NO, editor = NO, list = NO;
   for (NSArray* command in commands) {
     if (command.count > 1 && ([command[1] isEqual:@"dialog · Edit message"] || [command[1] isEqual:@"dialog · Editar mensaje"])) editor = YES;
@@ -717,9 +975,24 @@ static BendIOSController* ios_controller;
         detail = [command[1] isEqual:@"Scroll viewport · Message"];
         list = [command[1] isEqual:@"Scroll viewport · Dots"];
       }
+      if ([command[1] hasPrefix:@"Motion content · composer:"]) {
+        inputTransitionState = command[1];
+        inputTransitionRect = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+      }
+      if ([command[1] isEqual:@"Scroll top inset · Conversation"]) self.conversationTopInset = [command[5] doubleValue];
+      if ([command[1] isEqual:@"Input region · composer"]) self.inputRegion = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
       if ([command[1] isEqual:@"Scrim"]) modal = YES;
     }
   }
+  UIView* inputSnapshot = nil;
+  if (inputTransitionState && self.inputTransitionState && ![inputTransitionState isEqual:self.inputTransitionState] && self.view.window && !self.motionName.length && !UIAccessibilityIsReduceMotionEnabled()) {
+    inputSnapshot = [self.scroll resizableSnapshotViewFromRect:self.inputTransitionRect afterScreenUpdates:NO withCapInsets:UIEdgeInsetsZero];
+    inputSnapshot.frame = self.inputTransitionRect;
+    inputSnapshot.userInteractionEnabled = NO;
+    inputSnapshot.accessibilityElementsHidden = YES;
+  }
+  self.inputTransitionState = inputTransitionState;
+  self.inputTransitionRect = inputTransitionRect;
   BOOL wasDetail = self.messageDetail;
   BOOL wasList = self.connectionList;
   self.connectionList = list;
@@ -740,10 +1013,50 @@ static BendIOSController* ios_controller;
   [self.view bringSubviewToFront:detail ? self.conversationScroll : self.scroll];
   self.scroll.scrollEnabled = !self.hasConversation;
   self.scroll.backgroundColor = self.hasConversation ? UIColor.clearColor : self.view.backgroundColor;
+  self.motionDestinations = [NSMutableDictionary dictionary];
+  self.motionDestinationImages = [NSMutableDictionary dictionary];
+  NSMutableDictionary<NSString*, NSValue*>* destinationBoxes = [NSMutableDictionary dictionary];
+  for (NSArray* command in commands) {
+    if (command.count != 10 || ![command[0] isEqual:@"shape"]) continue;
+    NSString* name = command[1];
+    if (![name hasPrefix:@"Motion destination · "]) continue;
+    NSString* key = [name substringFromIndex:[@"Motion destination · " length]];
+    CGRect box = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    destinationBoxes[key] = [NSValue valueWithCGRect:box];
+    self.motionDestinations[key] = [NSValue valueWithCGRect:[self.canvas convertRect:box toView:self.motionOverlay ?: self.view.window]];
+  }
+  if (destinationBoxes.count) for (NSArray* command in commands) {
+    if (command.count != 10 || ![command[0] isEqual:@"shape"] || ![command[7][0] isEqual:@"photo"]) continue;
+    CGRect box = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    for (NSString* key in destinationBoxes) if (CGRectEqualToRect(box, [destinationBoxes[key] CGRectValue])) {
+      NSURL* url = [NSURL URLWithString:command[7][1]];
+      UIImage* photo = url.isFileURL ? [UIImage imageWithContentsOfFile:url.path] : nil;
+      if (photo) self.motionDestinationImages[key] = photo;
+    }
+  }
   NSMutableArray* chrome = [NSMutableArray array];
+  NSMutableArray* motion = [NSMutableArray arrayWithObjects:@[@"frame", @1, @1], @[@"clear"], nil];
+  NSMutableArray<NSValue*>* motionControls = [NSMutableArray array];
+  CGRect motionRect = CGRectZero;
+  CGFloat motionRadius = 0;
+  NSString* motionName = nil;
   NSMutableArray* thread = [NSMutableArray arrayWithObjects:@[@"frame", @(conversation.size.width), @1], @[@"clear"], nil];
   CGFloat contentHeight = 0;
   for (NSArray* command in commands) {
+    if (command.count == 10 && [command[0] isEqual:@"shape"]) {
+      NSString* name = command[1];
+      CGRect box = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+      if ([name hasPrefix:@"Motion origin · "]) self.motionOrigins[[name substringFromIndex:16]] = [NSValue valueWithCGRect:[self.canvas convertRect:box toView:self.view]];
+      if ([name hasPrefix:@"Motion panel · "]) {
+        motionName = [name substringFromIndex:15]; motionRect = box;
+        motionRadius = [command[6][3] doubleValue];
+      }
+    }
+    if (motionName) {
+      if (command.count == 10 && [command[0] isEqual:@"shape"] && [command[1] isEqual:@"Motion control"])
+        [motionControls addObject:[NSValue valueWithCGRect:CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue])]];
+      [motion addObject:command]; continue;
+    }
     if (self.hasConversation && ios_thread_command(command)) {
       NSMutableArray* item = [command mutableCopy];
       item[2] = @([command[2] doubleValue] - conversation.origin.x);
@@ -759,24 +1072,121 @@ static BendIOSController* ios_controller;
     thread[0] = @[@"frame", @(conversation.size.width), @(contentHeight)];
     BOOL threadChanged = ![self.conversationCanvas.commands isEqual:thread] ||
       !CGSizeEqualToSize(self.conversationScroll.bounds.size, conversation.size);
+    NSMutableArray* arrivals = [NSMutableArray array];
+    for (NSArray* command in thread)
+      if (command.count == 10 && [command[0] isEqual:@"shape"] && [command[1] hasPrefix:@"Scroll content · Motion arrival · "]) [arrivals addObject:command[1]];
+    NSUInteger previousLast = self.arrivalKeys.count ? [arrivals indexOfObject:self.arrivalKeys.lastObject] : NSNotFound;
+    BOOL appended = atBottom && !detail && !list && !wasDetail && !wasList && previousLast != NSNotFound && previousLast + 1 < arrivals.count;
+    CGFloat growth = contentHeight - self.conversationCanvas.canvasSize.height;
+    self.arrivalKeys = arrivals;
     self.conversationCanvas.commands = thread;
     self.conversationCanvas.canvasSize = CGSizeMake(conversation.size.width, contentHeight);
 
-    self.conversationScroll.frame = CGRectOffset(conversation, self.scroll.frame.origin.x, self.scroll.frame.origin.y);
+    CGRect threadFrame = CGRectOffset(conversation, self.scroll.frame.origin.x, self.scroll.frame.origin.y);
+    CGFloat underlay = self.conversationTopInset > 0 ? self.scroll.frame.origin.y : 0;
+    threadFrame.origin.y -= underlay; threadFrame.size.height += underlay;
+    self.conversationScroll.frame = threadFrame;
     self.conversationScroll.contentSize = self.conversationCanvas.canvasSize;
-    self.conversationScroll.contentInset = UIEdgeInsetsMake((detail || list) ? 0 : MAX(0, conversation.size.height - contentHeight), 0, 0, 0);
+    self.conversationScroll.contentInset = UIEdgeInsetsMake((detail || list) ? 0 : MAX(self.conversationTopInset + underlay, threadFrame.size.height - contentHeight), 0, 0, 0);
     if ((list && !wasList) || (detail && !wasDetail)) self.conversationScroll.contentOffset = CGPointZero;
     else if (!detail && !list && (wasDetail || wasList)) self.conversationScroll.contentOffset = CGPointMake(0,
-      MIN(MAX(-self.conversationScroll.contentInset.top, self.savedConversationOffset.y), MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height)));
+      MIN(MAX(-self.conversationScroll.contentInset.top, self.savedConversationOffset.y), MAX(-self.conversationScroll.contentInset.top, contentHeight - threadFrame.size.height)));
     else if (atBottom && !self.conversationScroll.dragging && !self.conversationScroll.decelerating)
-      self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - conversation.size.height));
+      self.conversationScroll.contentOffset = CGPointMake(0, MAX(-self.conversationScroll.contentInset.top, contentHeight - threadFrame.size.height));
     if (threadChanged) [self scrollViewDidScroll:self.conversationScroll];
+    if (appended && growth > 0 && self.view.window && !UIAccessibilityIsReduceMotionEnabled()) {
+      CABasicAnimation* arrival = [CABasicAnimation animationWithKeyPath:@"transform.translation.y"];
+      arrival.fromValue = @(MIN(growth, 80)); arrival.toValue = @0; arrival.duration = .24;
+      arrival.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+      [self.conversationCanvas.layer addAnimation:arrival forKey:@"declared-arrival"];
+    }
   }
+  [self motion:motion rect:motionRect name:motionName radius:motionRadius];
   NSArray* frame = ios_content_projection(chrome)[0];
   self.canvas.canvasSize = CGSizeMake([frame[1] doubleValue], [frame[2] doubleValue]);
   BOOL chromeChanged = ![self.canvas.commands isEqual:chrome] || self.canvas.transparentBackground != self.hasConversation;
   self.canvas.commands = chrome;
   self.canvas.transparentBackground = self.hasConversation;
+  NSMutableDictionary* glass = [NSMutableDictionary dictionary];
+  NSMutableSet* nativeSurfaces = [NSMutableSet set];
+  NSCountedSet* glassNames = [NSCountedSet set];
+  CGRect cameraRect = CGRectZero;
+  CGFloat cameraRadius = 0;
+  NSString* cameraSession = nil;
+  for (NSArray* command in [chrome arrayByAddingObjectsFromArray:motion]) {
+    BOOL inMotion = [motion containsObject:command];
+    if (command.count != 10 || ![command[0] isEqual:@"shape"]) continue;
+    NSString* name = command[1];
+    if ([name hasPrefix:@"Camera preview · "]) {
+      cameraSession = [name substringFromIndex:17];
+      if ([command[6][0] isEqual:@"rounded"]) cameraRadius = [command[6][3] doubleValue];
+      cameraRect = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    }
+    if (!self.hasConversation || ![command[6][0] isEqual:@"rounded"]) continue;
+    BOOL backdrop = [name hasPrefix:@"Backdrop · "];
+    BOOL declaredGlass = backdrop;
+    for (NSArray* effect in command[9]) if ([effect[0] isEqual:@"glass"]) declaredGlass = YES;
+    if (!declaredGlass) continue;
+    NSUInteger occurrence = [glassNames countForObject:name]; [glassNames addObject:name];
+    NSString* key = [NSString stringWithFormat:@"%@#%lu", name, (unsigned long)occurrence];
+    UIVisualEffectView* surface = self.glass[key];
+    if (!surface) {
+      UIVisualEffect* effect;
+      if (backdrop) effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
+      else if (@available(iOS 26.0, *)) effect = [UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+      else effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+      surface = [[UIVisualEffectView alloc] initWithEffect:effect];
+      surface.userInteractionEnabled = NO;
+      surface.accessibilityElementsHidden = YES;
+      surface.clipsToBounds = YES;
+    }
+    if (UIAccessibilityIsReduceTransparencyEnabled()) {
+      surface.effect = nil;
+      surface.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    } else {
+      if (!surface.effect) {
+        if (backdrop) surface.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
+        else if (@available(iOS 26.0, *)) surface.effect = [UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+        else surface.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+      }
+      surface.backgroundColor = UIColor.clearColor;
+    }
+    CGRect surfaceFrame = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[6][1] doubleValue], [command[6][2] doubleValue]);
+    if ([name hasPrefix:@"Motion layout · "] && surface.superview && !CGRectEqualToRect(surface.frame, surfaceFrame) && !UIAccessibilityIsReduceMotionEnabled()) {
+      [UIView animateWithDuration:self.motionHiddenDestination.length ? .4 : .24 delay:0 options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionBeginFromCurrentState animations:^{ surface.frame = surfaceFrame; } completion:nil];
+    } else surface.frame = surfaceFrame;
+    surface.layer.cornerRadius = MIN([command[6][3] doubleValue], MIN(surface.bounds.size.width, surface.bounds.size.height) / 2);
+    surface.layer.cornerCurve = kCACornerCurveContinuous;
+    if (backdrop) {
+      surface.frame = CGRectMake(0, 0, self.view.bounds.size.width, surfaceFrame.origin.y + surfaceFrame.size.height + self.scroll.frame.origin.y);
+      CAGradientLayer* mask = [CAGradientLayer layer]; mask.frame = surface.bounds;
+      mask.colors = @[(id)UIColor.blackColor.CGColor, (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];
+      mask.locations = @[@0, @.48, @1]; surface.layer.mask = mask;
+      [self.view insertSubview:surface belowSubview:self.scroll];
+    } else if (inMotion) {
+      surface.frame = CGRectOffset(surface.frame, -motionRect.origin.x, -motionRect.origin.y);
+      [self.motionSurface insertSubview:surface belowSubview:self.motionCanvas];
+    } else [self.scroll insertSubview:surface belowSubview:self.canvas];
+    glass[key] = surface;
+    [nativeSurfaces addObject:command];
+  }
+  for (NSString* key in self.glass) if (!glass[key]) [self.glass[key] removeFromSuperview];
+  self.glass = glass;
+  NSValue* hiddenBox = destinationBoxes[self.motionHiddenDestination ?: @""];
+  if (hiddenBox) for (NSArray* command in chrome) {
+    if (command.count != 10 || ![command[0] isEqual:@"shape"]) continue;
+    CGRect box = CGRectMake([command[2] doubleValue], [command[3] doubleValue], [command[4] doubleValue], [command[5] doubleValue]);
+    if (!CGRectIsEmpty(box) && CGRectContainsRect(hiddenBox.CGRectValue, box)) {
+      [nativeSurfaces addObject:command];
+      [self.motionHiddenPhotos addObject:command];
+    }
+  }
+  if (![self.canvas.nativeSurfaces isEqual:nativeSurfaces]) chromeChanged = YES;
+  self.canvas.nativeSurfaces = nativeSurfaces;
+  self.motionCanvas.nativeSurfaces = nativeSurfaces;
+  ios_image_surface_update(motionName ? self.motionSurface : self.canvas,
+    motionName ? CGRectOffset(cameraRect, -motionRect.origin.x, -motionRect.origin.y) : cameraRect,
+    cameraSession, cameraSession.length > 0, cameraRadius);
   NSArray* regions = bend_paint_regions(commands) ?: @[];
   NSMutableDictionary* fields = [NSMutableDictionary dictionary], *buttons = [NSMutableDictionary dictionary];
   NSMutableArray* fresh = [NSMutableArray array]; NSCountedSet* seen = [NSCountedSet set];
@@ -793,6 +1203,7 @@ static BendIOSController* ios_controller;
     NSUInteger occurrence = [seen countForObject:identity]; [seen addObject:identity];
     NSString* key = occurrence ? [NSString stringWithFormat:@"%@#%lu", identity, (unsigned long)occurrence] : identity;
     CGRect bounds = ios_rect(region); BOOL enabled = ios_enabled(region);
+    BOOL inMotion = motionName && [motionControls containsObject:[NSValue valueWithCGRect:bounds]];
     if (ios_textbox(region)) {
       NSString* value = [region[@"value"] isKindOfClass:NSString.class] ? region[@"value"] : nil;
       BendIOSEditor* field = self.fields[key];
@@ -804,7 +1215,27 @@ static BendIOSController* ios_controller;
         selection.length = MIN(selection.length, value.length - selection.location);
         field.selectedRange = selection;
       }
-      field.returnKeyType = self.expandedEditor || inConversation ? UIReturnKeyDefault : (ios_submit_label.length ? UIReturnKeySend : UIReturnKeyDefault);
+      BOOL multiline = [region[@"multiline"] boolValue];
+      UIReturnKeyType returnKey = multiline || self.expandedEditor || inConversation ? UIReturnKeyDefault : (ios_submit_label.length ? UIReturnKeySend : UIReturnKeyDefault);
+      if (field.returnKeyType != returnKey) {
+        field.returnKeyType = returnKey;
+        if (field.isFirstResponder) [field reloadInputViews];
+      }
+      field.multiline = multiline;
+      NSArray* metrics = region[@"textMetrics"];
+      if (multiline && metrics.count == 4) {
+        CGFloat left = [metrics[0] doubleValue], top = [metrics[1] doubleValue];
+        field.textContainerInset = UIEdgeInsetsMake(top, left, top, left);
+        UIFont* font = [UIFont systemFontOfSize:[metrics[2] doubleValue]];
+        NSMutableParagraphStyle* style = [NSMutableParagraphStyle new];
+        style.minimumLineHeight = [metrics[3] doubleValue]; style.maximumLineHeight = style.minimumLineHeight;
+        NSDictionary* attributes = @{NSFontAttributeName:font, NSParagraphStyleAttributeName:style};
+        if (![field.typingAttributes[NSFontAttributeName] isEqual:font] ||
+            ![field.typingAttributes[NSParagraphStyleAttributeName] isEqual:style]) {
+          [field.textStorage addAttributes:attributes range:NSMakeRange(0, field.textStorage.length)];
+          field.typingAttributes = attributes;
+        }
+      }
       field.accessibilityLabel = ![event isEqual:name] ? region[@"label"] : [eventName substringFromIndex:10];
       field.frame = inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
       field.editable = enabled; field.selectable = enabled;
@@ -823,12 +1254,12 @@ static BendIOSController* ios_controller;
         [button addTarget:self action:@selector(clicked:) forControlEvents:UIControlEventTouchUpInside];
       }
       button.eventName = eventName;
-      button.frame = inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
+      button.frame = inMotion ? CGRectOffset(bounds, -motionRect.origin.x, -motionRect.origin.y) : inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
       button.enabled = enabled;
       NSRange separator = [eventName rangeOfString:@" · "];
       button.accessibilityLabel = ![event isEqual:name] ? region[@"label"] :
         (separator.location == NSNotFound ? eventName : [eventName substringFromIndex:NSMaxRange(separator)]);
-      [(inConversation ? self.conversationScroll : self.canvas) addSubview:button]; buttons[key] = button;
+      [(inMotion ? self.motionCanvas : inConversation ? self.conversationScroll : self.canvas) addSubview:button]; buttons[key] = button;
     }
   }
   for (NSString* key in self.fields) if (!fields[key]) [self.fields[key] removeFromSuperview];
@@ -836,13 +1267,15 @@ static BendIOSController* ios_controller;
   self.fields = fields; self.buttons = buttons; self.painting = NO;
   [self fitCanvas];
   if (chromeChanged) [self.canvas setNeedsDisplay];
-  for (BendIOSEditor* field in fields.allValues)
-    if (field.isFirstResponder) [(field.superview == self.conversationScroll ? self.conversationScroll : self.scroll) scrollRectToVisible:field.frame animated:NO];
   for (BendIOSEditor* field in fresh) if (ios_persist && !field.text.length) {
     NSString* text = [NSUserDefaults.standardUserDefaults stringForKey:ios_scoped_key([@"bend-input:" stringByAppendingString:field.name])];
     if (text.length) { field.text = text; [self edited:field]; }
   }
   // Cached Typed precedes Pending, including when the first GET already acknowledged it.
+  if (inputSnapshot) {
+    [self.scroll addSubview:inputSnapshot];
+    [UIView animateWithDuration:.18 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{ inputSnapshot.alpha = 0; } completion:^(BOOL finished) { [inputSnapshot removeFromSuperview]; }];
+  }
   if (!self.restoredPending) {
     self.restoredPending = YES;
     ios_voice_restore();

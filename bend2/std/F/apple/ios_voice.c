@@ -59,6 +59,12 @@ static BOOL ios_audio_draft(NSDictionary* metadata) {
   }
 }
 
+static void ios_audio_remove_sources(NSDictionary* draft) {
+  NSArray* sources = [draft[@"recordingSources"] isKindOfClass:NSArray.class] ? draft[@"recordingSources"] : @[];
+  for (NSString* source in sources)
+    if (ios_clip_id(source) && ![source isEqual:draft[@"clipId"]]) [NSFileManager.defaultManager removeItemAtURL:ios_audio_file(source, NO) error:NULL];
+}
+
 static void ios_audio_acknowledged(NSDictionary* pending) {
   if (!ios_clip_id(pending[@"clipId"])) return;
   NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
@@ -66,6 +72,7 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
   if (![draft[@"clipId"] isEqual:pending[@"clipId"]]) return;
   if ([pending[@"processing"] isEqual:@"server"]) {
     [defaults removeObjectForKey:ios_audio_draft_key];
+    ios_audio_remove_sources(draft);
     return;
   }
   NSString* transcript = [pending[@"transcript"] isKindOfClass:NSString.class] ? pending[@"transcript"] : @"";
@@ -76,7 +83,7 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
     for (NSString* key in @[@"requestId", @"threadId", @"provider"])
       if ([pending[key] isKindOfClass:NSString.class]) retry[key] = pending[key];
     ios_audio_draft(retry);
-  } else [defaults removeObjectForKey:ios_audio_draft_key];
+  } else { [defaults removeObjectForKey:ios_audio_draft_key]; ios_audio_remove_sources(draft); }
 }
 
 @interface BendIOSVoice : NSObject <AVAudioRecorderDelegate, AVAudioPlayerDelegate,
@@ -107,6 +114,14 @@ static void ios_audio_acknowledged(NSDictionary* pending) {
 @property NSTimeInterval listenStartedAt;
 @property NSTimeInterval callStartedAt;
 @property NSTimeInterval recordStartedAt;
+@property NSTimeInterval recordBaseDuration;
+@property(copy) NSString* recordSegment;
+@property(copy) NSString* pendingSegment;
+@property BOOL pauseRequested;
+@property(strong) AVAssetExportSession* mergeExport;
+@property(strong) NSTimer* playbackTimer;
+@property(strong) NSMutableArray<NSNumber*>* waveform;
+@property(copy) NSArray<NSString*>* recordingSources;
 @property BOOL callConnected;
 @property BOOL serverTranscription;
 @property BOOL tapInstalled;
@@ -140,7 +155,7 @@ static BendIOSVoice* ios_voice;
   if ([self.mode isEqual:@"call"]) state[@"elapsedMs"] = @(self.callStartedAt > 0 ?
     (unsigned)floor((NSProcessInfo.processInfo.systemUptime - self.callStartedAt) * 1000) : 0);
   else if (self.recorder && self.recordStartedAt > 0) state[@"elapsedMs"] =
-    @((unsigned)floor((NSProcessInfo.processInfo.systemUptime - self.recordStartedAt) * 1000));
+    @((unsigned)floor((self.recordBaseDuration + self.recorder.currentTime) * 1000));
   if (extra) [state addEntriesFromDictionary:extra];
   // Clip metadata can carry a saved phase/session, but physical events belong
   // to the current controller and the transition that emitted them.
@@ -173,6 +188,8 @@ static BendIOSVoice* ios_voice;
 - (void)stopAll {
   ++self.generation;
   [self.callTimer invalidate]; self.callTimer = nil;
+  [self.playbackTimer invalidate]; self.playbackTimer = nil;
+  [self.mergeExport cancelExport]; self.mergeExport = nil;
   [self.fileTask cancel]; self.fileTask = nil;
   self.fileRecognizer = nil;
   [self cancelCapture]; [self cancelRecording];
@@ -205,7 +222,8 @@ static BendIOSVoice* ios_voice;
 }
 - (void)beginRecording {
   NSError* error = nil;
-  NSURL* path = ios_audio_file(self.clip, YES);
+  self.recordSegment = NSUUID.UUID.UUIDString;
+  NSURL* path = ios_audio_file(self.recordSegment, YES);
   if (!path || ![self configure:NO error:&error]) {
     [self failed:error.localizedDescription ?: ios_audio_words(@"Could not prepare recording.", @"No se pudo preparar la grabación.")]; return;
   }
@@ -214,44 +232,183 @@ static BendIOSVoice* ios_voice;
     AVEncoderBitRateKey:@64000, AVEncoderAudioQualityKey:@(AVAudioQualityHigh)} error:&error];
   self.recorder.delegate = self;
   self.recorder.meteringEnabled = self.serverTranscription;
-  if (!self.recorder || ![self.recorder prepareToRecord] || ![self.recorder recordForDuration:IOS_AUDIO_SECONDS]) {
+  if (!self.recorder || ![self.recorder prepareToRecord] || ![self.recorder recordForDuration:MAX(.1, IOS_AUDIO_SECONDS - self.recordBaseDuration)]) {
     [self failed:error.localizedDescription ?: ios_audio_words(@"Could not start the microphone.", @"No se pudo iniciar el micrófono.")]; return;
   }
   self.recordStartedAt = NSProcessInfo.processInfo.systemUptime;
   self.recordingTimer = [NSTimer scheduledTimerWithTimeInterval:(self.serverTranscription ? 0.1 : 1) target:self selector:@selector(recordTick:) userInfo:nil repeats:YES];
-  [self emit:@"recording" extra:@{@"clipId":self.clip}];
+  [self emit:@"recording" extra:[self draftMetadata:@"recording" duration:self.recordBaseDuration]];
 }
 - (void)recordTick:(NSTimer*)timer {
   [self.recorder updateMeters];
   float power = [self.recorder averagePowerForChannel:0];
   NSUInteger level = (NSUInteger)roundf(fmaxf(0, fminf(100, (power + 60) * (100.0f / 60))));
-  ios_action(@{@"action":@"voice", @"data":[self state:@"elapsed" extra:@{@"clipId":self.clip ?: @"", @"level":@(level)}]});
+  if (!self.waveform) self.waveform = [NSMutableArray array];
+  [self.waveform addObject:@(level)];
+  if (self.waveform.count > 3000) [self.waveform removeObjectAtIndex:0];
+  ios_action(@{@"action":@"voice", @"data":[self state:@"elapsed" extra:@{@"clipId":self.clip ?: @"", @"level":@(level), @"waveform":[self waveformOverview:YES]} ]});
+}
+- (NSArray<NSNumber*>*)waveformOverview:(BOOL)recent {
+  NSUInteger count = self.waveform.count;
+  if (count <= 64) return [self.waveform copy] ?: @[];
+  if (recent) return [self.waveform subarrayWithRange:NSMakeRange(count - 64, 64)];
+  NSMutableArray* result = [NSMutableArray arrayWithCapacity:64];
+  for (NSUInteger i = 0; i < 64; i++) {
+    NSUInteger peak = 0;
+    for (NSUInteger j = i * count / 64; j < (i + 1) * count / 64; j++) peak = MAX(peak, self.waveform[j].unsignedIntegerValue);
+    [result addObject:@(peak)];
+  }
+  return result;
+}
+- (NSDictionary*)draftMetadata:(NSString*)phase duration:(NSTimeInterval)duration {
+  NSMutableDictionary* result = [@{@"clipId":self.clip ?: @"", @"durationMs":@((unsigned)ceil(duration * 1000)),
+    @"mimeType":@"audio/mp4", @"transcript":@"", @"session":self.session ?: @"",
+    @"mode":@"message", @"phase":phase, @"transcriptionStatus":@"pending",
+    @"waveform":[self waveformOverview:NO], @"waveformSamples":self.waveform ?: @[], @"recordingSources":self.recordingSources ?: @[]} mutableCopy];
+  if (self.pendingSegment.length) result[@"pendingSegment"] = self.pendingSegment;
+  return result;
+}
+- (void)recordingSaveFailed:(NSString*)problem {
+  self.mergeExport = nil;
+  [self deactivate];
+  NSMutableDictionary* metadata = [[self draftMetadata:@"save-failed" duration:self.recordBaseDuration] mutableCopy];
+  metadata[@"error"] = problem ?: ios_audio_words(@"The recording is retained. Retry saving it.", @"La grabación está guardada. Reintenta finalizarla.");
+  ios_audio_draft(metadata);
+  [self emit:@"save-failed" extra:metadata];
+}
+- (void)publishRecording:(NSString*)clip duration:(NSTimeInterval)duration {
+  NSString* old = self.clip;
+  NSString* segment = self.pendingSegment;
+  NSString* phase = self.pauseRequested ? @"paused" : @"recorded";
+  self.clip = clip;
+  self.pendingSegment = nil;
+  NSDictionary* metadata = [self draftMetadata:phase duration:duration];
+  if (!ios_audio_draft(metadata)) {
+    self.clip = old; self.pendingSegment = segment;
+    [self recordingSaveFailed:ios_audio_words(@"The audio is retained, but its draft could not be saved.", @"El audio está guardado, pero no se pudo guardar su borrador.")];
+    return;
+  }
+  self.recordBaseDuration = duration;
+  // Source segments stay original across every resume. Only obsolete preview
+  // exports are removed, so repeated pauses never re-encode earlier exports.
+  if (ios_clip_id(old) && ![old isEqual:clip] && ![self.recordingSources containsObject:old])
+    [NSFileManager.defaultManager removeItemAtURL:ios_audio_file(old, NO) error:NULL];
+  [self deactivate];
+  if (self.pauseRequested || self.serverTranscription) [self emit:phase extra:metadata];
+  else [self transcribeFile:ios_audio_file(clip, NO) metadata:metadata];
+}
+- (void)appendRecordingSources:(NSArray<NSString*>*)sources index:(NSUInteger)index composition:(AVMutableComposition*)composition at:(CMTime)time generation:(NSUInteger)generation completion:(void (^)(NSError*))completion {
+  if (generation != self.generation) return;
+  if (index == sources.count) { completion(nil); return; }
+  NSURL* file = ios_audio_file(sources[index], NO);
+  NSError* error = nil;
+  AVAudioPlayer* probe = [[AVAudioPlayer alloc] initWithContentsOfURL:file error:&error];
+  if (!probe) { completion(error ?: [NSError errorWithDomain:@"BendAudio" code:1 userInfo:@{NSLocalizedDescriptionKey:@"A retained audio segment is missing."}]); return; }
+  CMTime duration = CMTimeMakeWithSeconds(probe.duration, 44100);
+  [composition insertTimeRange:CMTimeRangeMake(kCMTimeZero, duration) ofAsset:[AVURLAsset URLAssetWithURL:file options:nil] atTime:time completionHandler:^(NSError* error) {
+    if (error) completion(error);
+    else [self appendRecordingSources:sources index:index + 1 composition:composition at:CMTimeAdd(time, duration) generation:generation completion:completion];
+  }];
+}
+- (void)mergeRecording {
+  if (self.mergeExport || !ios_clip_id(self.pendingSegment)) return;
+  NSMutableArray<NSString*>* sources = [self.recordingSources mutableCopy] ?: [NSMutableArray arrayWithObject:self.clip];
+  if (![sources containsObject:self.pendingSegment]) [sources addObject:self.pendingSegment];
+  NSTimeInterval duration = 0;
+  for (NSString* source in sources) {
+    NSError* error = nil;
+    AVAudioPlayer* probe = ios_clip_id(source) ? [[AVAudioPlayer alloc] initWithContentsOfURL:ios_audio_file(source, NO) error:&error] : nil;
+    if (!probe || !isfinite(probe.duration) || probe.duration <= 0) { [self recordingSaveFailed:error.localizedDescription]; return; }
+    duration += probe.duration;
+  }
+  if (duration > IOS_AUDIO_SECONDS + 1) { [self recordingSaveFailed:ios_audio_words(@"The recording exceeds its time limit.", @"La grabación supera el límite de tiempo.")]; return; }
+  NSString* nextClip = NSUUID.UUID.UUIDString;
+  NSURL* output = ios_audio_file(nextClip, NO);
+  AVMutableComposition* composition = [AVMutableComposition composition];
+  NSUInteger generation = self.generation;
+  [self emit:@"saving" extra:[self draftMetadata:@"saving" duration:duration]];
+  void (^completed)(NSError*) = ^(NSError* error) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation != self.generation) return;
+      if (error) { [self recordingSaveFailed:error.localizedDescription]; return; }
+      AVAssetExportSession* exporter = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPresetAppleM4A];
+      if (!exporter || ![exporter.supportedFileTypes containsObject:AVFileTypeAppleM4A]) { [self recordingSaveFailed:nil]; return; }
+      self.mergeExport = exporter;
+      exporter.outputURL = output; exporter.outputFileType = AVFileTypeAppleM4A;
+      [exporter exportAsynchronouslyWithCompletionHandler:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+          if (generation != self.generation) { [NSFileManager.defaultManager removeItemAtURL:output error:NULL]; return; }
+          self.mergeExport = nil;
+          NSError* error = exporter.error;
+          AVAudioPlayer* probe = exporter.status == AVAssetExportSessionStatusCompleted ? [[AVAudioPlayer alloc] initWithContentsOfURL:output error:&error] : nil;
+          NSNumber* size = nil; [output getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
+          if (!probe || !size || size.unsignedLongLongValue > IOS_AUDIO_LIMIT || fabs(probe.duration - duration) > .15) {
+            [NSFileManager.defaultManager removeItemAtURL:output error:NULL];
+            [self recordingSaveFailed:error.localizedDescription]; return;
+          }
+          self.recordingSources = sources;
+          [self publishRecording:nextClip duration:probe.duration];
+        });
+      }];
+    });
+  };
+  [self appendRecordingSources:sources index:0 composition:composition at:kCMTimeZero generation:generation completion:completed];
 }
 - (void)finishRecording:(AVAudioRecorder*)recorder success:(BOOL)success {
   if (recorder != self.recorder) return;
   [self.recordingTimer invalidate]; self.recordingTimer = nil;
   self.recorder = nil; recorder.delegate = nil; [recorder stop];
-  NSURL* path = ios_audio_file(self.clip, NO);
+  NSURL* path = ios_audio_file(self.recordSegment, NO);
   NSError* error = nil;
   NSNumber* size = nil;
   [recorder.url getResourceValue:&size forKey:NSURLFileSizeKey error:&error];
   if (!success || !size || size.unsignedLongLongValue > IOS_AUDIO_LIMIT ||
     ![NSFileManager.defaultManager moveItemAtURL:recorder.url toURL:path error:&error]) {
-    [NSFileManager.defaultManager removeItemAtURL:recorder.url error:NULL];
-    [self failed:error.localizedDescription ?: ios_audio_words(@"Could not save the voice message.", @"No se pudo guardar el mensaje de voz.")]; return;
+    [self recordingSaveFailed:error.localizedDescription]; return;
   }
   AVAudioPlayer* probe = [[AVAudioPlayer alloc] initWithContentsOfURL:path error:&error];
   if (!probe || !isfinite(probe.duration) || probe.duration <= 0) {
-    [NSFileManager.defaultManager removeItemAtURL:path error:NULL];
-    [self failed:error.localizedDescription ?: ios_audio_words(@"The recording contains no audio.", @"La grabación no contiene audio.")]; return;
+    [self recordingSaveFailed:error.localizedDescription]; return;
   }
-  [self deactivate];
-  NSDictionary* metadata = @{@"clipId":self.clip, @"durationMs":@((unsigned)ceil(probe.duration * 1000)),
-    @"mimeType":@"audio/mp4", @"transcript":@"", @"session":self.session,
-    @"mode":@"message", @"phase":@"recorded", @"transcriptionStatus":@"pending"};
-  if (!ios_audio_draft(metadata)) { [self failed:ios_audio_words(@"The audio is saved, but its draft could not be saved.", @"El audio está guardado, pero no se pudo guardar su borrador.")]; return; }
-  if (self.serverTranscription) [self emit:@"recorded" extra:metadata];
-  else [self transcribeFile:path metadata:metadata];
+  if (self.recordBaseDuration <= 0) {
+    self.recordingSources = @[self.recordSegment];
+    [self publishRecording:self.recordSegment duration:probe.duration]; return;
+  }
+  self.pendingSegment = self.recordSegment;
+  if (!ios_audio_draft([self draftMetadata:@"saving" duration:self.recordBaseDuration])) {
+    [self recordingSaveFailed:nil]; return;
+  }
+  [self mergeRecording];
+}
+- (NSString*)resumeRecording {
+  NSDictionary* draft = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_audio_draft_key];
+  if (self.recordingSources.count >= 512) return ios_audio_words(@"This recording has reached its pause limit.", @"Esta grabación alcanzó el límite de pausas.");
+  if (self.recorder || self.mergeExport || self.pendingSegment || ![draft[@"clipId"] isEqual:self.clip] || [draft[@"pendingSegment"] length])
+    return ios_audio_words(@"Finish saving this recording before resuming.", @"Termina de guardar esta grabación antes de continuar.");
+  NSDictionary* pending = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key];
+  if ([pending[@"clipId"] isEqual:self.clip]) return ios_audio_words(@"Sending is pending; keep the audio for retry.", @"El envío está pendiente; conserva el audio para reintentar.");
+  NSError* error = nil;
+  AVAudioPlayer* probe = [[AVAudioPlayer alloc] initWithContentsOfURL:ios_audio_file(self.clip, NO) error:&error];
+  if (!probe || !isfinite(probe.duration) || probe.duration >= IOS_AUDIO_SECONDS) return error.localizedDescription ?: ios_audio_words(@"This recording has reached its limit.", @"Esta grabación alcanzó su límite.");
+  [self.playbackTimer invalidate]; self.playbackTimer = nil;
+  self.player.delegate = nil; [self.player stop]; self.player = nil;
+  self.mode = @"message"; self.serverTranscription = YES;
+  self.recordBaseDuration = probe.duration; self.pauseRequested = NO;
+  [self beginRecording]; return nil;
+}
+- (void)previewTick:(NSTimer*)timer {
+  if (!self.player) return;
+  ios_action(@{@"action":@"voice", @"data":[self state:@"playhead" extra:@{@"clipId":self.clip ?: @"", @"positionMs":@((unsigned)floor(self.player.currentTime * 1000))}]});
+}
+- (NSString*)previewRecording {
+  if (self.recorder || self.mergeExport || self.pendingSegment) return ios_audio_words(@"Pause the recording before playing it.", @"Pausa la grabación antes de reproducirla.");
+  NSError* error = nil;
+  AVAudioPlayer* player = [[AVAudioPlayer alloc] initWithContentsOfURL:ios_audio_file(self.clip, NO) error:&error];
+  if (!player || ![self configure:NO error:&error] || ![player prepareToPlay] || ![player play]) return error.localizedDescription ?: ios_audio_words(@"Could not play the recording.", @"No se pudo reproducir la grabación.");
+  self.player = player; player.delegate = self;
+  self.playbackTimer = [NSTimer scheduledTimerWithTimeInterval:.1 target:self selector:@selector(previewTick:) userInfo:nil repeats:YES];
+  [self emit:@"previewing" extra:[self draftMetadata:@"previewing" duration:player.duration]];
+  return nil;
 }
 - (void)transcribeFile:(NSURL*)file metadata:(NSDictionary*)metadata {
   // The M4A is already durable. Speech supplies optional provider context;
@@ -328,6 +485,11 @@ static BendIOSVoice* ios_voice;
 - (void)audioPlayerDidFinishPlaying:(AVAudioPlayer*)player successfully:(BOOL)success {
   if (player != self.player) return;
   self.player = nil; [self deactivate];
+  [self.playbackTimer invalidate]; self.playbackTimer = nil;
+  if ([self.mode isEqual:@"message"]) {
+    [self emit:@"paused" extra:[self draftMetadata:@"paused" duration:self.recordBaseDuration]];
+    return;
+  }
   [self emit:success ? @"played" : @"error" extra:success ? nil : @{@"error":ios_audio_words(@"Playback ended with an error.", @"La reproducción terminó con un error.")}];
 }
 - (void)audioPlayerDecodeErrorDidOccur:(AVAudioPlayer*)player error:(NSError*)error {
@@ -527,6 +689,7 @@ static BendIOSVoice* ios_voice;
     if ([action isEqual:@"record"]) {
       self.mode = @"message"; self.clip = NSUUID.UUID.UUIDString; self.locale = nil;
       self.serverTranscription = [command[@"transcription"] isEqual:@"server"];
+      self.recordBaseDuration = 0; self.pendingSegment = nil; self.pauseRequested = NO; self.waveform = [NSMutableArray array]; self.recordingSources = @[];
       [self emit:@"authorizing" extra:nil];
       NSUInteger generation = self.generation;
       [self microphone:generation completion:^{ [self beginRecording]; }];
@@ -564,7 +727,23 @@ static BendIOSVoice* ios_voice;
     return nil;
   }
   if (![session isEqual:self.session]) return ios_audio_words(@"The audio session has ended.", @"La sesión de audio ya terminó.");
+  if ([action isEqual:@"record-resume"]) return [self resumeRecording];
+  if ([action isEqual:@"record-preview"]) return [self previewRecording];
+  if ([action isEqual:@"record-preview-stop"]) {
+    [self.playbackTimer invalidate]; self.playbackTimer = nil;
+    self.player.delegate = nil; [self.player stop]; self.player = nil;
+    if (![command[@"silent"] boolValue]) [self emit:@"paused" extra:[self draftMetadata:@"paused" duration:self.recordBaseDuration]];
+    return nil;
+  }
+  if ([action isEqual:@"record-pause"]) {
+    self.pauseRequested = YES;
+    if (self.recorder) [self finishRecording:self.recorder success:YES];
+    else if (self.pendingSegment) [self mergeRecording];
+    else return ios_audio_words(@"No recording is active.", @"No hay una grabación activa.");
+    return nil;
+  }
   if ([action isEqual:@"record-stop"]) {
+    self.pauseRequested = NO;
     if (![self.mode isEqual:@"message"] || !self.recorder) return ios_audio_words(@"No recording is active.", @"No hay una grabación activa.");
     [self finishRecording:self.recorder success:YES];
   } else if ([action isEqual:@"record-cancel"]) {
@@ -573,8 +752,12 @@ static BendIOSVoice* ios_voice;
     if (![self.mode isEqual:@"message"] && !preview) return ios_audio_words(@"No recording is active.", @"No hay una grabación activa.");
     NSDictionary* pending = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key];
     if ([pending[@"clipId"] isEqual:self.clip]) return ios_audio_words(@"Sending is pending; keep the audio for retry.", @"El envío está pendiente; conserva el audio para reintentar.");
+    NSString* segment = self.pendingSegment;
     [self stopAll]; [self emit:@"cancelled" extra:nil];
+    if (ios_clip_id(segment)) [NSFileManager.defaultManager removeItemAtURL:ios_audio_file(segment, NO) error:NULL];
+    self.pendingSegment = nil; self.waveform = nil;
     if ([draft[@"clipId"] isEqual:self.clip]) {
+      ios_audio_remove_sources(draft);
       [NSUserDefaults.standardUserDefaults removeObjectForKey:ios_audio_draft_key];
       [NSUserDefaults.standardUserDefaults synchronize];
       [NSFileManager.defaultManager removeItemAtURL:ios_audio_file(self.clip, NO) error:NULL];
@@ -631,10 +814,16 @@ static void ios_voice_restore(void) {
   // keeps its original receipt ID independently for transport reconciliation.
   session = ios_session_prefix.length ? ios_session_prefix : session;
   ios_voice.session = session; ios_voice.mode = @"message"; ios_voice.phase = @"recorded"; ios_voice.clip = metadata[@"clipId"];
+  ios_voice.recordBaseDuration = [metadata[@"durationMs"] doubleValue] / 1000;
+  ios_voice.waveform = [metadata[@"waveformSamples"] isKindOfClass:NSArray.class] ? [metadata[@"waveformSamples"] mutableCopy] : [NSMutableArray array];
+  ios_voice.serverTranscription = YES;
+  ios_voice.recordingSources = [metadata[@"recordingSources"] isKindOfClass:NSArray.class] && [metadata[@"recordingSources"] count] ? metadata[@"recordingSources"] : @[ios_voice.clip];
+  ios_voice.pendingSegment = ios_clip_id(metadata[@"pendingSegment"]) ? metadata[@"pendingSegment"] : nil;
   NSMutableDictionary* restored = [metadata mutableCopy];
   restored[@"session"] = session; restored[@"phase"] = @"recorded";
   ios_audio_draft(restored); restored[@"restored"] = @YES;
   ios_action(@{@"action":@"voice", @"data":[ios_voice state:@"recorded" extra:restored]});
+  if (ios_voice.pendingSegment) { ios_voice.pauseRequested = YES; [ios_voice mergeRecording]; }
 }
 
 static char* ios_voice_request(NSString* text, unsigned* status) {

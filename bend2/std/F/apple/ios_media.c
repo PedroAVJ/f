@@ -4,6 +4,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <ImageIO/ImageIO.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <AVFoundation/AVFoundation.h>
+#include <TargetConditionals.h>
 
 #define IOS_IMAGE_LIMIT (5u << 20)
 static NSString* ios_image_draft_key = @"bend-image-draft";
@@ -130,18 +132,55 @@ static NSData* ios_image_download(NSURL* url, unsigned* status) {
   *status = 1; return stream->body;
 }
 
-@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface BendIOSCameraSurface : UIView
+@property(strong) UIImageView* still;
+@end
+@implementation BendIOSCameraSurface
++ (Class)layerClass { return AVCaptureVideoPreviewLayer.class; }
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.userInteractionEnabled = NO; self.isAccessibilityElement = NO;
+    self.clipsToBounds = YES;
+    ((AVCaptureVideoPreviewLayer*)self.layer).videoGravity = AVLayerVideoGravityResizeAspectFill;
+    self.still = [[UIImageView alloc] initWithFrame:self.bounds];
+    self.still.contentMode = UIViewContentModeScaleAspectFill;
+    self.still.clipsToBounds = YES; self.still.hidden = YES;
+    self.still.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self addSubview:self.still];
+  }
+  return self;
+}
+@end
+
+@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate, AVCapturePhotoCaptureDelegate>
 @property(copy) NSString* session;
 @property(copy) NSString* caption;
 @property(strong) PHPickerViewController* picker;
-@property(strong) UIImagePickerController* camera;
+@property(strong) AVCaptureSession* camera;
+@property(strong) AVCapturePhotoOutput* photoOutput;
+@property(strong) AVCaptureDevice* cameraDevice;
+@property(strong) AVCaptureDeviceRotationCoordinator* rotation API_AVAILABLE(ios(17.0));
+@property(strong) BendIOSCameraSurface* surface;
+@property(strong) dispatch_queue_t cameraQueue;
+@property(copy) NSString* cameraPhase;
+@property(strong) NSData* previewBytes;
+@property(strong) NSDictionary* previewMetadata;
+@property(strong) NSURL* previewURL;
+@property(strong) NSMutableArray* cameraObservers;
+@property int64_t captureID;
+@property(strong) AVAudioPlayer* captureSound;
+@property BOOL customCaptureSound;
+@property BOOL cameraDisplayed;
+@property BOOL cameraAttached;
 @property(strong) NSProgress* loading;
 @property(strong) NSMutableSet<NSString*>* activeLoads;
 @property NSUInteger generation;
 - (NSString*)command:(NSDictionary*)command;
 - (void)background;
+- (void)surfaceIn:(UIView*)container rect:(CGRect)rect session:(NSString*)session visible:(BOOL)visible radius:(CGFloat)radius;
 @end
 static BendIOSImage* ios_image;
+static void* ios_camera_rotation_context = &ios_camera_rotation_context;
 
 @implementation BendIOSImage
 - (void)emit:(NSString*)phase metadata:(NSDictionary*)metadata {
@@ -149,44 +188,253 @@ static BendIOSImage* ios_image;
   event[@"session"] = self.session ?: @""; event[@"phase"] = phase;
   ios_action(@{@"action":@"image", @"data":event});
 }
-- (void)retainPhoto:(NSData*)bytes dimensions:(NSDictionary*)dimensions {
-  if (!bytes) { [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not load this photograph.", @"No se pudo cargar esta fotografía.")}]; return; }
+- (BOOL)retainPhoto:(NSData*)bytes dimensions:(NSDictionary*)dimensions {
+  if (!bytes) { [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not load this photograph.", @"No se pudo cargar esta fotografía.")}]; return NO; }
   NSString* identifier = NSUUID.UUID.UUIDString;
   NSURL* retained = ios_image_file(identifier);
-  NSMutableDictionary* metadata = [dimensions mutableCopy];
+  NSMutableDictionary* metadata = [@{@"width":dimensions[@"width"], @"height":dimensions[@"height"]} mutableCopy];
   metadata[@"imageId"] = identifier; metadata[@"url"] = retained.absoluteString ?: @"";
   metadata[@"mimeType"] = @"image/jpeg"; metadata[@"caption"] = self.caption ?: @"";
   if (!retained || ![bytes writeToURL:retained options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL] || !ios_image_draft(metadata)) {
     if (retained) [NSFileManager.defaultManager removeItemAtURL:retained error:NULL];
-    [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Could not save this photograph.", @"No se pudo guardar esta fotografía.")}]; return;
+    NSString* problem = ios_audio_words(@"Could not save this photograph.", @"No se pudo guardar esta fotografía.");
+    if (self.camera) [self cameraUnavailable:@"storage" message:problem];
+    else [self emit:@"error" metadata:@{@"error":problem}];
+    return NO;
   }
-  [self emit:@"selected" metadata:metadata];
+  [self emit:@"selected" metadata:metadata]; return YES;
 }
-- (void)imagePickerControllerDidCancel:(UIImagePickerController*)picker {
-  if (picker != self.camera) return;
-  ++self.generation; self.camera = nil;
-  [picker dismissViewControllerAnimated:YES completion:nil];
-  [self emit:@"cancelled" metadata:nil];
+- (void)discardPreview {
+  if (self.previewURL) [NSFileManager.defaultManager removeItemAtURL:self.previewURL error:NULL];
+  self.previewURL = nil; self.previewBytes = nil; self.previewMetadata = nil;
+  self.surface.still.image = nil; self.surface.still.hidden = YES;
 }
-- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey, id>*)info {
-  if (picker != self.camera) return;
-  UIImage* image = info[UIImagePickerControllerOriginalImage];
-  NSUInteger generation = ++self.generation;
-  [picker dismissViewControllerAnimated:YES completion:nil];
-  [self emit:@"loading" metadata:nil];
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    NSURL* temporary = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".jpg"]]];
-    NSData* original = image ? UIImageJPEGRepresentation(image, 0.95) : nil;
-    NSDictionary* dimensions = nil;
-    NSData* bytes = original.length <= (64u << 20) && [original writeToURL:temporary options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL]
-      ? ios_image_jpeg(temporary, &dimensions) : nil;
-    [NSFileManager.defaultManager removeItemAtURL:temporary error:NULL];
+- (void)stopCamera {
+  ++self.generation; self.captureID = 0;
+  for (id observer in self.cameraObservers) [NSNotificationCenter.defaultCenter removeObserver:observer];
+  self.cameraObservers = nil;
+  if (@available(iOS 17.0, *)) {
+    if (self.rotation) [self.rotation removeObserver:self forKeyPath:@"videoRotationAngleForHorizonLevelPreview" context:ios_camera_rotation_context];
+    self.rotation = nil;
+  }
+  AVCaptureSession* camera = self.camera;
+  self.camera = nil; self.photoOutput = nil; self.cameraDevice = nil; self.cameraPhase = nil; self.cameraDisplayed = NO; self.cameraAttached = NO;
+  ((AVCaptureVideoPreviewLayer*)self.surface.layer).session = nil;
+  [self.surface removeFromSuperview]; self.surface = nil;
+  if (camera) dispatch_async(self.cameraQueue, ^{ [camera stopRunning]; });
+  [self discardPreview];
+}
+- (void)cameraUnavailable:(NSString*)reason message:(NSString*)message {
+  ++self.generation;
+  self.cameraPhase = @"camera-unavailable"; self.captureID = 0;
+  [self.surface removeFromSuperview];
+  AVCaptureSession* camera = self.camera;
+  if (camera) dispatch_async(self.cameraQueue, ^{ [camera stopRunning]; });
+  [self emit:@"camera-unavailable" metadata:@{@"reason":reason, @"error":message}];
+}
+- (void)updateRotation {
+  AVCaptureConnection* preview = ((AVCaptureVideoPreviewLayer*)self.surface.layer).connection;
+  if (@available(iOS 17.0, *)) {
+    CGFloat angle = self.rotation.videoRotationAngleForHorizonLevelPreview;
+    if (self.rotation && [preview isVideoRotationAngleSupported:angle]) preview.videoRotationAngle = angle;
+  }
+  if (preview.isVideoMirroringSupported) {
+    preview.automaticallyAdjustsVideoMirroring = NO;
+    preview.videoMirrored = self.cameraDevice.position == AVCaptureDevicePositionFront;
+  }
+}
+- (void)observeValueForKeyPath:(NSString*)keyPath ofObject:(id)object change:(NSDictionary*)change context:(void*)context {
+  if (context != ios_camera_rotation_context) { [super observeValueForKeyPath:keyPath ofObject:object change:change context:context]; return; }
+  dispatch_async(dispatch_get_main_queue(), ^{ if (@available(iOS 17.0, *)) if (object == self.rotation) [self updateRotation]; });
+}
+- (void)surfaceIn:(UIView*)container rect:(CGRect)rect session:(NSString*)session visible:(BOOL)visible radius:(CGFloat)radius {
+  if (!visible && self.camera && self.cameraDisplayed) {
+    BOOL attached = self.cameraAttached;
+    [self stopCamera];
+    if (!attached) [self emit:@"cancelled" metadata:nil];
+    return;
+  }
+  if (!visible || ![session isEqual:self.session] || !self.camera || [self.cameraPhase isEqual:@"camera-unavailable"] ||
+      !isfinite(rect.origin.x) || !isfinite(rect.origin.y) || !isfinite(rect.size.width) || !isfinite(rect.size.height) || CGRectIsEmpty(rect)) {
+    [self.surface removeFromSuperview]; return;
+  }
+  if (!self.surface) {
+    self.surface = [[BendIOSCameraSurface alloc] initWithFrame:rect];
+    ((AVCaptureVideoPreviewLayer*)self.surface.layer).session = self.camera;
+  }
+  if (self.surface.superview != container) [container insertSubview:self.surface atIndex:0];
+  self.surface.frame = rect; self.cameraDisplayed = YES;
+  self.surface.layer.cornerRadius = isfinite(radius) ? MAX(0, MIN(radius, MIN(rect.size.width, rect.size.height) / 2)) : 0;
+  self.surface.layer.masksToBounds = YES;
+  [self updateRotation];
+}
+- (void)configureCamera:(NSUInteger)generation {
+  AVCaptureSession* camera = self.camera;
+  dispatch_async(self.cameraQueue, ^{
+    if (generation != self.generation) return;
+    AVCaptureDevice* device = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInWideAngleCamera mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionBack];
+    if (!device) device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    NSError* error = nil;
+    AVCaptureDeviceInput* input = device ? [AVCaptureDeviceInput deviceInputWithDevice:device error:&error] : nil;
+    AVCapturePhotoOutput* output = [AVCapturePhotoOutput new];
+    [camera beginConfiguration];
+    BOOL configured = input && !error && [camera canAddInput:input] && [camera canSetSessionPreset:AVCaptureSessionPresetPhoto];
+    if (configured) {
+      camera.sessionPreset = AVCaptureSessionPresetPhoto;
+      [camera addInput:input]; configured = [camera canAddOutput:output];
+      if (configured) [camera addOutput:output];
+    }
+    [camera commitConfiguration];
     dispatch_async(dispatch_get_main_queue(), ^{
-      if (generation != self.generation) return;
-      self.camera = nil;
-      [self retainPhoto:bytes dimensions:dimensions];
+      if (generation != self.generation || camera != self.camera) return;
+      if (!configured) { [self cameraUnavailable:@"configuration" message:ios_audio_words(@"The camera could not start. Try again.", @"No se pudo iniciar la cámara. Reintenta.")]; return; }
+      self.cameraDevice = device; self.photoOutput = output;
+      if (@available(iOS 17.0, *)) {
+        self.rotation = [[AVCaptureDeviceRotationCoordinator alloc] initWithDevice:device previewLayer:self.surface.layer];
+        [self.rotation addObserver:self forKeyPath:@"videoRotationAngleForHorizonLevelPreview" options:NSKeyValueObservingOptionNew context:ios_camera_rotation_context];
+      }
+      [self updateRotation];
+      dispatch_async(self.cameraQueue, ^{
+        if (generation != self.generation) return;
+        [camera startRunning];
+        BOOL running = camera.isRunning;
+        dispatch_async(dispatch_get_main_queue(), ^{
+          if (generation != self.generation || camera != self.camera || ![self.cameraPhase isEqual:@"camera-opening"]) return;
+          if (!running) { [self cameraUnavailable:@"start" message:ios_audio_words(@"The camera is unavailable right now.", @"La cámara no está disponible en este momento.")]; return; }
+          self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:nil];
+        });
+      });
     });
   });
+}
+- (void)openCamera {
+  if (!self.cameraQueue) self.cameraQueue = dispatch_queue_create("bend.camera.capture", DISPATCH_QUEUE_SERIAL);
+  self.camera = [AVCaptureSession new]; self.cameraPhase = @"camera-opening";
+  self.surface = [[BendIOSCameraSurface alloc] initWithFrame:CGRectZero];
+  ((AVCaptureVideoPreviewLayer*)self.surface.layer).session = self.camera;
+  NSUInteger generation = ++self.generation;
+  [self emit:self.cameraPhase metadata:nil];
+#if TARGET_OS_SIMULATOR
+  [self cameraUnavailable:@"simulator" message:ios_audio_words(@"Camera capture is unavailable in Simulator. Choose a photograph instead.", @"La captura con cámara no está disponible en el simulador. Elige una fotografía.")];
+  return;
+#endif
+  if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"NSCameraUsageDescription"] length]) {
+    [self cameraUnavailable:@"configuration" message:@"This build is missing its camera permission description."]; return;
+  }
+  AVCaptureSession* camera = self.camera;
+  __weak BendIOSImage* weakSelf = self;
+  self.cameraObservers = [NSMutableArray array];
+  for (NSNotificationName name in @[AVCaptureSessionWasInterruptedNotification, AVCaptureSessionRuntimeErrorNotification]) {
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:name object:camera queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification* note) {
+      BendIOSImage* owner = weakSelf;
+      if (!owner || generation != owner.generation || camera != owner.camera || owner.previewBytes.length) return;
+      [owner cameraUnavailable:@"interrupted" message:ios_audio_words(@"Camera access was interrupted. Close the camera and try again.", @"Se interrumpió el acceso a la cámara. Ciérrala y vuelve a intentarlo.")];
+    }];
+    [self.cameraObservers addObject:observer];
+  }
+  AVAuthorizationStatus authorization = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+  if (authorization == AVAuthorizationStatusDenied || authorization == AVAuthorizationStatusRestricted) {
+    [self cameraUnavailable:@"permission" message:ios_audio_words(@"Allow camera access in Settings to take a photo.", @"Permite el acceso a la cámara en Ajustes para tomar una foto.")]; return;
+  }
+  if (authorization == AVAuthorizationStatusAuthorized) { [self configureCamera:generation]; return; }
+  [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation != self.generation || camera != self.camera) return;
+      if (granted) [self configureCamera:generation];
+      else [self cameraUnavailable:@"permission" message:ios_audio_words(@"Allow camera access in Settings to take a photo.", @"Permite el acceso a la cámara en Ajustes para tomar una foto.")];
+    });
+  }];
+}
+- (NSString*)capturePhoto {
+  if (![self.cameraPhase isEqual:@"camera-ready"] || !self.photoOutput || self.captureID) return nil;
+  AVCapturePhotoOutput* output = self.photoOutput;
+  AVCapturePhotoSettings* settings = [output.availablePhotoCodecTypes containsObject:AVVideoCodecTypeJPEG]
+    ? [AVCapturePhotoSettings photoSettingsWithFormat:@{AVVideoCodecKey:AVVideoCodecTypeJPEG}] : [AVCapturePhotoSettings photoSettings];
+  self.customCaptureSound = NO;
+  if (@available(iOS 18.0, *)) {
+    if (self.captureSound && output.isShutterSoundSuppressionSupported) {
+      settings.shutterSoundSuppressionEnabled = YES;
+      self.customCaptureSound = YES;
+    }
+  }
+  self.captureID = settings.uniqueID; self.cameraPhase = @"camera-capturing";
+  NSUInteger generation = self.generation;
+  CGFloat rotation = 90;
+  if (@available(iOS 17.0, *)) if (self.rotation) rotation = self.rotation.videoRotationAngleForHorizonLevelCapture;
+  BOOL mirrored = self.cameraDevice.position == AVCaptureDevicePositionFront;
+  [self emit:self.cameraPhase metadata:nil];
+  dispatch_async(self.cameraQueue, ^{
+    if (generation != self.generation) return;
+    AVCaptureConnection* connection = [output connectionWithMediaType:AVMediaTypeVideo];
+    if (@available(iOS 17.0, *)) if ([connection isVideoRotationAngleSupported:rotation]) connection.videoRotationAngle = rotation;
+    if (connection.isVideoMirroringSupported) { connection.automaticallyAdjustsVideoMirroring = NO; connection.videoMirrored = mirrored; }
+    [output capturePhotoWithSettings:settings delegate:self];
+  });
+  return nil;
+}
+- (void)photoOutput:(AVCapturePhotoOutput*)output willCapturePhotoForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (output == self.photoOutput && settings.uniqueID == self.captureID && self.customCaptureSound) {
+      self.captureSound.currentTime = 0;
+      [self.captureSound play];
+    }
+  });
+}
+- (void)photoOutput:(AVCapturePhotoOutput*)output didFinishProcessingPhoto:(AVCapturePhoto*)photo error:(NSError*)error {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (output != self.photoOutput || photo.resolvedSettings.uniqueID != self.captureID || ![self.cameraPhase isEqual:@"camera-capturing"]) return;
+    if (error) { [self cameraUnavailable:@"capture" message:ios_audio_words(@"Could not capture this photograph. Try again.", @"No se pudo capturar esta fotografía. Reintenta.")]; return; }
+    NSUInteger generation = self.generation;
+    dispatch_async(self.cameraQueue, ^{
+      NSData* original = [photo fileDataRepresentation];
+      NSURL* temporary = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".jpg"]]];
+      NSDictionary* dimensions = nil;
+      NSData* bytes = original.length && original.length <= (64u << 20) && [original writeToURL:temporary options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL]
+        ? ios_image_jpeg(temporary, &dimensions) : nil;
+      [NSFileManager.defaultManager removeItemAtURL:temporary error:NULL];
+      NSURL* preview = bytes ? [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".jpg"]]] : nil;
+      BOOL saved = preview && [bytes writeToURL:preview options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (generation != self.generation || output != self.photoOutput || ![self.cameraPhase isEqual:@"camera-capturing"]) {
+          if (preview) [NSFileManager.defaultManager removeItemAtURL:preview error:NULL]; return;
+        }
+        self.captureID = 0;
+        if (!saved) { [self cameraUnavailable:@"capture" message:ios_audio_words(@"Could not save this camera preview. Try again.", @"No se pudo guardar la vista previa. Reintenta.")]; return; }
+        self.previewBytes = bytes; self.previewURL = preview;
+        NSMutableDictionary* metadata = [dimensions mutableCopy];
+        metadata[@"imageId"] = preview.lastPathComponent.stringByDeletingPathExtension;
+        metadata[@"url"] = preview.absoluteString; metadata[@"mimeType"] = @"image/jpeg";
+        self.previewMetadata = metadata; self.cameraPhase = @"camera-preview";
+        self.surface.still.image = [UIImage imageWithData:bytes]; self.surface.still.hidden = NO;
+        AVCaptureSession* camera = self.camera;
+        dispatch_async(self.cameraQueue, ^{ [camera stopRunning]; });
+        [self emit:self.cameraPhase metadata:metadata];
+      });
+    });
+  });
+}
+- (void)photoOutput:(AVCapturePhotoOutput*)output didFinishCaptureForResolvedSettings:(AVCaptureResolvedPhotoSettings*)settings error:(NSError*)error {
+  if (!error) return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (output == self.photoOutput && settings.uniqueID == self.captureID)
+      [self cameraUnavailable:@"capture" message:ios_audio_words(@"Could not capture this photograph. Try again.", @"No se pudo capturar esta fotografía. Reintenta.")];
+  });
+}
+- (NSString*)retakePhoto {
+  if (![self.cameraPhase isEqual:@"camera-preview"] || !self.previewBytes.length) return nil;
+  [self discardPreview]; self.cameraPhase = @"camera-opening";
+  NSUInteger generation = self.generation; AVCaptureSession* camera = self.camera;
+  [self emit:self.cameraPhase metadata:nil];
+  dispatch_async(self.cameraQueue, ^{
+    if (generation != self.generation) return;
+    [camera startRunning]; BOOL running = camera.isRunning;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation != self.generation || camera != self.camera || ![self.cameraPhase isEqual:@"camera-opening"]) return;
+      if (!running) { [self cameraUnavailable:@"start" message:ios_audio_words(@"The camera is unavailable right now.", @"La cámara no está disponible en este momento.")]; return; }
+      self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:nil];
+    });
+  });
+  return nil;
 }
 - (void)picker:(PHPickerViewController*)picker didFinishPicking:(NSArray<PHPickerResult*>*)results {
   if (picker != self.picker) return;
@@ -221,30 +469,17 @@ static BendIOSImage* ios_image;
     if (!presenter.view.window || presenter.presentedViewController) return ios_audio_words(@"The photo picker is not available yet.", @"El selector de fotos aún no está disponible.");
     self.session = session; self.caption = caption;
     if ([action isEqual:@"camera"]) {
-      if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera])
-        return ios_audio_words(@"This device has no available camera.", @"Este dispositivo no tiene una cámara disponible.");
-      if (![[NSBundle.mainBundle objectForInfoDictionaryKey:@"NSCameraUsageDescription"] length]) return @"This build is missing its camera permission description.";
-      AVAuthorizationStatus authorization = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
-      if (authorization == AVAuthorizationStatusDenied || authorization == AVAuthorizationStatusRestricted)
-        return ios_audio_words(@"Allow camera access in Settings to take a photo.", @"Permite el acceso a la cámara en Ajustes para tomar una foto.");
-      self.camera = [UIImagePickerController new]; self.camera.delegate = self;
-      NSUInteger generation = ++self.generation;
-      void (^present)(BOOL) = ^(BOOL granted) {
-        if (generation != self.generation) return;
-        if (!granted || !presenter.view.window || presenter.presentedViewController) {
-          self.camera = nil;
-          [self emit:@"error" metadata:@{@"error":ios_audio_words(@"Camera access is unavailable. Try again or check Settings.", @"No se pudo acceder a la cámara. Reintenta o revisa Ajustes.")}]; return;
-        }
-        self.camera.sourceType = UIImagePickerControllerSourceTypeCamera;
-        self.camera.mediaTypes = @[UTTypeImage.identifier];
-        [presenter.view endEditing:YES]; [presenter presentViewController:self.camera animated:YES completion:nil];
-      };
-      [self emit:@"picking" metadata:nil];
-      if (authorization == AVAuthorizationStatusAuthorized) present(YES);
-      else [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
-        dispatch_async(dispatch_get_main_queue(), ^{ present(granted); });
-      }];
-      return nil;
+      id asset = command[@"captureSound"];
+      self.captureSound = nil;
+      if (asset) {
+        if (![asset isKindOfClass:NSString.class] || ![asset length] || [asset length] > 128 || ![asset isEqual:[asset lastPathComponent]]) return @"invalid capture sound asset";
+        NSURL* file = [NSBundle.mainBundle URLForResource:asset withExtension:nil];
+        NSError* error = nil;
+        AVAudioPlayer* player = file ? [[AVAudioPlayer alloc] initWithContentsOfURL:file error:&error] : nil;
+        if (!player || !isfinite(player.duration) || player.duration > 2 || ![player prepareToPlay]) return error.localizedDescription ?: @"capture sound asset is unavailable";
+        self.captureSound = player;
+      }
+      [self openCamera]; return nil;
     }
     PHPickerConfiguration* config = [PHPickerConfiguration new]; config.filter = PHPickerFilter.imagesFilter;
     config.selectionLimit = 1; config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
@@ -280,14 +515,21 @@ static BendIOSImage* ios_image;
     }); return nil;
   }
   if (![session isEqual:self.session]) return @"image session is no longer active";
+  if ([action isEqual:@"camera-capture"]) return [self capturePhoto];
+  if ([action isEqual:@"camera-retake"]) return [self retakePhoto];
+  if ([action isEqual:@"camera-attach"]) {
+    if (![self.cameraPhase isEqual:@"camera-preview"] || !self.previewBytes.length) return nil;
+    if ([self retainPhoto:self.previewBytes dimensions:self.previewMetadata]) self.cameraAttached = YES;
+    return nil;
+  }
   if (![action isEqual:@"cancel"]) return @"unsupported image action";
+  if (self.camera) { [self stopCamera]; [self emit:@"cancelled" metadata:nil]; return nil; }
   NSDictionary* draft = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_image_draft_key];
   if (command[@"imageId"] && ![command[@"imageId"] isEqual:draft[@"imageId"]]) return @"image draft no longer matches";
   NSDictionary* pending = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_pending_key];
   if (draft[@"imageId"] && [pending[@"imageId"] isEqual:draft[@"imageId"]]) return ios_audio_words(@"This photograph is awaiting its send receipt.", @"Esta fotografía está esperando su confirmación de envío.");
   ++self.generation; [self.loading cancel]; self.loading = nil;
   [self.picker dismissViewControllerAnimated:YES completion:nil]; self.picker = nil;
-  [self.camera dismissViewControllerAnimated:YES completion:nil]; self.camera = nil;
   if (ios_clip_id(draft[@"imageId"])) [NSFileManager.defaultManager removeItemAtURL:ios_image_file(draft[@"imageId"]) error:NULL];
   [NSUserDefaults.standardUserDefaults removeObjectForKey:ios_image_draft_key]; [NSUserDefaults.standardUserDefaults synchronize];
   [self emit:@"cancelled" metadata:nil]; return nil;
@@ -296,10 +538,15 @@ static BendIOSImage* ios_image;
   if (!self.picker && !self.camera && !self.loading) return;
   ++self.generation; [self.loading cancel]; self.loading = nil;
   [self.picker dismissViewControllerAnimated:NO completion:nil]; self.picker = nil;
-  [self.camera dismissViewControllerAnimated:NO completion:nil]; self.camera = nil;
-  [self emit:@"cancelled" metadata:nil];
+  BOOL attached = self.cameraAttached;
+  if (self.camera) [self stopCamera];
+  if (!attached) [self emit:@"cancelled" metadata:nil];
 }
 @end
+
+static void ios_image_surface_update(UIView* container, CGRect rect, NSString* session, BOOL visible, CGFloat cornerRadius) {
+  [ios_image surfaceIn:container rect:rect session:session visible:visible radius:cornerRadius];
+}
 
 static void ios_image_edited(NSString* name, NSString* value) {
   if (![@[@"textbox · Message", @"textbox · Mensaje"] containsObject:name ?: @""] ||

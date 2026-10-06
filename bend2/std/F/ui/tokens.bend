@@ -41,12 +41,14 @@ type SurfaceRole is Data:
   SurfaceRole.Action{}
   SurfaceRole.Mine{}
   SurfaceRole.Glass{}
+  SurfaceRole.CameraCapture{}
 type LineRole is Data:
   LineRole.Ink{}
   LineRole.Muted{}
   LineRole.Line{}
   LineRole.Accent{}
   LineRole.Edge{}
+  LineRole.Danger{}
 # A gradient stop: a surface role, or Clear (the background, transparent).
 type Stop is Data:
   Stop.Of{role: SurfaceRole}
@@ -80,6 +82,7 @@ def surface_tone(r: SurfaceRole) -> Tone:
     # The tint of Liquid Glass, painted at glass().tint percent over the
     # blurred backdrop (see the Glass law below).
     case SurfaceRole.Glass{}: Tone{223.81, 0.0, 0.06}
+    case SurfaceRole.CameraCapture{}: ink()
 def line_tone(r: LineRole) -> Tone:
   match r:
     case LineRole.Ink{}: ink()
@@ -87,6 +90,7 @@ def line_tone(r: LineRole) -> Tone:
     case LineRole.Line{}: Tone{248.596, 0.0282, 0.44}
     case LineRole.Accent{}: Tone{252.042, 0.11, 0.46}
     case LineRole.Edge{}: Tone{223.81, 0.0, 0.207}
+    case LineRole.Danger{}: Tone{21.957, 0.19, 0.50}
 
 # Lightness: the dark end plus the level (Dark), or the light end minus it
 # (Light).
@@ -146,7 +150,10 @@ def css(t: Tone, +scheme: Scheme, +state: State) -> String:
 # ------
 
 def text(r: TextRole, +state: State, +scheme: Scheme) -> String: css(text_tone(r), scheme, state)
-def surface(r: SurfaceRole, +state: State, +scheme: Scheme) -> String: css(surface_tone(r), scheme, state)
+def surface(r: SurfaceRole, +state: State, +scheme: Scheme) -> String:
+  match r:
+    case SurfaceRole.CameraCapture{}: css(ink(), Scheme.Dark{}, state)
+    case _: css(surface_tone(r), scheme, state)
 def line(r: LineRole, +state: State, +scheme: Scheme) -> String: css(line_tone(r), scheme, state)
 def stop(s: Stop, +scheme: Scheme) -> String:
   match s:
@@ -201,6 +208,7 @@ def surface_name(r: SurfaceRole) -> String:
     case SurfaceRole.Action{}: "Action"
     case SurfaceRole.Mine{}: "Mine"
     case SurfaceRole.Glass{}: "Glass"
+    case SurfaceRole.CameraCapture{}: "CameraCapture"
 def line_name(r: LineRole) -> String:
   match r:
     case LineRole.Ink{}: "Ink"
@@ -208,6 +216,7 @@ def line_name(r: LineRole) -> String:
     case LineRole.Line{}: "Line"
     case LineRole.Accent{}: "Accent"
     case LineRole.Edge{}: "Edge"
+    case LineRole.Danger{}: "Danger"
 # Glass is not among the opaque surfaces: it is a tint over a backdrop, so
 # its pairs are checked composited (glass_pairs below).
 def surfaces() -> List<&2, SurfaceRole>:

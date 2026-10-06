@@ -280,12 +280,16 @@ static NSDictionary* bp_region(NSArray* c, NSArray* commands) {
       NSArray* s = item;
       if (s.count < 6 || ![s[0] isEqual:@"shape"] || ![s[1] isKindOfClass:NSString.class]) continue;
       NSString* valueName = s[1];
-      if ([valueName hasPrefix:@"Scroll content · "]) valueName = [valueName substringFromIndex:17];
-      if (![valueName hasPrefix:@"value · "]) continue;
+      BOOL threadField = [name hasPrefix:@"textbox · scroll:"] || [name hasPrefix:@"textbox, disabled · scroll:"];
+      BOOL threadValue = [valueName hasPrefix:@"Scroll content · "];
+      if (threadField != threadValue) continue;
+      if (threadValue) valueName = [valueName substringFromIndex:17];
       double sx = [s[2] doubleValue], sy = [s[3] doubleValue];
-      if (sx >= x && sy >= y && sx <= x + w && sy <= y + h) {
-        value = [valueName substringFromIndex:8];
-        break;
+      if (sx < x || sy < y || sx > x + w || sy > y + h) continue;
+      if ([valueName hasPrefix:@"value · "]) value = [valueName substringFromIndex:8];
+      if ([valueName isEqual:@"Input behavior · multiline"]) d[@"multiline"] = @YES;
+      if (s.count == 10 && [s[6][0] isEqual:@"text"] && !d[@"textMetrics"]) {
+        d[@"textMetrics"] = @[@(sx - x), @(sy - y), s[6][2], s[5]];
       }
     }
     d[@"value"] = value;
