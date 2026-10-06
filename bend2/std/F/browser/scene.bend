@@ -232,12 +232,15 @@ def disabled_html_in(xs: List<&2,P.Box>, +index: U32, +scheme: T.Scheme) -> Stri
     case Con{P.Box{name,P.Spacing{axis},x,y,w,h,level,layer},tail}: disabled_html_in(tail,index,scheme)
     case Con{+box,tail}: disabled_box_in(box,index,scheme) ++ disabled_html_in(tail,U32.inc(index),scheme)
 def disabled_html(xs: List<&2,P.Box>, +index: U32) -> String: disabled_html_in(xs,index,T.Scheme.Light{})
+# A whole rendered subtree can exceed the work stack of recursive String.append.
+def append(a: String, b: String) -> String:
+  String.reverse.go(String.reverse(a), b)
 def html_frame(size: P.Size, children: String) -> String:
   match size:
     case P.Size{width,height,count}:
-      "<div style=\"position:relative;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px\">" ++ children ++ "</div>"
+      "<div style=\"position:relative;width:" ++ U32.show(width) ++ "px;height:" ++ U32.show(height) ++ "px\">" ++ append(children, "</div>")
 def html_boxes_in(size: P.Size, +placed: List<&2,P.Box>, order: List<&2,U32>, +scheme: T.Scheme) -> String:
-  html_frame(size,boxes_in(placed,scheme) ++ focus_html_in(placed,order,scheme) ++ disabled_html_in(placed,0,scheme))
+  html_frame(size,append(boxes_in(placed,scheme),append(focus_html_in(placed,order,scheme),disabled_html_in(placed,0,scheme))))
 def html_boxes(size: P.Size, +placed: List<&2,P.Box>, order: List<&2,U32>) -> String: html_boxes_in(size,placed,order,T.Scheme.Light{})
 def placed(size: P.Size, tree: P.UI) -> List<&2,P.Box>:
   match size:
