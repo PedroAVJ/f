@@ -150,7 +150,7 @@ try {
       const sources = readdirSync(join(compiler, 'std/F/apple/swiftui')).filter(name => name.endsWith('.swift')).map(name => join(compiler, 'std/F/apple/swiftui', name));
       run('xcrun', ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk, '-module-name', 'FNativeUI', '-parse-as-library', '-whole-module-optimization', '-O', '-emit-object', ...sources, '-o', join(objects, 'SwiftUI.o')]);
     }
-    run('xcrun', [...(swiftui ? ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk] : cc), ...(swiftui ? [join(objects, 'SwiftUI.o')] : []), join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...[...(swiftui ? ['SwiftUI'] : []), 'UIKit', 'Foundation', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers', 'UserNotifications'].flatMap(name => ['-framework', name]), '-o', join(app, config.name)]);
+    run('xcrun', [...(swiftui ? ['--sdk', sdkName, 'swiftc', '-target', triple, '-sdk', sdk] : cc), ...(swiftui ? [join(objects, 'SwiftUI.o')] : []), join(objects, 'app.o'), join(objects, 'ios_shell.o'), join(objects, 'paint.o'), '-lpthread', '-lm', ...[...(swiftui ? ['SwiftUI'] : []), 'UIKit', 'Foundation', 'QuartzCore', 'CoreGraphics', 'CoreText', 'CoreImage', 'ImageIO', 'AVFoundation', 'Speech', 'PhotosUI', 'UniformTypeIdentifiers', 'UserNotifications'].flatMap(name => ['-framework', name]), '-o', join(app, config.name)]);
     const assets = join(objects, 'Assets.xcassets');
     const icon = join(assets, 'AppIcon.appiconset');
     mkdirSync(icon, { recursive: true });

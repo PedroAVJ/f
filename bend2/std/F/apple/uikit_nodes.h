@@ -1,4 +1,37 @@
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
+#include <math.h>
+
+@interface FCameraFixtureScene : UIView
+@end
+@implementation FCameraFixtureScene
+- (void)drawRect:(CGRect)rect {
+  CGContextRef c=UIGraphicsGetCurrentContext();CGFloat w=rect.size.width,h=rect.size.height;
+  NSArray* colors=@[(id)[UIColor colorWithRed:0.42 green:0.66 blue:0.78 alpha:1].CGColor,(id)[UIColor colorWithRed:0.88 green:0.90 blue:0.81 alpha:1].CGColor];CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();CGGradientRef sky=CGGradientCreateWithColors(space,(__bridge CFArrayRef)colors,NULL);CGContextDrawLinearGradient(c,sky,CGPointZero,CGPointMake(0,h),0);CGGradientRelease(sky);CGColorSpaceRelease(space);
+  CGContextSetFillColorWithColor(c,[UIColor colorWithRed:0.99 green:0.91 blue:0.68 alpha:1].CGColor);CGContextFillEllipseInRect(c,CGRectMake(w*.66,h*.17,w*.14,w*.14));
+  CGContextSetFillColorWithColor(c,[UIColor colorWithRed:0.26 green:0.46 blue:0.47 alpha:1].CGColor);CGContextMoveToPoint(c,0,h*.7);CGContextAddCurveToPoint(c,w*.2,h*.24,w*.36,h*.36,w*.55,h*.64);CGContextAddCurveToPoint(c,w*.76,h*.36,w*.84,h*.44,w,h*.62);CGContextAddLineToPoint(c,w,h);CGContextAddLineToPoint(c,0,h);CGContextFillPath(c);
+  CGContextSetFillColorWithColor(c,[UIColor colorWithRed:0.12 green:0.31 blue:0.32 alpha:1].CGColor);CGContextMoveToPoint(c,0,h*.84);CGContextAddCurveToPoint(c,w*.35,h*.6,w*.7,h*.95,w,h*.7);CGContextAddLineToPoint(c,w,h);CGContextAddLineToPoint(c,0,h);CGContextFillPath(c);
+}
+@end
+
+@interface FCameraFixtureView : UIView
+@property FCameraFixtureScene* scene;
+@property UIView* flash;
+@property BOOL live;
+@property BOOL captured;
+- (void)live:(BOOL)live captured:(BOOL)captured;
+@end
+@implementation FCameraFixtureView
+- (instancetype)init { if((self=[super init])){self.clipsToBounds=YES;self.layer.cornerRadius=16;self.scene=[FCameraFixtureScene new];[self addSubview:self.scene];self.flash=[UIView new];self.flash.backgroundColor=UIColor.whiteColor;self.flash.alpha=0;[self addSubview:self.flash];self.isAccessibilityElement=YES;}return self; }
+- (void)layoutSubviews { [super layoutSubviews];self.scene.bounds=CGRectMake(0,0,self.bounds.size.width*1.1,self.bounds.size.height*1.1);self.scene.center=CGPointMake(CGRectGetMidX(self.bounds),CGRectGetMidY(self.bounds));self.flash.frame=self.bounds;[self.scene setNeedsDisplay]; }
+- (void)live:(BOOL)live captured:(BOOL)captured {
+  BOOL moving=live&&!UIAccessibilityIsReduceMotionEnabled();
+  if(live!=self.live||moving!=([self.scene.layer animationForKey:@"mock-viewfinder"]!=nil)){self.live=live;if(moving){CABasicAnimation* pan=[CABasicAnimation animationWithKeyPath:@"transform.translation.x"];pan.fromValue=@(-4);pan.toValue=@4;pan.duration=3;pan.autoreverses=YES;pan.repeatCount=HUGE_VALF;pan.timingFunction=[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];[self.scene.layer addAnimation:pan forKey:@"mock-viewfinder"];}
+    else {CALayer* shown=self.scene.layer.presentationLayer;if(shown)self.scene.layer.transform=shown.transform;[self.scene.layer removeAnimationForKey:@"mock-viewfinder"];}}
+  if(captured&&!self.captured){self.flash.alpha=UIAccessibilityIsReduceMotionEnabled()?0:0.8;[UIView animateWithDuration:0.18 animations:^{self.flash.alpha=0;}];}self.captured=captured;
+}
+@end
+
 
 @interface FUIKitNode : UIView <UITextViewDelegate>
 @property NSDictionary* node;
@@ -6,6 +39,8 @@
 @property UIVisualEffectView* glass;
 @property NSString* sent;
 @property id generation;
+@property BOOL visibilitySet;
+@property BOOL presented;
 @property (copy) void (^emit)(NSDictionary*);
 - (void)update:(NSDictionary*)node;
 @end
@@ -18,6 +53,7 @@
   self.node = node;
   NSString* type = node[@"type"], *text = node[@"text"] ?: @"";
   self.accessibilityIdentifier = node[@"id"] ?: @"";
+  self.backgroundColor = [node[@"canvas"] isEqual:@YES] ? UIColor.systemGroupedBackgroundColor : UIColor.clearColor;
   if ([node[@"glass"] boolValue]) {
     if (!self.glass) { self.glass = [[UIVisualEffectView alloc] initWithEffect:nil]; self.glass.layer.cornerRadius = 24; self.glass.clipsToBounds = YES; [self insertSubview:self.glass atIndex:0]; }
     if (UIAccessibilityIsReduceTransparencyEnabled()) { self.glass.effect = nil; self.glass.backgroundColor = UIColor.secondarySystemBackgroundColor; }
@@ -50,9 +86,16 @@
   } else if ([type isEqual:@"scroll"]) {
     if (!self.leaf) { self.leaf = [UIScrollView new]; [self addSubview:self.leaf]; }
   } else if ([type isEqual:@"mockImage"]) {
-    if (!self.leaf) { UILabel* image = [UILabel new]; image.textAlignment = NSTextAlignmentCenter; image.numberOfLines = 0; image.backgroundColor = UIColor.secondarySystemBackgroundColor; image.layer.cornerRadius = 16; image.clipsToBounds = YES; image.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1]; self.leaf = image; [self addSubview:image]; }
-    UILabel* image = (UILabel*)self.leaf; image.text = text; image.accessibilityLabel = text;
+    if (!self.leaf) { self.leaf=[FCameraFixtureView new]; [self addSubview:self.leaf]; }
+    FCameraFixtureView* image=(FCameraFixtureView*)self.leaf;image.accessibilityLabel=text;
+    [image live:[node[@"cameraLive"] isEqual:@YES] captured:[node[@"capture"] isEqual:@YES]];
   }
+  if(node[@"motion"]){
+    BOOL visible=[node[@"visible"] isEqual:@YES];BOOL changed=self.visibilitySet&&visible!=self.presented;
+    self.presented=visible;self.userInteractionEnabled=visible;CGAffineTransform hidden=UIAccessibilityIsReduceMotionEnabled()?CGAffineTransformIdentity:CGAffineTransformMakeScale(0.84,0.84);
+    if(changed){[UIView animateWithDuration:UIAccessibilityIsReduceMotionEnabled()?0.12:0.3 delay:0 usingSpringWithDamping:0.88 initialSpringVelocity:0 options:UIViewAnimationOptionBeginFromCurrentState|UIViewAnimationOptionAllowUserInteraction animations:^{self.alpha=visible?1:0;self.transform=visible?CGAffineTransformIdentity:hidden;} completion:nil];}
+    else if(!self.visibilitySet){self.alpha=visible?1:0;self.transform=visible?CGAffineTransformIdentity:hidden;}self.visibilitySet=YES;
+  } else if(self.visibilitySet) { [self.layer removeAllAnimations];self.alpha=1;self.transform=CGAffineTransformIdentity;self.userInteractionEnabled=YES;self.visibilitySet=NO; }
 }
 @end
 
@@ -71,6 +114,7 @@
   [NSLayoutConstraint activateConstraints:@[[self.scroll.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],[self.scroll.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],[self.scroll.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],[self.scroll.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor]]];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(accessibilityChanged:) name:UIAccessibilityReduceTransparencyStatusDidChangeNotification object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(accessibilityChanged:) name:UIContentSizeCategoryDidChangeNotification object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(accessibilityChanged:) name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
 }
 - (void)accessibilityChanged:(NSNotification*)notification { if (self.packet) [self apply:self.packet]; }
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
@@ -92,11 +136,11 @@
 - (void)render:(NSDictionary*)n path:(NSString*)path parent:(UIView*)parent frame:(CGRect)frame {
   NSString* key=[path stringByAppendingFormat:@":%@",n[@"type"]]; [self.used addObject:key];
   FUIKitNode* view=self.nodes[key]; if(!view){view=[FUIKitNode new];view.emit=self.emit;self.nodes[key]=view;}
-  if(view.superview!=parent)[parent addSubview:view]; view.frame=frame;view.clipsToBounds=YES;[view update:n];view.glass.frame=view.bounds;
+  if(view.superview!=parent)[parent addSubview:view]; view.bounds=CGRectMake(0,0,frame.size.width,frame.size.height);view.center=CGPointMake(CGRectGetMidX(frame),CGRectGetMidY(frame));view.clipsToBounds=YES;[view update:n];view.glass.frame=view.bounds;
   CGFloat pad=[n[@"padding"] doubleValue];CGRect box=CGRectInset(view.bounds,pad,pad);view.leaf.frame=box;
   NSArray* children=n[@"children"] ?: @[];NSString* type=n[@"type"];CGFloat gap=n[@"spacing"]?[n[@"spacing"] doubleValue]:12;
   if([type isEqual:@"overlay"]){
-    for(NSUInteger i=0;i<children.count;i++){NSDictionary* c=children[i];CGFloat w=c[@"width"]?MIN(box.size.width,[c[@"width"] doubleValue]):box.size.width;CGFloat h=c[@"height"]?MIN(box.size.height,[c[@"height"] doubleValue]):box.size.height;[self render:c path:[path stringByAppendingFormat:@".%lu",(unsigned long)i] parent:view frame:CGRectMake(CGRectGetMaxX(box)-w,CGRectGetMaxY(box)-h,w,h)];}return;
+    for(NSUInteger i=0;i<children.count;i++){NSDictionary* c=children[i];CGFloat w=c[@"width"]?MIN(box.size.width,[c[@"width"] doubleValue]):box.size.width;CGFloat h=c[@"height"]?MIN(box.size.height,[c[@"height"] doubleValue]):box.size.height;[self render:c path:[path stringByAppendingFormat:@".%lu",(unsigned long)i] parent:view frame:CGRectMake([n[@"alignment"] isEqual:@"center"] ? CGRectGetMidX(box)-w/2 : CGRectGetMaxX(box)-w,[n[@"alignment"] isEqual:@"center"] ? CGRectGetMidY(box)-h/2 : CGRectGetMaxY(box)-h,w,h)];}return;
   }
   if([type isEqual:@"scroll"]){UIScrollView* scroll=(UIScrollView*)view.leaf;CGFloat y=0;for(NSUInteger i=0;i<children.count;i++){NSDictionary* c=children[i];CGFloat h=[self height:c width:box.size.width];[self render:c path:[path stringByAppendingFormat:@".%lu",(unsigned long)i] parent:scroll frame:CGRectMake(0,y,box.size.width,h)];y+=h+gap;}scroll.contentSize=CGSizeMake(box.size.width,MAX(0,y-gap));return;}
   BOOL horizontal=[type isEqual:@"hstack"];CGFloat total=0;NSUInteger flexible=0;NSMutableArray* sizes=[NSMutableArray array];
@@ -116,6 +160,8 @@
   NSMutableArray* toolbar=[NSMutableArray array];__weak FUIKitController* weak=self;
   for(NSDictionary* item in packet[@"toolbar"]){UIBarButtonItem* button=[[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithHandler:^(UIAction* action){weak.emit(@{@"action":@"click",@"name":item[@"action"] ?: @""});}] menu:nil];button.image=[UIImage systemImageNamed:item[@"symbol"] ?: @"circle"];button.accessibilityLabel=item[@"text"];[toolbar addObject:button];}
   self.navigationItem.rightBarButtonItems=toolbar;
+  NSDictionary* leading=packet[@"leading"];
+  if([leading isKindOfClass:NSDictionary.class]){UIBarButtonItem* item=[[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithHandler:^(UIAction* action){weak.emit(@{@"action":@"click",@"name":leading[@"action"] ?: @""});}] menu:nil];item.title=leading[@"text"];item.accessibilityLabel=leading[@"text"];self.navigationItem.leftBarButtonItem=item;}else self.navigationItem.leftBarButtonItem=nil;
   if([packet[@"dismissKeyboard"] isEqual:@YES])[self.view endEditing:YES];
   [self.view setNeedsLayout];[self.view layoutIfNeeded];
   if([packet[@"alert"] isEqual:@YES]&&!self.presentedViewController){UIAlertController* alert=[UIAlertController alertControllerWithTitle:packet[@"alertTitle"] message:packet[@"alertMessage"] preferredStyle:UIAlertControllerStyleAlert];[alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction* a){weak.emit(@{@"action":@"click",@"name":packet[@"cancelAction"] ?: @""});}]];[alert addAction:[UIAlertAction actionWithTitle:packet[@"confirmText"] ?: @"Confirm" style:UIAlertActionStyleDefault handler:^(UIAlertAction* a){weak.emit(@{@"action":@"click",@"name":packet[@"confirmAction"] ?: @""});}]];[self presentViewController:alert animated:!UIAccessibilityIsReduceMotionEnabled() completion:nil];}
