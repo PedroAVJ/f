@@ -1,0 +1,68 @@
+{
+  "fixture": "tests/hypertui/challenge.png",
+  "expected": [
+    {
+      "position": "upper left",
+      "shape": "circle",
+      "color": "green"
+    },
+    {
+      "position": "upper right",
+      "shape": "triangle",
+      "color": "red"
+    },
+    {
+      "position": "lower middle",
+      "shape": "square",
+      "color": "blue"
+    }
+  ],
+  "direct": {
+    "claudeSession": "8bccacc4-9cf4-4522-af47-3ee5702be35b",
+    "codexThread": "01a11229-3a48-7800-93ba-cfa608fa9670",
+    "observed": "Both reported green circle upper-left, red triangle upper-right, blue square lower-middle, and text before/after the inline image."
+  },
+  "gateway": {
+    "claude": {
+      "session": "8f45fd5b-9a20-4836-9803-ffbf3a0a2f86",
+      "exposedTools": [
+        "mcp__claude-in-chrome__browser_batch",
+        "mcp__claude-in-chrome__computer",
+        "mcp__claude-in-chrome__file_upload",
+        "mcp__claude-in-chrome__form_input",
+        "mcp__claude-in-chrome__gif_creator",
+        "mcp__claude-in-chrome__javascript_tool",
+        "mcp__claude-in-chrome__navigate",
+        "mcp__claude-in-chrome__read_console_messages",
+        "mcp__claude-in-chrome__read_network_requests",
+        "mcp__claude-in-chrome__resize_window",
+        "mcp__claude-in-chrome__select_browser",
+        "mcp__claude-in-chrome__shortcuts_execute",
+        "mcp__claude-in-chrome__switch_browser",
+        "mcp__claude-in-chrome__tabs_close_mcp",
+        "mcp__claude-in-chrome__tabs_context_mcp",
+        "mcp__claude-in-chrome__tabs_create_mcp",
+        "mcp__claude-in-chrome__upload_image",
+        "mcp__hyper_queries__hyperTUI"
+      ],
+      "answer": "The image shows three shapes on a white background:\n\n- **Green circle** in the top left\n- **Red triangle** in the top right\n- **Blue square** at the bottom center"
+    },
+    "codex": {
+      "status": "UNVERIFIED: gateway started and tool schema enumerated, but model did not discover or invoke it",
+      "firstThread": "01a1124e-ea25-7163-a293-b0fc75431c6c",
+      "eagerHostTrialThread": "01a11252-68d7-7cb2-886f-f8df976412f8",
+      "eagerHostTrial": "Installed stable code_mode_host=false was accepted but did not resolve model discovery; ineffective override reverted.",
+      "serverStatus": {
+        "name": "hyper_queries",
+        "tools": [
+          "hyperTUI"
+        ],
+        "toolsError": null
+      },
+      "response": [
+        "I\u2019ll open the image with hyperTUI and describe what\u2019s visible.",
+        "The `hyper_queries hyperTUI` tool isn\u2019t available in this session, so I couldn\u2019t open the image or verify its colors and shapes."
+      ]
+    }
+  }
+}

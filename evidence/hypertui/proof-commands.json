@@ -1,0 +1,42 @@
+{
+  "wrappedCodex": {
+    "command": "/opt/homebrew/bin/bun",
+    "args": [
+      "/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/launch.ts",
+      "{\"workspace\":\"/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006\",\"codex\":\"/Users/pedroantoniovillanuevajuarez/.local/bin/codex\",\"claude\":\"/Users/pedroantoniovillanuevajuarez/.local/bin/claude\",\"catalog\":\"/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/evidence/hypertui/catalog.json\"}",
+      "codex",
+      "/Users/pedroantoniovillanuevajuarez/.local/bin/codex",
+      "exec",
+      "--json",
+      "--ephemeral",
+      "--model",
+      "gpt-6-astra",
+      "--sandbox",
+      "read-only",
+      "-c",
+      "approval_policy=\"never\""
+    ],
+    "stdin": "Use only the hyper_queries hyperTUI tool to open hypertui://files/tests/hypertui/challenge.png. Report the colors and shapes visible in the image. Do not use shell or other tools.",
+    "cwd": "/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006",
+    "trial": "Same command was used with installed default code_mode_host, and once with features.code_mode_host=false added by the wrapper. The latter override was ineffective and removed."
+  },
+  "directCodex": {
+    "command": "/Users/pedroantoniovillanuevajuarez/.local/bin/codex",
+    "args": [
+      "exec",
+      "--ignore-user-config",
+      "--ephemeral",
+      "--sandbox",
+      "read-only",
+      "--skip-git-repo-check",
+      "-C",
+      "/var/folders/yc/3dq1ll3s7nn0hpmfncpy0vdr0000gn/T/hypertui-perception-lwrsfwjh/workspace",
+      "-c",
+      "mcp_servers.hypertui={command=\"/opt/homebrew/bin/bun\",args=[\"/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/host.ts\",\"/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/tests/hypertui/app.bend\"],env={BEND_NO_TELEMETRY=\"1\"},enabled_tools=[\"hyperTUI\"]}",
+      "--json",
+      "Use only the hypertui MCP hyperTUI tool to open hypertui://demo/. Describe the visible image: each colored shape and its position. Also say the text immediately before and after the image. Do not run commands, read files, or use any other tool. If no inline image reaches you, say so."
+    ],
+    "stdin": "/dev/null",
+    "cwd": "/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006"
+  }
+}

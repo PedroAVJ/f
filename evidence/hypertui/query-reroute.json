@@ -1,0 +1,86 @@
+{
+  "tool": "plugin_management.get_plugin_dependencies",
+  "isError": false,
+  "content": [
+    {
+      "type": "text",
+      "text": "# plugin\\_management.get\\_plugin\\_dependencies"
+    },
+    {
+      "type": "text",
+      "text": "[Programs](<hypertui://programs/>)"
+    },
+    {
+      "type": "text",
+      "text": "Resolve the canonical public plugins"
+    },
+    {
+      "type": "text",
+      "text": "declared by one plugin's app manifest."
+    },
+    {
+      "type": "text",
+      "text": "Use only when a skill or user explicitly"
+    },
+    {
+      "type": "text",
+      "text": "asks for dependency metadata. Pass a"
+    },
+    {
+      "type": "text",
+      "text": "plugin ID or name@marketplace"
+    },
+    {
+      "type": "text",
+      "text": "reference unchanged. Named references"
+    },
+    {
+      "type": "text",
+      "text": "resolve by globally listed plugin name."
+    },
+    {
+      "type": "text",
+      "text": "This reports metadata plus current"
+    },
+    {
+      "type": "text",
+      "text": "user-aware plugin status, installation"
+    },
+    {
+      "type": "text",
+      "text": "policy, and installed state; it does not"
+    },
+    {
+      "type": "text",
+      "text": "install or connect anything. The result"
+    },
+    {
+      "type": "text",
+      "text": "separates visible canonical plugins from"
+    },
+    {
+      "type": "text",
+      "text": "app entries that lack a unique canonical"
+    },
+    {
+      "type": "text",
+      "text": "plugin or whose canonical plugin is"
+    },
+    {
+      "type": "text",
+      "text": "unavailable to the current user."
+    },
+    {
+      "type": "text",
+      "text": "```json\n{\n  \"properties\": {\n    \"plugin_reference\": {\n      \"description\": \"Plugin ID or name@marketplace reference whose manifest dependencies should be resolved. Pass it unchanged.\",\n      \"title\": \"Plugin Reference\",\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\n    \"plugin_reference\"\n  ],\n  \"title\": \"get_plugin_dependencies_input\",\n  \"type\": \"object\",\n  \"additionalProperties\": false\n}\n```"
+    },
+    {
+      "type": "text",
+      "text": "```\nAction completed.\n```"
+    },
+    {
+      "type": "text",
+      "text": "```json\n{\n  \"meta\": null,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"plugin_reference did not identify a public global listed plugin with a current release\",\n      \"annotations\": null,\n      \"meta\": null\n    }\n  ],\n  \"structuredContent\": {\n    \"plugin_reference\": \"anti-slop@anti-slop\",\n    \"tool_name\": \"get_plugin_dependencies\",\n    \"status\": \"failed\",\n    \"error_code\": \"plugin_not_found\",\n    \"message\": \"plugin_reference did not identify a public global listed plugin with a current release\"\n  },\n  \"isError\": true\n}\n```"
+    }
+  ]
+}

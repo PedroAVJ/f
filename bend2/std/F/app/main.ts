@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { loadConfig, verifyApplicationSources, verifyDependencies } from './config.ts';
 
 const [configuration, command = 'check', ...args] = process.argv.slice(2);
-if (!configuration) throw Error('Usage: app CONFIG.bend check|ios|web|server [arguments]');
+if (!configuration) throw Error('Usage: app CONFIG.bend check|ios|web|server|hypertui [arguments]');
 const file = resolve(configuration);
 const root = dirname(file);
 if (command === 'check') {
@@ -14,6 +14,11 @@ if (command === 'check') {
 } else if (command === 'ios' || command === 'web') {
   const child = Bun.spawn(['bun', join(import.meta.dir, command + '.ts'), file, ...args], {cwd:root, stdout:'inherit', stderr:'inherit', stdin:'inherit'});
   process.exit(await child.exited);
+} else if (command === 'hypertui') {
+  const [entry, assets] = args;
+  if (!entry?.endsWith('.bend') || args.length > 2) throw Error('HyperTUI requires a Bend entry and an optional asset root.');
+  const {serve} = await import('../hypertui/host.ts');
+  await serve(resolve(root,entry),resolve(root,assets ?? '.'));
 } else if (command === 'server') {
   const [entry, runtimeConfig, ...flags] = args;
   if (!entry?.endsWith('.bend') || !runtimeConfig) throw Error('Server requires a Bend entry and a runtime JSON configuration file outside source control.');

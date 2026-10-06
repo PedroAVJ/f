@@ -46,6 +46,16 @@ export async function run(modulePath: string, configuration: JSONValue) {
   const execute = (effect: Effect) => {
     try {
       switch (effect.type) {
+        case "hypertui.render": {
+          void import("../hypertui/render.ts").then(async ({render, localImage}) => {
+            if (typeof app.hypertui_page !== "function") throw new Error("Application has no HyperTUI page renderer.");
+            const tree = app.hypertui_page(encode(effect.model), effect.uri);
+            const page = await render(tree, asset => localImage(effect.assetRoot ?? path.dirname(modulePath), asset));
+            if (page.actions.length) throw new Error("Read-only query pages cannot declare mutation actions.");
+            reply(effect, {content:page.content});
+          }).catch(error => fail(effect,error));
+          break;
+        }
         case "file.read": { const fd = fs.openSync(effect.path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); try { const stat = fs.fstatSync(fd); if (!stat.isFile() || stat.size > effect.limit) throw new Error("Invalid file or file exceeds limit."); const bytes = fs.readFileSync(fd); reply(effect, { ...(effect.parseJson ? { json: JSON.parse(bytes.toString("utf8")) } : effect.parseJsonLines ? { jsonLines: bytes.toString("utf8").split("\n").filter(line => line.trim()).map(line => { try { return JSON.parse(line); } catch { return null; } }) } : { data: bytes.toString(effect.encoding ?? "utf8") }), size: stat.size, ...(effect.encodings ? { representations: Object.fromEntries(effect.encodings.map((encoding: BufferEncoding) => [encoding, bytes.toString(encoding)])) } : {}), ...(effect.hashAlgorithm ? { digest: createHash(effect.hashAlgorithm).update(bytes).digest("hex") } : {}) }); } finally { fs.closeSync(fd); } break; }
         case "file.write": { fs.mkdirSync(path.dirname(effect.path), { recursive: true, mode: 0o700 }); const temporary = `${effect.path}.${randomUUID()}.tmp`; let fd: number | undefined; try { fd = fs.openSync(temporary, "wx", effect.mode ?? 0o600); fs.writeFileSync(fd, effect.data, { encoding: effect.encoding ?? "utf8" }); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined; fs.renameSync(temporary, effect.path); const directory = fs.openSync(path.dirname(effect.path), "r"); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); } reply(effect, null); } finally { if (fd !== undefined) fs.closeSync(fd); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } break; }
         case "env.read": reply(effect, process.env[effect.name] ?? ""); break;

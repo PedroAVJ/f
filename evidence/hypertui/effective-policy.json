@@ -1,0 +1,82 @@
+{
+  "connectorQueries": 304,
+  "connectorQueriesDisabled": 304,
+  "viewImage": false,
+  "webSearch": "disabled",
+  "servers": {
+    "linear-graphql-avanza-control": {
+      "enabled": true,
+      "enabled_tools": [
+        "archive_issue",
+        "graphql_mutation",
+        "restore_issue"
+      ]
+    },
+    "hyper_queries": {
+      "enabled": true
+    },
+    "near-context": {
+      "enabled": false,
+      "enabled_tools": []
+    },
+    "linear-graphql": {
+      "enabled": true,
+      "enabled_tools": [
+        "archive_issue",
+        "graphql_mutation",
+        "restore_issue"
+      ]
+    },
+    "linear-graphql-tradeincode": {
+      "enabled": true,
+      "enabled_tools": [
+        "archive_issue",
+        "graphql_mutation",
+        "restore_issue"
+      ]
+    },
+    "apple-notes": {
+      "enabled": true,
+      "enabled_tools": [
+        "append-to-note",
+        "batch-delete-notes",
+        "batch-move-notes",
+        "create-folder",
+        "create-note",
+        "delete-folder",
+        "delete-note",
+        "move-note",
+        "save-attachment",
+        "show-account",
+        "show-attachment",
+        "show-folder",
+        "show-note",
+        "update-note"
+      ]
+    },
+    "event-stream": {
+      "enabled": true,
+      "enabled_tools": [
+        "event_stream_start",
+        "event_stream_stop"
+      ]
+    },
+    "node_repl": {
+      "enabled": true
+    },
+    "messages": {
+      "enabled": true,
+      "enabled_tools": [
+        "send_message"
+      ]
+    },
+    "macbook-credential-broker": {
+      "enabled": true,
+      "enabled_tools": [
+        "authorize_and_fill_credential",
+        "run_credential_broker_self_test",
+        "test_credential_approval_channel"
+      ]
+    }
+  }
+}
