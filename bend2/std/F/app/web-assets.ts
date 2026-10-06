@@ -13,23 +13,25 @@ export async function emitWebAssets(root: string, config: Config, destination: s
   <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="dark"><meta name="robots" content="noindex,nofollow"><title>${escape(config.name)}</title><link rel="stylesheet" href="./app.css"></head>
   <body><main id="app" aria-label="${escape(config.name)}" aria-busy="true"></main><p id="boot-status" role="status">Opening ${escape(config.name)}…</p><script type="module" src="./app.mjs"></script></body></html>\n`);
   writeFileSync(join(destination, 'app.css'), `:root{color-scheme:dark;background:#000;color:#eee;font:17px/1.4 system-ui}*{box-sizing:border-box}body{margin:0}#app{position:relative;width:100%;max-width:1000px;min-height:100dvh;margin-inline:auto;white-space:pre;line-height:1.2}#app textarea{white-space:pre-wrap}#boot-status{position:fixed;inset:45% 20px auto;text-align:center}#app[aria-busy="false"]+#boot-status{display:none}#app [role="log"],#app [role="region"]{scrollbar-width:thin;touch-action:pan-y}button{cursor:pointer}button:disabled{cursor:default}button:focus-visible,#app [role="log"]:focus-visible,#app [role="region"]:focus-visible{outline:2px solid #ddd;outline-offset:3px;border-radius:10px}[data-bend-field]:focus-visible{box-shadow:inset 0 0 0 1px #777;border-radius:24px}[data-bend-shape^="Motion bob"]{animation:dot-bob 1.05s ease-in-out infinite}[data-bend-shape="Motion bob · 150"]{animation-delay:.15s}[data-bend-shape="Motion bob · 300"]{animation-delay:.3s}@keyframes dot-bob{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}\n`);
+  const assets = materializeAssets(config, destination);
+  const audioAssets = Object.fromEntries(assets.filter(asset => asset.mime.startsWith('audio/')).map(asset => [asset.name, { mime:asset.mime, data:readFileSync(join(destination, asset.name)).toString('base64') }]));
   writeFileSync(join(destination, 'app.mjs'), `import { startBend } from './shell.js';
   import { createBrowserClient } from './client.js';
   import policy from './policy.mjs';
   const catalog = ${JSON.stringify(catalog)};
+  const audioAssets = ${JSON.stringify(audioAssets)};
   const status = document.querySelector('#boot-status');
   const failed = () => { status.textContent = ${JSON.stringify(config.name + ' could not start. Reload this page to try again.')}; status.style.display = 'block'; };
   try {
     const app = startBend(document.querySelector('#app'), {
       workers: 1,
-      host: context => createBrowserClient({...context, policy, catalog}),
+      host: context => createBrowserClient({...context, policy, catalog, audioAssets}),
       onMessage(message) { if (message.type === 'stderr') console.error(message.text); if (message.type === 'error') { console.error(message.text); failed(); } },
     });
     window.addEventListener('pagehide', () => app.stop(), {once:true});
     window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
   } catch (error) { console.error(error); failed(); }
   `);
-  const assets = materializeAssets(config, destination);
   const manifestPath = join(destination, 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   manifest.files = [...new Set([...manifest.files, 'index.html', 'app.css', 'app.mjs', 'client.js', 'policy.mjs', ...assets.map(asset => asset.name)])];

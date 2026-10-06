@@ -308,7 +308,9 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     video.style.cssText = 'width:100%;height:100%;object-fit:cover;pointer-events:none;display:block';
     camera = { session: spec.session, video };
     if (typeof spec.captureSound === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*\.wav$/.test(spec.captureSound)) {
-      camera.sound = new Audio(new URL(spec.captureSound, options.origin || location.href).href);
+      const embedded = options.audioAssets?.[spec.captureSound];
+      const source = embedded ? urlFor(new Blob([Uint8Array.from(atob(embedded.data), char => char.charCodeAt(0))], { type: embedded.mime })) : new URL(spec.captureSound, location.href).href;
+      camera.sound = new Audio(source);
       camera.sound.preload = 'auto';
     }
     try {
@@ -532,7 +534,7 @@ async function importLegacy() {
 return { config, rule, notice, storageKey, importLegacy, responseText, sameOrigin, forgetAcceptedCaption, preparePhoto, createMediaHost };
 }
 
-export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
+export function createBrowserClient({ root, deliver, policy, catalog = [], audioAssets = {} }) {
   const base = createBrowserServices(policy);
   let storedSelection;
   try { storedSelection = localStorage.getItem(base.config.storage.selection); } catch { /* Storage may be unavailable in private contexts. */ }
@@ -541,7 +543,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
   const origin = new URL(selected?.origin || location.href);
   if (origin.username || origin.password || !['https:', 'http:'].includes(origin.protocol)) throw Error('Invalid browser service origin.');
   const scope = selected?.id ? selected.id + '@' + origin.origin : '';
-  const services = createBrowserServices(policy, { origin: origin.href, scope });
+  const services = createBrowserServices(policy, { origin: origin.href, scope, audioAssets });
   const { config, rule, notice, storageKey, createMediaHost, responseText, sameOrigin, forgetAcceptedCaption } = services;
   const PENDING = storageKey(config.storage.pending);
   let activeRequests = 0;
