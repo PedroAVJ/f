@@ -1,0 +1,49 @@
+{
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-hypertui-052a8832",
+  "frontHealth": {
+    "status": "ok",
+    "runtime": "bend-claude-front+codex-fallback+detached-worker",
+    "provider": "claude",
+    "providers": {
+      "codex": {
+        "ready": true
+      },
+      "claude": {
+        "ready": true,
+        "model": null,
+        "recoveryWarnings": null
+      }
+    }
+  },
+  "managerHealth": {
+    "status": "ok",
+    "runtime": "independent-codex-worker-manager"
+  },
+  "preservedWorkerPids": {
+    "hypertui-reachability-proof": 27961,
+    "hypertui-storyboard": 28070,
+    "dot-receiving-web": 36477,
+    "dot-ui-review-20261006": 27108
+  },
+  "preservedHarnessPid": 2372,
+  "runtimeFields": [
+    "queryLauncher",
+    "queryCatalog",
+    "launcher",
+    "appConfig",
+    "workerModule",
+    "hyperPrograms.apple",
+    "hyperQueryOperations",
+    "hyperProgramLinks"
+  ],
+  "webDirectoryUnchanged": "/Users/pedroantoniovillanuevajuarez/Developer/open-dot/dist/dot.web",
+  "remoteAdapterPreserved": true,
+  "activatedAt": "2026-10-06T22:12:34Z",
+  "sources": {
+    "fCommit": "052a88327ba23b5e9789f2ee160ca54b32546e9d",
+    "appleAdapterCommit": "2ddbe706af1ebaf8318a20cc63a3bffde9811088",
+    "status": "prepared",
+    "openDotCommit": "a350814783afa8bf5461986e7c572e4a0543b5ae",
+    "sourceSchemaCommit": "de54e88"
+  }
+}
