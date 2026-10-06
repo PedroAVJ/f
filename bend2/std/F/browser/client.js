@@ -97,8 +97,30 @@ async function preparePhoto(file, maxBytes = config.photoOutputLimit) {
   } finally { bitmap.close(); }
 }
 
+// Resume keeps complete encoded segments; joining decoded PCM also works after reload.
+async function joinedRecording(previous, segment) {
+  if (!previous) return segment;
+  const decoder = new OfflineAudioContext(1, 1, 16000);
+  const buffers = await Promise.all([previous, segment].map(async blob => decoder.decodeAudioData(await blob.arrayBuffer())));
+  const frames = Math.ceil(buffers.reduce((sum, buffer) => sum + buffer.duration, 0) * 16000);
+  if (frames > Math.ceil(config.recordingMs * 16) + 16000) throw Error(notice('record-size'));
+  const mixer = new OfflineAudioContext(1, frames, 16000);
+  let position = 0;
+  for (const buffer of buffers) { const source = mixer.createBufferSource(); source.buffer = buffer; source.connect(mixer.destination); source.start(position); position += buffer.duration; }
+  const pcm = (await mixer.startRendering()).getChannelData(0);
+  const bytes = new ArrayBuffer(44 + pcm.length * 2), view = new DataView(bytes);
+  const ascii = (at, text) => [...text].forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)));
+  ascii(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true); ascii(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, 'data'); view.setUint32(40, pcm.length * 2, true);
+  for (let index = 0; index < pcm.length; index++) view.setInt16(44 + index * 2, Math.round(Math.max(-1, Math.min(1, pcm[index])) * 32767), true);
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
 function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}) {
-  let recorder, recording, microphone, recordingTimer, call, recognition, speaking, player, picker;
+  let recorder, recording, microphone, recordingTimer, meterContext, analyser, call, recognition, speaking, player, picker;
+  let camera, cameraGeneration = 0, cameraDraft, previewDraft;
   let closed = false, recordingGeneration = 0;
   const urls = new Set();
   const urlFor = blob => { const url = URL.createObjectURL(blob); urls.add(url); return url; };
@@ -106,9 +128,22 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
   const image = (session, phase, values = {}) => event(rule('media-event', { kind: 'image', session, phase, values }));
   const documentEvent = (session, phase, values = {}) => event(rule('media-event', { kind: 'file', session, phase, values }));
   let fileEdits = Promise.resolve(), documentSession;
-  const stopMicrophone = () => { microphone?.getTracks().forEach(track => track.stop()); microphone = undefined; clearInterval(recordingTimer); };
+  const stopMicrophone = () => { microphone?.getTracks().forEach(track => track.stop()); microphone = undefined; clearInterval(recordingTimer); meterContext?.close().catch(() => {}); meterContext = analyser = undefined; };
 
-  async function record(spec) {
+  async function saveRecording(held) {
+    if (held.cancelled) return;
+    voice(held.session, 'message', 'saving', { clipId: held.id, durationMs: held.durationMs });
+    try {
+      const segment = new Blob(held.chunks, { type: held.mimeType.split(';')[0] });
+      const blob = await joinedRecording(held.previous?.blob, segment);
+      if (!blob.size || blob.size > config.recordingLimit) throw Error(notice('record-size'));
+      const draft = { kind: 'audio', id: held.id, session: held.session, blob, durationMs: held.durationMs, waveform: held.waveform };
+      await stored('readwrite', store => store.put(draft, 'audio'));
+      held.saved = true;
+      if (!closed) voice(held.session, 'message', held.final ? 'recorded' : 'paused', { clipId: draft.id, durationMs: draft.durationMs, waveform: draft.waveform, transcript: '' });
+    } catch (error) { if (!closed) voice(held.session, 'message', 'save-failed', { clipId: held.id, durationMs: held.durationMs, error: error.message }); }
+  }
+  async function record(spec, previous) {
     if (recorder?.state === 'recording') throw Error(notice('record-active'));
     if (!navigator.mediaDevices?.getUserMedia || !globalThis.MediaRecorder) throw Error(notice('record-unavailable'));
     const mimeType = ['audio/mp4', 'audio/webm;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
@@ -117,31 +152,35 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     if (closed || generation !== recordingGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
     microphone = stream;
-    recording = { id: crypto.randomUUID(), session: spec.session, started: Date.now(), chunks: [], cancelled: false };
+    recording = { id: previous?.id ?? crypto.randomUUID(), session: spec.session, started: Date.now(), chunks: [], cancelled: false, mimeType, previous, waveform: previous?.waveform ?? [] };
     const held = recording;
-    try { recorder = new MediaRecorder(microphone, { mimeType, audioBitsPerSecond: config.recordingBitsPerSecond }); }
-    catch (error) { stopMicrophone(); throw error; }
+    try {
+      recorder = new MediaRecorder(microphone, { mimeType, audioBitsPerSecond: config.recordingBitsPerSecond });
+      meterContext = new AudioContext(); analyser = meterContext.createAnalyser(); analyser.fftSize = 256;
+      meterContext.createMediaStreamSource(microphone).connect(analyser); await meterContext.resume();
+    } catch (error) { stopMicrophone(); throw error; }
     recorder.ondataavailable = e => { if (e.data.size) held.chunks.push(e.data); };
     recorder.onerror = () => { stopMicrophone(); voice(held.session, 'message', 'error', { error: notice('record-failed') }); };
     recorder.onstop = async () => {
-      stopMicrophone();
-      if (held.cancelled) return;
-      try {
-        const blob = new Blob(held.chunks, { type: mimeType.split(';')[0] });
-        if (!blob.size || blob.size > config.recordingLimit) throw Error(notice('record-size'));
-        const draft = { kind: 'audio', id: held.id, session: held.session, blob, durationMs: Math.min(config.recordingMs, Math.max(1, Date.now() - held.started)) };
-        await stored('readwrite', store => store.put(draft, 'audio'));
-        voice(held.session, 'message', 'recorded', { clipId: draft.id, durationMs: draft.durationMs, transcript: '' });
-      } catch (error) { voice(held.session, 'message', 'error', { error: error.message }); }
+      held.durationMs = Math.min(config.recordingMs, (held.previous?.durationMs ?? 0) + Math.max(1, Date.now() - held.started));
+      stopMicrophone(); await saveRecording(held);
     };
-    recorder.start(1000);
-    voice(held.session, 'message', 'recording', { clipId: held.id });
+    recorder.start(500);
+    voice(held.session, 'message', 'recording', { clipId: held.id, durationMs: previous?.durationMs ?? 0 });
     recordingTimer = setInterval(() => {
-      const elapsedMs = Date.now() - held.started;
-      voice(held.session, 'message', 'elapsed', { elapsedMs, level: 0 });
-      if (elapsedMs >= config.recordingMs && recorder.state === 'recording') recorder.stop();
-    }, 500);
+      const elapsedMs = (held.previous?.durationMs ?? 0) + Date.now() - held.started;
+      const sample = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(sample);
+      const level = Math.min(100, Math.round(Math.sqrt(sample.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / sample.length) * 300));
+      held.waveform = [...held.waveform.slice(-63), level];
+      voice(held.session, 'message', 'elapsed', { elapsedMs, level, waveform: held.waveform });
+      if (elapsedMs >= config.recordingMs && recorder.state === 'recording') { held.final = true; recorder.stop(); }
+    }, 200);
   }
+  const stopPreview = (silent = false) => {
+    player?.pause();
+    if (previewDraft && !silent) voice(previewDraft.session, 'message', 'paused', { clipId: previewDraft.id, durationMs: previewDraft.durationMs, waveform: previewDraft.waveform });
+    previewDraft = undefined;
+  };
 
   function endCall() {
     if (!call) return;
@@ -181,9 +220,33 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
 
   async function voiceCommand(spec) {
     if (spec.action === 'record') return record(spec);
-    if (spec.action === 'record-stop') { if (recorder?.state === 'recording') recorder.stop(); return; }
+    if (spec.action === 'record-stop' || spec.action === 'record-pause') {
+      if (recording) recording.final = spec.action === 'record-stop';
+      if (recorder?.state === 'recording') recorder.stop();
+      else if (recording && !recording.saved) await saveRecording(recording);
+      return;
+    }
+    if (spec.action === 'record-resume') {
+      stopPreview(true);
+      const draft = await stored('readonly', store => store.get('audio'));
+      if (!draft) throw Error(notice('record-missing'));
+      rule('cancel-draft', { draft: descriptor(draft), label: 'recording' });
+      return record(spec, draft);
+    }
+    if (spec.action === 'record-preview-stop') { stopPreview(spec.silent === true); return; }
+    if (spec.action === 'record-preview') {
+      stopPreview(true);
+      const draft = await stored('readonly', store => store.get('audio'));
+      if (!draft) throw Error(notice('record-missing'));
+      previewDraft = draft; player = new Audio(urlFor(draft.blob));
+      player.onended = () => { if (previewDraft === draft) stopPreview(); };
+      player.ontimeupdate = () => { if (previewDraft === draft) voice(draft.session, 'message', 'playhead', { positionMs: Math.round(player.currentTime * 1000) }); };
+      await player.play();
+      voice(draft.session, 'message', 'previewing', { clipId: draft.id, durationMs: draft.durationMs, waveform: draft.waveform });
+      return;
+    }
     if (spec.action === 'record-cancel') {
-      recordingGeneration++;
+      recordingGeneration++; stopPreview(true);
       const draft = await stored('readonly', store => store.get('audio'));
       rule('cancel-draft', { draft: descriptor(draft), label: 'recording' });
       if (recording) recording.cancelled = true;
@@ -233,7 +296,51 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     throw Error(notice('voice-action'));
   }
 
+  const closeCamera = () => {
+    cameraGeneration++;
+    camera?.stream?.getTracks().forEach(track => track.stop()); camera?.video?.remove(); camera = undefined; cameraDraft = undefined;
+  };
+  async function openCamera(spec) {
+    closeCamera();
+    const generation = cameraGeneration;
+    if (!navigator.mediaDevices?.getUserMedia) { image(spec.session, 'camera-unavailable', { error: notice('camera-unavailable') }); return; }
+    const video = document.createElement('video'); video.muted = true; video.autoplay = true; video.playsInline = true;
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;pointer-events:none;display:block';
+    camera = { session: spec.session, video };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+      if (closed || generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
+      camera.stream = stream; video.srcObject = stream; await video.play();
+      if (generation !== cameraGeneration) return;
+      image(spec.session, 'camera-ready');
+    } catch (error) {
+      if (generation !== cameraGeneration) return;
+      closeCamera(); image(spec.session, 'camera-unavailable', { error: notice(error.name === 'NotAllowedError' ? 'camera-permission' : 'camera-unavailable') });
+    }
+  }
   async function photoCommand(spec) {
+    if (spec.action === 'camera') return openCamera(spec);
+    if (spec.action === 'camera-cancel') { closeCamera(); image(spec.session, 'cancelled'); return; }
+    if (spec.action === 'camera-capture') {
+      const held = camera;
+      if (!held || held.session !== spec.session || !held.video.videoWidth) throw Error(notice('camera-unavailable'));
+      image(spec.session, 'camera-capturing');
+      const canvas = document.createElement('canvas'); canvas.width = held.video.videoWidth; canvas.height = held.video.videoHeight;
+      canvas.getContext('2d').drawImage(held.video, 0, 0);
+      const captured = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!captured) throw Error(notice('photo-encode'));
+      const prepared = await preparePhoto(captured, maxImageBytes);
+      if (camera !== held) return;
+      cameraDraft = { kind: 'image', id: crypto.randomUUID(), session: spec.session, ...prepared };
+      image(spec.session, 'camera-preview', { imageId: cameraDraft.id, url: urlFor(prepared.blob), width: prepared.width, height: prepared.height });
+      return;
+    }
+    if (spec.action === 'camera-attach') {
+      const draft = cameraDraft;
+      if (!draft || draft.session !== spec.session) throw Error(notice('photo-missing'));
+      await stored('readwrite', store => store.put(draft, 'image'));
+      closeCamera(); image(spec.session, 'selected', { imageId: draft.id, url: urlFor(draft.blob), width: draft.width, height: draft.height }); return;
+    }
     if (spec.action === 'cancel') {
       const draft = await stored('readonly', store => store.get('image'));
       rule('cancel-draft', { draft: descriptor(draft), label: 'photo' });
@@ -242,9 +349,9 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
     if (spec.action === 'load') {
       image(spec.session, 'loaded', { imageId: spec.imageId, url: sameOrigin(spec.url).href }); return;
     }
-    if (spec.action !== 'pick' && spec.action !== 'camera') throw Error(notice('photo-action'));
+    if (spec.action !== 'pick') throw Error(notice('photo-action'));
+    closeCamera();
     picker?.remove(); picker = document.createElement('input'); picker.type = 'file'; picker.accept = 'image/*';
-    if (spec.action === 'camera') picker.capture = 'environment';
     picker.hidden = true; document.body.append(picker);
     picker.oncancel = () => { picker.remove(); image(spec.session, 'cancelled'); };
     picker.onchange = async () => {
@@ -304,6 +411,21 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
 
   return {
     acknowledge,
+    rendered(root) {
+      if (camera) {
+        const surface = [...root.querySelectorAll('[data-bend-shape]')].find(node => node.dataset.bendShape === 'Camera preview · ' + camera.session);
+        if (surface && camera.video.parentNode !== surface) surface.append(camera.video);
+        if (surface && !camera.animated) {
+          camera.animated = true;
+          const origin = root.querySelector('[data-bend-shape="Motion origin · camera"]');
+          if (origin && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            const from = origin.getBoundingClientRect(), to = surface.getBoundingClientRect();
+            surface.animate([{ transform: `translate(${from.x + from.width / 2 - to.x - to.width / 2}px,${from.y + from.height / 2 - to.y - to.height / 2}px) scale(${from.width / to.width},${from.height / to.height})`, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: 360, easing: 'cubic-bezier(.2,.9,.25,1)' });
+          }
+        }
+
+      }
+    },
     busy() { return !!call || recorder?.state === 'recording' || !!microphone; },
     edited(caption) {
       if (!documentSession) return;
@@ -316,7 +438,7 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
       });
       return fileEdits;
     },
-    async request(operation, spec, signal) {
+    async request(operation, spec, signal, context) {
       const route = rule('route', { operation });
       if (route.kind !== 'media') throw Error('Unsupported media effect.');
       const kind = route.media;
@@ -326,11 +448,12 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
       }
       if (kind === 'file') await fileEdits;
       const draft = await stored('readonly', store => store.get(kind));
-      const decision = rule('upload', { kind, draft: descriptor(draft), body: spec.body });
+      const prepared = rule('request', { body: spec.body, held: draft?.metadata ? { ...draft.metadata, id: draft.metadata.requestId } : undefined, ...context });
+      const decision = rule('upload', { kind, draft: descriptor(draft), body: prepared.body });
       draft.metadata = decision.metadata;
       await stored('readwrite', store => store.put(draft, kind));
       const body = new FormData();
-      const filename = kind === 'file' ? encodeURIComponent(draft.name).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()) : kind === 'image' ? 'photo.jpg' : draft.blob.type === 'audio/mp4' ? 'voice.m4a' : 'voice.webm';
+      const filename = kind === 'file' ? encodeURIComponent(draft.name).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()) : kind === 'image' ? 'photo.jpg' : draft.blob.type === 'audio/mp4' ? 'voice.m4a' : draft.blob.type === 'audio/wav' ? 'voice.wav' : 'voice.webm';
       body.set(decision.field, draft.blob, filename);
       body.set('metadata', JSON.stringify(decision.includeName ? { ...decision.metadata, name:draft.name } : decision.metadata));
       const text = await responseText(await fetch(sameOrigin(spec.url), { method: 'POST', body, signal, credentials: 'same-origin' }));
@@ -353,7 +476,7 @@ function createMediaHost(event, { maxImageBytes = config.photoOutputLimit } = {}
       }
     },
     close() {
-      closed = true; recordingGeneration++;
+      closed = true; recordingGeneration++; closeCamera();
       if (recorder?.state === 'recording') recorder.stop();
       stopMicrophone(); endCall(); player?.pause(); picker?.remove();
       for (const url of urls) URL.revokeObjectURL(url);
@@ -469,7 +592,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
     if (route.kind === 'notifications') return rule('notification-note', { locale: navigator.language });
     if (route.kind === 'media') {
       const spec = rule('prepare-media', { kind: route.media, spec: JSON.parse(data), session: browserSession });
-      const text = await media.request(operation, spec, signal);
+      const text = await media.request(operation, spec, signal, { displayed: displayedContext, clicked: processingContext ?? displayedContext });
       if (route.mode === 'upload') observeSnapshot(text);
       return text;
     }
@@ -548,6 +671,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
         else if (atBottom) thread.scrollTop = thread.scrollHeight;
         lastHeight = thread.scrollHeight; prepend = false;
       }
+      media.rendered(root);
       root.setAttribute('aria-busy', 'false');
     },
     close() {
