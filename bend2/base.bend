@@ -2006,12 +2006,15 @@ def String.split.fin(c: Char, r: List<&2, String>, cut: Bool) ->
     case True{}:
       SNil{} <> r
 
-def String.split(s: String, +sep: Char) -> List<&2, String>:
+def String.split.go(s: String, +sep: Char, parts: List<&2, String>) -> List<&2, String>:
   match s:
     case SNil{}:
-      [SNil{}]
+      parts
     case SCon{+h, t}:
-      String.split.fin(h, String.split(t, sep), Char.is_eq(h, sep))
+      String.split.go(t, sep, String.split.fin(h, parts, Char.is_eq(h, sep)))
+
+def String.split(s: String, sep: Char) -> List<&2, String>:
+  String.split.go(String.reverse(s), sep, [SNil{}])
 
 def String.lines(s: String) -> List<&2, String>:
   String.split(s, '\n')

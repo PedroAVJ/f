@@ -2650,14 +2650,15 @@ export function compile_book(book: Bend.Book, web = false): string {
     `CONSTV u64 TAB_${i}[] = { ${r} };`)].join("\n\n");
   const spins = [`CONSTV u64 STAT_IMG[] = { ${fl.img.join(", ") || 0} };`,
     ...fl.spins.map((s) => s.lines.join("\n"))].join("\n\n");
-  const segs = fl.segs.map((seg) => {
+  const bodies = fl.segs.map((seg) => {
     const out = [`  WL_CASE(${seg.fid})`, "  {",
       ...seg_take(seg).map((l) => "    " + l),
       "    WL_OPEN", ...seg.spin ? ["    WL_SPIN"] : [],
       ...seg_text(seg.lines, 2), ...seg.spin ? ["    WL_SPUN"] : [], "  }}"];
     return (dev.has(seg.fid) ? out : ["#if !DEVICE", ...out, "#endif"])
       .join("\n");
-  }).join("\n\n");
+  });
+  const segs = bodies.join("\n\n");
   if (/\bundefined\b/.test([tabs, spins, segs].join("\n"))) {
     die("an unbound name in the emitted C");
   }
@@ -2666,7 +2667,7 @@ export function compile_book(book: Bend.Book, web = false): string {
       `case ${fid}: return ${JSON.stringify(shader)};`).join("\n")
     + "\ndefault: return NULL; } }\n#endif";
   return c_ids(fl, runtime_c([tabs, ...desc, shaders].join("\n\n"), spins,
-    segs, reqs));
+    segs, reqs, web ? work_web(bodies, ws) : ""));
 }
 
 // JS
@@ -2991,8 +2992,138 @@ function a32_ops(f: (k: string) => string): string {
     "#define " + f(k)).join("\n");
 }
 
+function work_web(bodies: string[], registers: string[]): string {
+  // Split browser evaluator switches without requiring Wasm tail calls.
+  const groups: string[][] = [[]], routes: number[] = [];
+  let bytes = 0;
+  for (const body of bodies) {
+    if (groups.at(-1)!.length && (groups.at(-1)!.length >= 64
+      || bytes + body.length > 131072)) {
+      groups.push([]);
+      bytes = 0;
+    }
+    routes.push(groups.length - 1);
+    groups.at(-1)!.push(body);
+    bytes += body.length;
+  }
+  routes.push(...Array(4).fill(groups.length));
+  groups.push([work_cases]);
+  const fields = ["e", "sp", "seq", "rn", "wpoll", ...registers];
+  return `typedef struct {
+  Env e;
+  Term* sp;
+  u32 seq, rn, wpoll, fid, again;
+  Term ${registers.join(", ")};
+} WlWebState;
+
+#undef WL_JMP
+#define WL_JMP(F) { state->fid = (F); state->again = 1; return 0; }
+${fields.map(f => `#define ${f} (state->${f})`).join("\n")}
+
+${groups.map((group, i) => `FAR Term work_web_${i}(WlWebState* state) {
+  switch (state->fid) {
+${group.join("\n\n")}
+  default: err_post(e.mem, ERR_FIDS); return 0;
+  }
+  return 0;
+}`).join("\n\n")}
+
+${fields.map(f => `#undef ${f}`).join("\n")}
+static const u32 WL_WEB_ROUTE[] = { ${routes.join(", ")} };
+typedef Term (*WlWebFn)(WlWebState*);
+static const WlWebFn WL_WEB_FNS[] = { ${groups.map((_, i) =>
+    `work_web_${i}`).join(", ")} };
+
+FAR Term work_loop(Env e, Term* sp, Term t, u32 seq) {
+  WlWebState state = { .e = e, .sp = sp, .seq = seq, .r0 = t,
+    .fid = FID_ENTER };
+  for (;;) {
+    if (err_spun(e.mem, &state.wpoll)) return 0;
+    if (state.fid >= sizeof(WL_WEB_ROUTE) / sizeof(WL_WEB_ROUTE[0])) {
+      err_post(e.mem, ERR_FIDS);
+      return 0;
+    }
+    state.again = 0;
+    Term result = WL_WEB_FNS[WL_WEB_ROUTE[state.fid]](&state);
+    if (!state.again) return result;
+  }
+}
+`;
+}
+
+const work_cases = String.raw`
+  WL_CASE(FID_ENTER)
+  {
+    Term t = r0;
+    WL_OPEN
+    u32 f   = (u32)term_aux(t);
+    u64 a   = term_loc(t);
+    u32 war = fid_arity(f);
+    WL_FRAME(t)
+    seq |= fid_nofk(f) << 1;
+    u32 rw = fid_resw(f);
+    if (rw) {
+      WL_LOAD(a + war - rw, rw)
+      WL_ARGS(a, war - rw + 1)
+    } else {
+      WL_LOAD(a, war)
+    }
+    heap_free(e, cls_fit(war + 2), a);
+    WL_DYN(f);
+  }}
+
+  WL_CASE(FID(IO~emit))
+  {
+    Term x = r0;
+    WL_OPEN
+    u64 l = heap_alloc(e, 0);
+    e.mem[l] = x;
+    r0 = term_ctr(CID(Emit), l);
+    WL_RETN(1);
+  }}
+
+  WL_CASE(FID(Clo~apply))
+  {
+    Term fun = r0;
+    Term arg = r1;
+    WL_OPEN
+    u32 f    = (u32)term_aux(fun);
+    u32 war  = fid_arity(f) - 1;
+    u64 a    = term_loc(fun);
+    WL_LOAD(a, war)
+    spare_free(e, cls_fit(war), a);
+    WL_LAST(arg)
+    WL_DYN(f);
+  }}
+
+  WL_CASE(FID_EXIT)
+  {
+    u32  n = rn;
+    Term rv[WL_RESW];
+    WL_SAVE(rv)
+    WL_OPEN
+    if (err_seen(e.mem)) return 0;
+    sp -= 2 * LANE_STEP;
+    Term cont = STK(0);
+    u32  idx  = (u32)STK(1);
+    u32  wf   = (u32)term_aux(cont);
+    if (cont != TERM_HOLE && fid_resw(wf)) {
+      u64 wa = term_loc(cont);
+      u32 wn = fid_arity(wf);
+      WL_FRAME(cont)
+      seq = (seq & 1) | fid_nofk(wf) << 1;
+      WL_ARGS(wa, wn - n + 1)
+      heap_free(e, cls_fit(wn + 2), wa);
+      WL_TAKE(rv)
+      WL_DYN(wf);
+    }
+    return task_deliver(e.mem, cont, idx, rv, n);
+  }}
+
+`;
+
 const runtime_c = (tabs: string, spins: string, segs: string,
-  reqs: string): string => String.raw`
+  reqs: string, webWork: string): string => String.raw`
 
 // Imports
 
@@ -4046,7 +4177,7 @@ ${spins}
 
 // Work
 
-// Host self-jumps tail-call: loops hoist symreg constants (3.05s vs2.51s).
+${webWork || String.raw`// Host self-jumps tail-call: loops hoist symreg constants (3.05s vs2.51s).
 #if !DEVICE && !BEND_WEB
 #undef  WL_SPIN
 #undef  WL_SPUN
@@ -4092,74 +4223,7 @@ Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 
 ${segs}
 
-  WL_CASE(FID_ENTER)
-  {
-    Term t = r0;
-    WL_OPEN
-    u32 f   = (u32)term_aux(t);
-    u64 a   = term_loc(t);
-    u32 war = fid_arity(f);
-    WL_FRAME(t)
-    seq |= fid_nofk(f) << 1;
-    u32 rw = fid_resw(f);
-    if (rw) {
-      WL_LOAD(a + war - rw, rw)
-      WL_ARGS(a, war - rw + 1)
-    } else {
-      WL_LOAD(a, war)
-    }
-    heap_free(e, cls_fit(war + 2), a);
-    WL_DYN(f);
-  }}
-
-  WL_CASE(FID(IO~emit))
-  {
-    Term x = r0;
-    WL_OPEN
-    u64 l = heap_alloc(e, 0);
-    e.mem[l] = x;
-    r0 = term_ctr(CID(Emit), l);
-    WL_RETN(1);
-  }}
-
-  WL_CASE(FID(Clo~apply))
-  {
-    Term fun = r0;
-    Term arg = r1;
-    WL_OPEN
-    u32 f    = (u32)term_aux(fun);
-    u32 war  = fid_arity(f) - 1;
-    u64 a    = term_loc(fun);
-    WL_LOAD(a, war)
-    spare_free(e, cls_fit(war), a);
-    WL_LAST(arg)
-    WL_DYN(f);
-  }}
-
-  WL_CASE(FID_EXIT)
-  {
-    u32  n = rn;
-    Term rv[WL_RESW];
-    WL_SAVE(rv)
-    WL_OPEN
-    if (err_seen(e.mem)) return 0;
-    sp -= 2 * LANE_STEP;
-    Term cont = STK(0);
-    u32  idx  = (u32)STK(1);
-    u32  wf   = (u32)term_aux(cont);
-    if (cont != TERM_HOLE && fid_resw(wf)) {
-      u64 wa = term_loc(cont);
-      u32 wn = fid_arity(wf);
-      WL_FRAME(cont)
-      seq = (seq & 1) | fid_nofk(wf) << 1;
-      WL_ARGS(wa, wn - n + 1)
-      heap_free(e, cls_fit(wn + 2), wa);
-      WL_TAKE(rv)
-      WL_DYN(wf);
-    }
-    return task_deliver(e.mem, cont, idx, rv, n);
-  }}
-
+${work_cases}
 #if DEVICE || BEND_WEB
   default: {
     err_post(e.mem, ERR_FIDS);
@@ -4169,6 +4233,7 @@ ${segs}
   }
 }
 #endif
+`}
 
 // Monk
 
