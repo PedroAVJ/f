@@ -1,0 +1,12 @@
+[
+  {
+    "name": "injective_constant",
+    "rejected": true,
+    "diagnostic": "SOME PROOFS FAIL\nError:\n- expected : a\n- observed : b\nContext:\n- a    : Nat\n- b    : Nat\n- same : {0n == 0n : Nat}\nLocation: invalid\n3 | def invalid() -> Injective(Nat, Nat):\n4>|   Tuple{zero, a => b => same => {==}}\n  |                                 ^^^^\n5 | \n"
+  },
+  {
+    "name": "bounded_exceeds_limit",
+    "rejected": true,
+    "diagnostic": "SOME PROOFS FAIL\nError:\n- expected : False{}\n- observed : True{}\nContext:\n- x : Nat\nLocation: invalid\n4 | def invalid() -> Bounded(Nat, Nat, Nat, identity, Nat.is_le, 0n):\n5>|   Tuple{one, x => {==}}\n  |                   ^^^^\n6 | \n"
+  }
+]

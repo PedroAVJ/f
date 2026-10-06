@@ -143,6 +143,38 @@ def Pair.snd(-A: Type, -B: Type, p: A & B) -> B:
   (a, b) = p
   b
 
+# Specification constructors
+# -------------------------
+
+# Labels remain in the type; each alternative is a distinct nested sum case.
+def Enum(labels: List<&2, String>) -> Type:
+  match labels:
+    case []: Empty
+    case label <> rest: Or(Unit, Enum(rest))
+
+# Map keys give fields stable names and prevent duplicate entries.
+def Record(-A: Type) -> Type:
+  Map<&1, A>
+
+type Tree.Nodes<-Branch: Type, -Leaf: Type> is Type:
+  Tip{value: Leaf}
+  Fork{branch: Branch, children: List<Tree.Nodes<Branch, Leaf>>}
+
+def Tree(-Branch: Type, -Leaf: Type) -> Type:
+  Tree.Nodes<Branch, Leaf>
+
+# A witness includes the function and its checked injectivity proof.
+def Injective(-A: Type, -B: Type) -> Type:
+  Exists(A -> B, f => @-a: A -> @-b: A ->
+    {f(a) == f(b) : B} -> {a == b : A})
+
+# Measurement and comparison are explicit: no pixel, numeric or unit axiom.
+# `limit` is measured in M, and the proof covers every input.
+def Bounded(-A: Type, -B: Type, -M: Type,
+  -size: B -> M, -le: M -> M -> Bool, -limit: M) -> Type:
+  Exists(A -> B, f => @-a: A ->
+    {le(size(f(a)), limit) == True{} : Bool})
+
 # Effects
 # -------
 
