@@ -11,7 +11,7 @@ function checkShape(c) {
     !Array.isArray(geometry) || !Array.isArray(fill) || !Array.isArray(stroke) || !Array.isArray(effects)) throw Error('invalid F shape packet');
   const [g,...gs] = geometry;
   if (g === 'rounded') { if (gs.length !== 3 || !gs.every(number)) throw Error('invalid Rounded geometry'); }
-  else if (g === 'text') { if (gs.length !== 3 || !string(gs[0]) || !gs.slice(1).every(number)) throw Error('invalid Text geometry'); }
+  else if (g === 'text') { if (![3,4].includes(gs.length) || !string(gs[0]) || !gs.slice(1,3).every(number) || (gs.length === 4 && gs[3] !== 'monospace')) throw Error('invalid Text geometry'); }
   else if (g === 'path') {
     if (gs.length !== 1 || !Array.isArray(gs[0]) || gs[0].length > MAX) throw Error('invalid Path geometry');
     for (const p of gs[0]) {
@@ -154,7 +154,7 @@ export function createCanvasRenderer(root, event) {
           gradient.addColorStop(0,fill[1]);gradient.addColorStop(fill[3]/100,fill[1]);gradient.addColorStop(1,fill[2]);ctx.fillStyle=gradient;
         }
         if (geometry[0] === 'text') {
-          ctx.font=`${geometry[3]} ${geometry[2]}px system-ui`;ctx.textBaseline='top';ctx.fillText(geometry[1],0,0);
+          ctx.font=`${geometry[3]} ${geometry[2]}px ${geometry[4]==='monospace'?'Menlo,ui-monospace,monospace':'system-ui'}`;ctx.textBaseline='top';ctx.fillText(geometry[1],0,0);
         } else if (fill[0] === 'solid' || fill[0] === 'gradient') ctx.fill(path);
         else if (fill[0] === 'photo' || fill[0] === 'atlas') {
           const img=loaded.get(c);
