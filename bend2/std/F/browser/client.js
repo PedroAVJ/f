@@ -549,7 +549,7 @@ export function createBrowserClient({ root, deliver, policy, catalog = [] }) {
     return snapshot;
   };
   const viewport = () => rule('viewport', { width: Math.floor(root.clientWidth), height: Math.floor(globalThis.visualViewport?.height ?? innerHeight) });
-  const resize = () => { if (initialized) event(viewport()); };
+  const resize = () => { if (initialized) event(viewport(), 'viewport'); };
   const refresh = () => {
     if (!document.hidden && !refreshQueued) { refreshQueued = true; event(rule('refresh-event')); }
   };
