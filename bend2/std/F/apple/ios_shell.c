@@ -419,6 +419,7 @@ static char* ios_fetch(unsigned op, NSString* text, unsigned* status) {
 
 @interface BendIOSButton : UIButton
 @property(copy) NSString* eventName;
+@property(strong) UILongPressGestureRecognizer* holdGesture;
 @end
 @implementation BendIOSButton
 @end
@@ -927,6 +928,15 @@ static BendIOSController* ios_controller;
   }
   return YES;
 }
+- (void)held:(UILongPressGestureRecognizer*)gesture {
+  BendIOSButton* button = (BendIOSButton*)gesture.view;
+  NSString* prefix = @"button · holdable:";
+  if (![button.eventName hasPrefix:prefix]) return;
+  NSString* action = gesture.state == UIGestureRecognizerStateBegan ? @"hold-start:" :
+    gesture.state == UIGestureRecognizerStateEnded ? @"hold-end:" :
+    gesture.state == UIGestureRecognizerStateCancelled || gesture.state == UIGestureRecognizerStateFailed ? @"hold-cancel:" : nil;
+  if (action) ios_deliver([@"button · " stringByAppendingString:[action stringByAppendingString:[button.eventName substringFromIndex:prefix.length]]], nil, 0);
+}
 - (void)clicked:(BendIOSButton*)button {
   if (!button.enabled) return;
   NSString* linkPrefix = @"button · open-url:";
@@ -1254,6 +1264,13 @@ static BendIOSController* ios_controller;
         [button addTarget:self action:@selector(clicked:) forControlEvents:UIControlEventTouchUpInside];
       }
       button.eventName = eventName;
+      BOOL holdable = [eventName hasPrefix:@"button · holdable:"];
+      if (holdable && !button.holdGesture) {
+        button.holdGesture = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(held:)];
+        button.holdGesture.minimumPressDuration = 0.3; button.holdGesture.allowableMovement = 80;
+        button.holdGesture.cancelsTouchesInView = YES; [button addGestureRecognizer:button.holdGesture];
+      }
+      button.holdGesture.enabled = holdable && enabled;
       button.frame = inMotion ? CGRectOffset(bounds, -motionRect.origin.x, -motionRect.origin.y) : inConversation ? CGRectOffset(bounds, -conversation.origin.x, -conversation.origin.y) : bounds;
       button.enabled = enabled;
       NSRange separator = [eventName rangeOfString:@" · "];

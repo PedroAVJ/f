@@ -222,6 +222,21 @@ static void ios_file_edited(NSString* name, NSString* value) {
   }
 }
 
+static BOOL ios_file_stage(NSURL* source, NSString* name, NSString* session, NSString* caption) {
+  NSData* bytes = ios_file_bytes(source);
+  if (!bytes || !ios_file_name(name)) return NO;
+  NSString* identifier = NSUUID.UUID.UUIDString; NSURL* retained = ios_file_url(identifier, name);
+  UTType* type = [UTType typeWithFilenameExtension:source.pathExtension];
+  NSDictionary* metadata = @{@"fileId":identifier, @"name":name, @"mimeType":type.preferredMIMEType ?: @"application/octet-stream", @"size":@(bytes.length), @"caption":caption ?: @""};
+  if (!retained || ![bytes writeToURL:retained options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL] || !ios_file_save(metadata)) {
+    if (retained) [NSFileManager.defaultManager removeItemAtURL:retained error:NULL]; return NO;
+  }
+  if (!ios_file) ios_file = [BendIOSFile new];
+  ios_file.session = session; ios_file.caption = caption;
+  NSMutableDictionary* event = [metadata mutableCopy]; event[@"session"] = session; event[@"phase"] = @"selected"; event[@"source"] = @"camera";
+  ios_action(@{@"action":@"file", @"data":event}); return YES;
+}
+
 static void ios_file_restore(void) {
   NSDictionary* draft = [NSUserDefaults.standardUserDefaults dictionaryForKey:ios_file_draft_key];
   if (!ios_file_metadata(draft)) return;

@@ -7,6 +7,8 @@
 #import <AVFoundation/AVFoundation.h>
 #include <TargetConditionals.h>
 
+static BOOL ios_file_stage(NSURL* source, NSString* name, NSString* session, NSString* caption);
+
 #define IOS_IMAGE_LIMIT (5u << 20)
 static NSString* ios_image_draft_key = @"bend-image-draft";
 
@@ -152,12 +154,18 @@ static NSData* ios_image_download(NSURL* url, unsigned* status) {
 }
 @end
 
-@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate, AVCapturePhotoCaptureDelegate>
+@interface BendIOSImage : NSObject <PHPickerViewControllerDelegate, AVCapturePhotoCaptureDelegate, AVCaptureFileOutputRecordingDelegate>
 @property(copy) NSString* session;
 @property(copy) NSString* caption;
 @property(strong) PHPickerViewController* picker;
 @property(strong) AVCaptureSession* camera;
 @property(strong) AVCapturePhotoOutput* photoOutput;
+@property(strong) AVCaptureMovieFileOutput* movieOutput;
+@property(strong) AVCaptureDeviceInput* cameraInput;
+@property(strong) AVCaptureDeviceInput* microphoneInput;
+@property(strong) NSURL* movieURL;
+@property BOOL movieRequested;
+@property BOOL discardMovie;
 @property(strong) AVCaptureDevice* cameraDevice;
 @property(strong) AVCaptureDeviceRotationCoordinator* rotation API_AVAILABLE(ios(17.0));
 @property(strong) BendIOSCameraSurface* surface;
@@ -210,7 +218,8 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
   self.surface.still.image = nil; self.surface.still.hidden = YES;
 }
 - (void)stopCamera {
-  ++self.generation; self.captureID = 0;
+  ++self.generation; self.captureID = 0; self.movieRequested = NO; self.discardMovie = YES;
+  if (self.movieOutput.isRecording) [self.movieOutput stopRecording];
   for (id observer in self.cameraObservers) [NSNotificationCenter.defaultCenter removeObserver:observer];
   self.cameraObservers = nil;
   if (@available(iOS 17.0, *)) {
@@ -218,7 +227,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
     self.rotation = nil;
   }
   AVCaptureSession* camera = self.camera;
-  self.camera = nil; self.photoOutput = nil; self.cameraDevice = nil; self.cameraPhase = nil; self.cameraDisplayed = NO; self.cameraAttached = NO;
+  self.camera = nil; self.photoOutput = nil; self.movieOutput = nil; self.cameraInput = nil; self.microphoneInput = nil; self.cameraDevice = nil; self.cameraPhase = nil; self.cameraDisplayed = NO; self.cameraAttached = NO;
   ((AVCaptureVideoPreviewLayer*)self.surface.layer).session = nil;
   [self.surface removeFromSuperview]; self.surface = nil;
   if (camera) dispatch_async(self.cameraQueue, ^{ [camera stopRunning]; });
@@ -278,9 +287,9 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
     AVCaptureDeviceInput* input = device ? [AVCaptureDeviceInput deviceInputWithDevice:device error:&error] : nil;
     AVCapturePhotoOutput* output = [AVCapturePhotoOutput new];
     [camera beginConfiguration];
-    BOOL configured = input && !error && [camera canAddInput:input] && [camera canSetSessionPreset:AVCaptureSessionPresetPhoto];
+    BOOL configured = input && !error && [camera canAddInput:input] && [camera canSetSessionPreset:AVCaptureSessionPresetHigh];
     if (configured) {
-      camera.sessionPreset = AVCaptureSessionPresetPhoto;
+      camera.sessionPreset = AVCaptureSessionPresetHigh;
       [camera addInput:input]; configured = [camera canAddOutput:output];
       if (configured) [camera addOutput:output];
     }
@@ -288,7 +297,7 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
     dispatch_async(dispatch_get_main_queue(), ^{
       if (generation != self.generation || camera != self.camera) return;
       if (!configured) { [self cameraUnavailable:@"configuration" message:ios_audio_words(@"The camera could not start. Try again.", @"No se pudo iniciar la cámara. Reintenta.")]; return; }
-      self.cameraDevice = device; self.photoOutput = output;
+      self.cameraDevice = device; self.cameraInput = input; self.photoOutput = output;
       if (@available(iOS 17.0, *)) {
         self.rotation = [[AVCaptureDeviceRotationCoordinator alloc] initWithDevice:device previewLayer:self.surface.layer];
         [self.rotation addObserver:self forKeyPath:@"videoRotationAngleForHorizonLevelPreview" options:NSKeyValueObservingOptionNew context:ios_camera_rotation_context];
@@ -344,6 +353,110 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
       else [self cameraUnavailable:@"permission" message:ios_audio_words(@"Allow camera access in Settings to take a photo.", @"Permite el acceso a la cámara en Ajustes para tomar una foto.")];
     });
   }];
+}
+- (NSString*)flipCamera {
+  if (![self.cameraPhase isEqual:@"camera-ready"] || self.movieRequested) return nil;
+  self.cameraPhase = @"camera-opening"; [self emit:self.cameraPhase metadata:nil];
+  NSUInteger generation = self.generation; AVCaptureSession* camera = self.camera;
+  AVCaptureDevicePosition position = self.cameraDevice.position == AVCaptureDevicePositionFront ? AVCaptureDevicePositionBack : AVCaptureDevicePositionFront;
+  dispatch_async(self.cameraQueue, ^{
+    AVCaptureDevice* device = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInWideAngleCamera mediaType:AVMediaTypeVideo position:position];
+    AVCaptureDeviceInput* input = device ? [AVCaptureDeviceInput deviceInputWithDevice:device error:NULL] : nil;
+    if (generation != self.generation || camera != self.camera) return;
+    AVCaptureDeviceInput* old = self.cameraInput; BOOL changed = NO;
+    if (input) {
+      [camera beginConfiguration]; [camera removeInput:old];
+      changed = [camera canAddInput:input];
+      if (changed) [camera addInput:input]; else if ([camera canAddInput:old]) [camera addInput:old];
+      [camera commitConfiguration];
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation != self.generation || camera != self.camera) return;
+      if (changed) {
+        self.cameraDevice = device; self.cameraInput = input;
+        if (@available(iOS 17.0, *)) {
+          if (self.rotation) [self.rotation removeObserver:self forKeyPath:@"videoRotationAngleForHorizonLevelPreview" context:ios_camera_rotation_context];
+          self.rotation = [[AVCaptureDeviceRotationCoordinator alloc] initWithDevice:device previewLayer:self.surface.layer];
+          [self.rotation addObserver:self forKeyPath:@"videoRotationAngleForHorizonLevelPreview" options:NSKeyValueObservingOptionNew context:ios_camera_rotation_context];
+        }
+        [self updateRotation];
+      }
+      self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:changed ? nil : @{@"error":ios_audio_words(@"This camera is unavailable.", @"Esta cámara no está disponible.")}];
+    });
+  }); return nil;
+}
+- (void)beginMovie:(NSUInteger)generation {
+  if (generation != self.generation || !self.movieRequested) return;
+  AVCaptureSession* camera = self.camera;
+  CGFloat rotation = 90; if (@available(iOS 17.0, *)) if (self.rotation) rotation = self.rotation.videoRotationAngleForHorizonLevelCapture;
+  BOOL mirrored = self.cameraDevice.position == AVCaptureDevicePositionFront;
+  self.discardMovie = NO;
+  dispatch_async(self.cameraQueue, ^{
+    if (generation != self.generation || !self.movieRequested) return;
+    NSError* error = nil;
+    AVAudioSession* audio = AVAudioSession.sharedInstance;
+    BOOL ready = [audio setCategory:AVAudioSessionCategoryPlayAndRecord mode:AVAudioSessionModeVideoRecording options:AVAudioSessionCategoryOptionDefaultToSpeaker error:&error] && [audio setActive:YES error:&error];
+    AVCaptureDeviceInput* microphone = self.microphoneInput ?: [AVCaptureDeviceInput deviceInputWithDevice:[AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio] error:&error];
+    AVCaptureMovieFileOutput* output = self.movieOutput ?: [AVCaptureMovieFileOutput new];
+    [camera beginConfiguration];
+    if (!self.microphoneInput && microphone && [camera canAddInput:microphone]) { [camera addInput:microphone]; self.microphoneInput = microphone; }
+    if (!self.movieOutput && [camera canAddOutput:output]) { [camera addOutput:output]; self.movieOutput = output; }
+    [camera commitConfiguration];
+    ready = ready && self.microphoneInput && self.movieOutput && !error;
+    if (!ready || generation != self.generation || !self.movieRequested) {
+      dispatch_async(dispatch_get_main_queue(), ^{ if (generation == self.generation) { self.movieRequested = NO; self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:@{@"error":ios_audio_words(@"Could not start video recording.", @"No se pudo iniciar la grabación de video.")}]; } }); return;
+    }
+    output.maxRecordedFileSize = 20u << 20; output.maxRecordedDuration = CMTimeMake(300, 1);
+    AVCaptureConnection* connection = [output connectionWithMediaType:AVMediaTypeVideo];
+    if (@available(iOS 17.0, *)) if ([connection isVideoRotationAngleSupported:rotation]) connection.videoRotationAngle = rotation;
+    if (connection.isVideoMirroringSupported) { connection.automaticallyAdjustsVideoMirroring = NO; connection.videoMirrored = mirrored; }
+    NSURL* file = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".mov"]]];
+    self.movieURL = file;
+    [output startRecordingToOutputFileURL:file recordingDelegate:self];
+  });
+}
+- (NSString*)startMovie {
+  if (![self.cameraPhase isEqual:@"camera-ready"] || self.movieRequested) return nil;
+  self.movieRequested = YES; self.cameraPhase = @"camera-authorizing-video"; [self emit:self.cameraPhase metadata:nil];
+  NSUInteger generation = self.generation;
+  AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+  if (status == AVAuthorizationStatusAuthorized) { [self beginMovie:generation]; return nil; }
+  if (status == AVAuthorizationStatusNotDetermined) {
+    [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (generation != self.generation) return;
+        if (granted && self.movieRequested) [self beginMovie:generation];
+        else { self.movieRequested = NO; self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:granted ? nil : @{@"error":ios_audio_words(@"Allow microphone access in Settings to record video with sound.", @"Permite el acceso al micrófono en Ajustes para grabar video con sonido.")}]; }
+      });
+    }]; return nil;
+  }
+  self.movieRequested = NO; self.cameraPhase = @"camera-ready";
+  [self emit:self.cameraPhase metadata:@{@"error":ios_audio_words(@"Allow microphone access in Settings to record video with sound.", @"Permite el acceso al micrófono en Ajustes para grabar video con sonido.")}]; return nil;
+}
+- (NSString*)finishMovie:(BOOL)cancelled {
+  self.movieRequested = NO; self.discardMovie = cancelled;
+  AVCaptureMovieFileOutput* output = self.movieOutput;
+  if (output.isRecording) { self.cameraPhase = @"camera-saving-video"; [self emit:self.cameraPhase metadata:nil]; dispatch_async(self.cameraQueue, ^{ [output stopRecording]; }); }
+  else if ([self.cameraPhase isEqual:@"camera-authorizing-video"]) { self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:nil]; }
+  return nil;
+}
+- (void)captureOutput:(AVCaptureFileOutput*)output didStartRecordingToOutputFileAtURL:(NSURL*)file fromConnections:(NSArray<AVCaptureConnection*>*)connections {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (output != self.movieOutput || ![file isEqual:self.movieURL] || !self.movieRequested) { [output stopRecording]; return; }
+    self.cameraPhase = @"camera-recording"; [self emit:self.cameraPhase metadata:nil];
+  });
+}
+- (void)captureOutput:(AVCaptureFileOutput*)output didFinishRecordingToOutputFileAtURL:(NSURL*)file fromConnections:(NSArray<AVCaptureConnection*>*)connections error:(NSError*)error {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    BOOL current = output == self.movieOutput && [file isEqual:self.movieURL];
+    BOOL saved = NO;
+    if (current && !self.discardMovie && (!error || [error.userInfo[AVErrorRecordingSuccessfullyFinishedKey] boolValue])) saved = ios_file_stage(file, @"Video.mov", self.session, self.caption);
+    [NSFileManager.defaultManager removeItemAtURL:file error:NULL];
+    if (!current) return;
+    self.movieURL = nil; self.movieRequested = NO;
+    if (saved) { self.cameraAttached = YES; [self stopCamera]; }
+    else { self.cameraPhase = @"camera-ready"; [self emit:self.cameraPhase metadata:self.discardMovie ? nil : @{@"error":ios_audio_words(@"Could not save this video. Videos must be at most 20 MiB.", @"No se pudo guardar este video. Los videos deben ser de hasta 20 MiB.")}]; }
+  });
 }
 - (NSString*)capturePhoto {
   if (![self.cameraPhase isEqual:@"camera-ready"] || !self.photoOutput || self.captureID) return nil;
@@ -520,6 +633,10 @@ static void* ios_camera_rotation_context = &ios_camera_rotation_context;
   }
   if (![session isEqual:self.session]) return @"image session is no longer active";
   if ([action isEqual:@"camera-capture"]) return [self capturePhoto];
+  if ([action isEqual:@"camera-flip"]) return [self flipCamera];
+  if ([action isEqual:@"camera-video-start"]) return [self startMovie];
+  if ([action isEqual:@"camera-video-stop"]) return [self finishMovie:NO];
+  if ([action isEqual:@"camera-video-cancel"]) return [self finishMovie:YES];
   if ([action isEqual:@"camera-retake"]) return [self retakePhoto];
   if ([action isEqual:@"camera-attach"]) {
     if (![self.cameraPhase isEqual:@"camera-preview"] || !self.previewBytes.length) return nil;
