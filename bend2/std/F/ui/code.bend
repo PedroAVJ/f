@@ -81,12 +81,13 @@ def spans_go(fuel: Nat, +s: String) -> List<&2, Span>:
           +next = token(s)
           token_value(next) <> spans_go(remaining, token_rest(next))
 def spans(+s: String) -> List<&2, Span>: spans_go(String.length(s), s)
-def normalized(s: String) -> String:
+def normalized_go(s: String, acc: String) -> String:
   match s:
-    case SNil{}: ""
-    case SCon{Chr{9}, rest}: "    " ++ normalized(rest)
-    case SCon{Chr{13}, rest}: normalized(rest)
-    case SCon{char, rest}: SCon{char, normalized(rest)}
+    case SNil{}: String.reverse(acc)
+    case SCon{Chr{9}, rest}: normalized_go(rest, SCon{Chr{32}, SCon{Chr{32}, SCon{Chr{32}, SCon{Chr{32}, acc}}}})
+    case SCon{Chr{13}, rest}: normalized_go(rest, acc)
+    case SCon{char, rest}: normalized_go(rest, SCon{char, acc})
+def normalized(s: String) -> String: normalized_go(s, "")
 def color(kind: String) -> T.TextRole:
   match kind:
     case "keyword": T.TextRole.CodeKeyword{}
