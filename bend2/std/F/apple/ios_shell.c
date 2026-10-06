@@ -18,6 +18,14 @@ extern NSString* bend_paint_check(NSArray*);
 extern NSString* bend_paint_prepare(NSArray*);
 extern void bend_paint_set_dark(BOOL);
 
+#ifdef BEND_SWIFTUI
+@interface FSwiftUIHost : NSObject
++ (UIViewController*)controllerWithAction:(void (^)(NSDictionary*))action;
++ (void)apply:(NSDictionary*)packet;
+@end
+static UIViewController* ios_native_controller;
+#endif
+
 #define IOS_LIMIT 1048576
 #define IOS_EVENTS 256
 #define IOS_ACTIVE 64
@@ -902,6 +910,15 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
       atomic_fetch_sub(&ios_active, 1); return ios_dup(@"too many pending requests");
     }
     char* reply = NULL;
+#ifdef BEND_SWIFTUI
+    if (op == 21) {
+      id packet = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:data length:len] options:0 error:NULL];
+      if ([packet isKindOfClass:NSDictionary.class] && [packet[@"version"] isEqual:@1] && [packet[@"tree"] isKindOfClass:NSDictionary.class]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{ [FSwiftUIHost apply:packet]; });
+        *status = 1; reply = ios_dup(@"");
+      } else reply = ios_dup(@"invalid SwiftUI node packet");
+    } else
+#endif
     if (op == 2) reply = ios_event(status);
     else if (op == 4 || op == 14) reply = ios_canvas(data, len, status, op == 14);
     else if (op == 3 || op == 6) {
@@ -993,7 +1010,13 @@ static void* ios_run(void* ignored) {
   ios_controller = [BendIOSController new];
   ios_notifications = [BendIOSNotifications new];
   self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-  self.window.rootViewController = ios_controller; [self.window makeKeyAndVisible];
+#ifdef BEND_SWIFTUI
+  ios_native_controller = [FSwiftUIHost controllerWithAction:^(NSDictionary* action) { ios_action(action); }];
+  self.window.rootViewController = ios_native_controller;
+#else
+  self.window.rootViewController = ios_controller;
+#endif
+  [self.window makeKeyAndVisible];
   [ios_controller.view layoutIfNeeded];
   pthread_attr_t attributes; pthread_attr_init(&attributes);
   pthread_attr_setstacksize(&attributes, 8u << 20);
@@ -1003,6 +1026,21 @@ static void* ios_run(void* ignored) {
   if (failed) { fprintf(stderr, "Bend UIKit thread failed: %d\n", failed); return NO; }
   pthread_detach(thread);
   return YES;
+}
+- (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary*)options {
+#ifdef BEND_SWIFTUI
+  NSArray* types = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleURLTypes"];
+  BOOL registered = NO;
+  for (NSDictionary* type in types) if ([type[@"CFBundleURLSchemes"] containsObject:url.scheme]) registered = YES;
+  if (registered) {
+    NSMutableDictionary* fields = [NSMutableDictionary dictionary];
+    for (NSURLQueryItem* item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
+      if (item.name && item.value) fields[item.name] = item.value;
+    }
+    ios_action(@{@"action":@"open_url", @"host":url.host ?: @"", @"data":fields}); return YES;
+  }
+#endif
+  return NO;
 }
 - (void)refresh:(NSTimer*)timer {
   if ([ios_controller canRefreshConversation]) ios_action(@{@"action":@"refresh"});
@@ -1024,7 +1062,7 @@ static void* ios_run(void* ignored) {
   [self.refreshTimer invalidate]; self.refreshTimer = nil;
   [NSUserDefaults.standardUserDefaults synchronize];
 }
-- (void)applicationDidEnterBackground:(UIApplication*)application { [ios_voice background]; [ios_image background]; [ios_file background]; }
+- (void)applicationDidEnterBackground:(UIApplication*)application { ios_action(@{@"action":@"background"}); [ios_voice background]; [ios_image background]; [ios_file background]; }
 - (void)applicationWillTerminate:(UIApplication*)application {
   [ios_voice background];
   [ios_image background]; [ios_file background];
