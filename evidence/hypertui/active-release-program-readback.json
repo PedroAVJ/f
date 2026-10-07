@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-07T00:25:54.050Z",
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary",
+  "modulePath": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary/f/bend2/std/F/hypertui/gateway.ts",
+  "executable": "/opt/homebrew/bin/bun",
+  "remoteOnly": true,
+  "mutations": false,
+  "sameOpenLinearDeployment": true,
+  "sameOpenLinearOwnerHeaders": true,
+  "providerDispatches": 0,
+  "queries": [
+    {
+      "uri": "hypertui://programs/",
+      "success": true,
+      "characters": 693,
+      "contentSha256": "a9c2cabb135593dbfa501f8dfa429055fa9cfa2e04c18d6049bfb275dda06612",
+      "actions": 0
+    },
+    {
+      "uri": "https://open-linear.pedroavj.chatgpt.site/hypertui",
+      "success": true,
+      "characters": 294,
+      "contentSha256": "6eec77e8a63c5712a07844f69f8797e40809f5e7f885bc0ef7eb027864ca3a20",
+      "actions": 0
+    },
+    {
+      "uri": "hypertui://program/codex/targets?args=%7B%7D",
+      "success": true,
+      "characters": 478,
+      "contentSha256": "6eac80f6ef19caa36c7cdbdff692e28a2d4dd56438cc3785c3a519aa4ad924d7",
+      "actions": 0
+    },
+    {
+      "uri": "hypertui://program/claude/runs?args=%7B%7D",
+      "success": true,
+      "characters": 262,
+      "contentSha256": "2c0781b69392cecf6606f495a6cf91d3bbc3de303ec9b8475b166abe76208fe7",
+      "actions": 0
+    }
+  ],
+  "tools": [
+    "hyperTUI"
+  ],
+  "gatewaySha256": "87a977d5db65eef79defd4e7850493180325749c17dbd1dc53da218b373895c7",
+  "frontLauncherSha256": "c459dd1d2b379b28fc6ebfcf1129516c1cf1e6723e5aeec34f3a1c12d21f02ae",
+  "passed": true
+}

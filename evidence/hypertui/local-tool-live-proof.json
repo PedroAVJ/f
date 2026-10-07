@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-07T00:16:39.993Z",
+  "at": "2026-10-07T00:27:41.418Z",
   "workerTools": [
     "present_ui",
     "worker_start",
@@ -10,10 +10,12 @@
   ],
   "ordinaryWorkerListSucceeded": true,
   "ordinaryWorkerStatusSucceeded": true,
-  "remoteProgramIndexSucceeded": true,
+  "statusContextOnly": true,
+  "statusMessageCount": 8,
+  "hasVerifiedFacts": true,
   "privateOpenLinearQuerySucceeded": true,
   "codexTargetsSucceeded": true,
   "claudeRunsSucceeded": true,
-  "rawEvidenceSHA256": "35b89de4b18f9d457ab9b6e91828f066740a4d2c52740adc8bd7d7081aa2e44a",
-  "scope": "Actual newly started MCP processes; no mutations or cloud dispatch."
+  "rawEvidenceSHA256": "45994bf1447d22ba4e63be16c8ab926ce59dbd04597722c82057f54bd3abd96f",
+  "scope": "Actual new MCP processes. Restored legacy status evidence; no mutations or cloud dispatch."
 }
