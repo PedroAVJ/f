@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-07T00:31:34.534Z",
+  "launcher": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary-status/front-launch.ts",
+  "threadId": "01a113c5-be15-7271-9755-f0e10ddb3eb0",
+  "listSucceeded": true,
+  "statusSucceeded": true,
+  "workerLive": true,
+  "contextOnly": true,
+  "messageCount": 8,
+  "verifiedFacts": true,
+  "toolBoundaryFact": "Deployed",
+  "openlinearSucceeded": true,
+  "scope": "Actual fresh Codex session from activated launcher. Existing local worker read gates and status evidence preserved. No mutation or cloud dispatch."
+}

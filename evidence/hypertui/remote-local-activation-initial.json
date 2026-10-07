@@ -1,9 +1,9 @@
 {
-  "at": "2026-10-07T00:31:00Z",
-  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary-status",
-  "sourceCommit": "376f43cdd826800152e22993a58cc2244f047b92",
-  "frontBefore": 97081,
-  "frontAfter": 98161,
+  "at": "2026-10-07T00:23:54Z",
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary",
+  "sourceCommit": "9313349a8180493379aac5bb8399e9d17225dc4b",
+  "frontBefore": 71633,
+  "frontAfter": 97081,
   "frontHealth": {
     "status": "ok",
     "runtime": "bend-claude-front+codex-fallback+detached-worker",
@@ -13,8 +13,8 @@
       "policy": "four-rendered-lines-before-publication",
       "messageWidth": 259,
       "inlineLines": 4,
-      "assistantLines": 9,
-      "observedAt": "2026-10-07T00:29:20.174Z"
+      "assistantLines": 4,
+      "observedAt": "2026-10-07T00:21:47.033Z"
     },
     "audio": {
       "processing": "server",
@@ -33,7 +33,7 @@
     }
   },
   "selectedThreadUnchanged": true,
-  "allMessageAndCardContentUnchanged": true,
+  "allMessageAndCardContentUnchanged": false,
   "protectedProcessesPreserved": true,
   "protectedPids": [
     2372,
@@ -69,8 +69,9 @@
     "bend2/std/F/hypertui/schema.ts": "a59b2b03215ecd9e0b18977002de4f08ad703ef09acf4bfa61b0a2c3361b72ed",
     "bend2/std/F/hypertui/tree.bend": "db28053a3b32664a145249d4ad6e6171c43de7a9c5251bf28912a0c3b1cb06f2",
     "bend2/std/F/hypertui/ui.bend": "077acd7106c00ffa8e23a97ceb20f0a7e031fc31397a68fa0d793393c329a8be",
-    "bend2/std/F/hypertui/worker-tools.test.ts": "b62d4cda6fc6882702b5dcb56b9315677f5dd3b834ed5ef8d359684cb5f633bd",
-    "bend2/std/F/hypertui/worker-tools.ts": "384dd1db4f98ecc598034cfcf74ff96a273b8052552c926933bf6697bf948b79"
+    "bend2/std/F/hypertui/worker-tools.test.ts": "f995485a3a34fa7688164e67051a0edf7e46a3320976667ede454e7a0d755189",
+    "bend2/std/F/hypertui/worker-tools.ts": "9599223fe16c4d2fbf053e489f329b301d509e0ef0a8c3afd29ce76456d6435f"
   },
-  "scope": "Only idle front restarted. Original harness, manager and workers preserved. Bend/N source and signature gate unchanged."
+  "scope": "Only idle front restarted. Original harness, manager and workers preserved. Bend/N source and signature gate unchanged.",
+  "messageComparisonNote": "The full message-array hash changed across restart while the original background worker remained active. This check does not prove byte-for-byte message/card preservation; no conversation files were edited by the activation script."
 }
