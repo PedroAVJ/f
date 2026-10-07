@@ -1,0 +1,77 @@
+{
+  "at": "2026-10-07T00:23:54Z",
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary",
+  "sourceCommit": "9313349a8180493379aac5bb8399e9d17225dc4b",
+  "frontBefore": 71633,
+  "frontAfter": 97081,
+  "frontHealth": {
+    "status": "ok",
+    "runtime": "bend-claude-front+codex-fallback+detached-worker",
+    "provider": "codex",
+    "display": {
+      "source": "client-renderer",
+      "policy": "four-rendered-lines-before-publication",
+      "messageWidth": 259,
+      "inlineLines": 4,
+      "assistantLines": 4,
+      "observedAt": "2026-10-07T00:21:47.033Z"
+    },
+    "audio": {
+      "processing": "server",
+      "transcription": "elevenlabs/scribe_v2",
+      "tone": "google/gemini-3.8-flash"
+    },
+    "providers": {
+      "codex": {
+        "ready": true
+      },
+      "claude": {
+        "ready": true,
+        "model": null,
+        "recoveryWarnings": null
+      }
+    }
+  },
+  "selectedThreadUnchanged": true,
+  "allMessageAndCardContentUnchanged": false,
+  "protectedProcessesPreserved": true,
+  "protectedPids": [
+    2372,
+    2373,
+    27108,
+    27961,
+    28070,
+    36477
+  ],
+  "workerCount": 5,
+  "programs": [
+    "apple",
+    "codex",
+    "claude"
+  ],
+  "launcherSHA256": "c459dd1d2b379b28fc6ebfcf1129516c1cf1e6723e5aeec34f3a1c12d21f02ae",
+  "moduleHashes": {
+    "bend2/std/F/hypertui/actions.test.ts": "364198a0cb25fe594478f9a98db5ed5ed917a035320af345164ec70b38d1e412",
+    "bend2/std/F/hypertui/backend.ts": "9c1bd58510570bc5c2cad3ed9ca5520a8d72edb134b8d4cfa3a43e8cf5a7626e",
+    "bend2/std/F/hypertui/gateway.ts": "87a977d5db65eef79defd4e7850493180325749c17dbd1dc53da218b373895c7",
+    "bend2/std/F/hypertui/host.ts": "b9eddf4612036d2162cf7a1d3676f0cdc6c45792e7e0c1467070cfd5709a357e",
+    "bend2/std/F/hypertui/http.test.ts": "31b23cce69505f51ab4305c862e33c47c518cac581f59e85b016d01690953547",
+    "bend2/std/F/hypertui/json-cli.ts": "c739e2024920c229b7f2257da2c6a02af58799731e17f4d7c20bcc1b893b3380",
+    "bend2/std/F/hypertui/launch.test.ts": "1c560ea3de4266cb4d92194a64f3f0f607563d983a9fd45eb9b184103984e448",
+    "bend2/std/F/hypertui/launch.ts": "40ac5668aa18535bbf1c37010a3d9628e04ee89c22843b732ea689d493a4da92",
+    "bend2/std/F/hypertui/media.ts": "9297e92771c7a69ee34236daba8d1fa80e0d7cdfd9c18d0280209111b32ccd9a",
+    "bend2/std/F/hypertui/policy.test.ts": "5283b2386ed5e335fff4ff988a136ca12d1756b45e303f06d70e6c82daf01b44",
+    "bend2/std/F/hypertui/policy.ts": "c2f46ba3b05b1e43ec31dc969ecb3fdfda6dcd75d019f3d1e286ba6c2c60b343",
+    "bend2/std/F/hypertui/program.bend": "14b4b612c461443ef2aaef2e36b31b9e99e09580e0aef5cdaa2ff11bdc5be170",
+    "bend2/std/F/hypertui/query.test.ts": "de87eedf969d04f196f251f79ce0372e1639bf0e8175adad99da3df3aac5e37b",
+    "bend2/std/F/hypertui/render.test.ts": "32c0b898ff93771000f4e6632c0e412fcbb7f887ec0993a92a28f9c27aa21fe1",
+    "bend2/std/F/hypertui/render.ts": "86ca4497593d8486d62388dc4e3addb16a30905de3107765568dacd28116e8ee",
+    "bend2/std/F/hypertui/schema.ts": "a59b2b03215ecd9e0b18977002de4f08ad703ef09acf4bfa61b0a2c3361b72ed",
+    "bend2/std/F/hypertui/tree.bend": "db28053a3b32664a145249d4ad6e6171c43de7a9c5251bf28912a0c3b1cb06f2",
+    "bend2/std/F/hypertui/ui.bend": "077acd7106c00ffa8e23a97ceb20f0a7e031fc31397a68fa0d793393c329a8be",
+    "bend2/std/F/hypertui/worker-tools.test.ts": "f995485a3a34fa7688164e67051a0edf7e46a3320976667ede454e7a0d755189",
+    "bend2/std/F/hypertui/worker-tools.ts": "9599223fe16c4d2fbf053e489f329b301d509e0ef0a8c3afd29ce76456d6435f"
+  },
+  "scope": "Only idle front restarted. Original harness, manager and workers preserved. Bend/N source and signature gate unchanged.",
+  "messageComparisonNote": "The full message-array hash changed across restart while the original background worker remained active. This check does not prove byte-for-byte message/card preservation; no conversation files were edited by the activation script."
+}
