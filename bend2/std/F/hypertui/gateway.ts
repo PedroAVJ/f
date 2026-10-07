@@ -209,16 +209,22 @@ export class QueryGateway {
     const {tools}=await backend.listTools();
     if(!toolName)return this.page(name,[link('Programs','hypertui://programs/'),...tools.map((tool:any)=>link(tool.name,'hypertui://program/'+encodeURIComponent(name)+'/'+encodeURIComponent(tool.name)))]);
     const tool=tools.find((tool:any)=>tool.name===toolName);if(!tool)throw Error('Unknown program operation.');
-    checkSchema(tool.inputSchema);
-    const blocks=[link('Program','hypertui://program/'+encodeURIComponent(name)),words(tool.description??tool.name),code(JSON.stringify(tool.inputSchema,null,2),'json')];
+    let inputSchema=tool.inputSchema;
+    for(const key of ['runId','workspaceId']){
+      const value=url.searchParams.get(key);if(value===null)continue;
+      if(inputSchema.properties?.[key]?.type!=='string'||url.searchParams.getAll(key).length!==1||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value))throw Error('This operation needs one valid '+key+'.');
+      inputSchema={...inputSchema,properties:{...inputSchema.properties,[key]:{...inputSchema.properties[key],const:value,default:value}},required:Array.from(new Set([...(inputSchema.required??[]),key]))};
+    }
+    checkSchema(inputSchema);
+    const blocks=[link('Program','hypertui://program/'+encodeURIComponent(name)),words(tool.description??tool.name),code(JSON.stringify(inputSchema,null,2),'json')];
     if(tool.annotations?.readOnlyHint===true) {
       const raw=url.searchParams.get('args');
-      if(raw===null)return this.page(tool.name,[...blocks,link('Run query',url.href+'?args='+encodeURIComponent(JSON.stringify(example(tool.inputSchema))))]);
-      const args=JSON.parse(raw);validate(tool.inputSchema,args);
+      if(raw===null)return this.page(tool.name,[...blocks,link('Run query',url.href+'?args='+encodeURIComponent(JSON.stringify(example(inputSchema))))]);
+      const args=JSON.parse(raw);validate(inputSchema,args);
       return this.resultPage(tool.name,await backend.call(tool.name,args),url.href);
     }
     if(!this.options.mutations)throw Error('Mutation pages are not enabled in this harness.');
-    return this.page(tool.name,blocks,new Map(),[{name:'run',description:tool.description??tool.name,inputSchema:tool.inputSchema,invoke:async args=>this.resultPage(tool.name,await backend.call(tool.name,args),url.href)}]);
+    return this.page(tool.name,blocks,new Map(),[{name:'run',description:tool.description??tool.name,inputSchema,invoke:async args=>this.resultPage(tool.name,await backend.call(tool.name,args),url.href)}]);
   }
   private async read(url:URL):Promise<Reply> {
     if(url.protocol!=='hypertui:')return this.remotePage(url.href);
@@ -240,7 +246,7 @@ export class QueryGateway {
       const selected=available.filter(entry=>url.hostname==='browser'?entry.backend==='chrome':url.hostname==='repos'?entry.name.startsWith('github.'):true);
       const groups=Array.from(new Set(selected.map(entry=>`${entry.backend}/${entry.server}/${entry.name.includes('.')?entry.name.split('.')[0]:''}`))).sort();
       const blocks:Block[]=this.options.remoteOnly?[words('Web and remote-state programs. Local work uses ordinary tools.')]:[link('Files','hypertui://files/'),...(this.worker?[link('Workers','hypertui://workers/')]:[]),link('Browser','hypertui://browser/'),link('Repositories','hypertui://repos/'),link('Local repository','hypertui://repos/local/')];
-      if(this.options.home)blocks.push(link('Remote programs',this.options.home));
+      if(this.options.home)blocks.push(link('Open Repos',this.options.home));
       for(const item of this.options.links??[])blocks.push(link(item.label,item.uri));
       for(const name of this.programs.keys())blocks.push(link(name,'hypertui://program/'+encodeURIComponent(name)));
       for(const group of groups)blocks.push(link(group,'hypertui://tools/'+group.split('/').map(encodeURIComponent).join('/')+'/'));
