@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-07T00:22:12.316Z",
+  "fixture": "http://127.0.0.1:8793",
+  "cloudDispatches": 0,
+  "steps": [
+    {
+      "action": "create_project",
+      "receipt": "hypertui://results/da19d4dc-8797-4363-9479-32ab6358dcce",
+      "redirect": "http://127.0.0.1:8793/hypertui?project=d29b2865-c0a5-476e-8fb8-4a7fb3297e8d"
+    },
+    {
+      "action": "create_issue",
+      "receipt": "hypertui://results/ddbad17f-886a-4a8f-9dd1-0169fc4a92f0",
+      "redirect": "http://127.0.0.1:8793/hypertui?issue=557e1a58-552b-4453-99f7-2f2d99356684"
+    },
+    {
+      "action": "request_run",
+      "receipt": "hypertui://results/247236e9-a1bc-48b7-bf24-c84754b1399c",
+      "redirect": "http://127.0.0.1:8793/hypertui?run=4c19b863-7f66-4175-8d64-d32357e8dacb"
+    },
+    {
+      "action": "cancel",
+      "receipt": "hypertui://results/df8b8d70-f82f-440f-bcc6-0d404b61ca7f",
+      "redirect": "http://127.0.0.1:8793/hypertui?run=4c19b863-7f66-4175-8d64-d32357e8dacb"
+    },
+    {
+      "action": "request_run",
+      "receipt": "hypertui://results/690429d7-2157-4652-a9d2-561a5ae0828a",
+      "redirect": "http://127.0.0.1:8793/hypertui?run=f09f64a4-b6b5-4514-9968-a8ca5a545f12"
+    },
+    {
+      "action": "cancel",
+      "receipt": "hypertui://results/8b12a03a-7278-4b97-b559-8319a82b85de",
+      "redirect": "http://127.0.0.1:8793/hypertui?run=f09f64a4-b6b5-4514-9968-a8ca5a545f12"
+    }
+  ],
+  "passed": true,
+  "projectId": "d29b2865-c0a5-476e-8fb8-4a7fb3297e8d",
+  "issueId": "557e1a58-552b-4453-99f7-2f2d99356684"
+}

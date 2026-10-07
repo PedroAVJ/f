@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-07T00:16:39.993Z",
+  "workerTools": [
+    "present_ui",
+    "worker_start",
+    "worker_submit",
+    "worker_stop",
+    "worker_list",
+    "worker_status"
+  ],
+  "ordinaryWorkerListSucceeded": true,
+  "ordinaryWorkerStatusSucceeded": true,
+  "remoteProgramIndexSucceeded": true,
+  "privateOpenLinearQuerySucceeded": true,
+  "codexTargetsSucceeded": true,
+  "claudeRunsSucceeded": true,
+  "rawEvidenceSHA256": "35b89de4b18f9d457ab9b6e91828f066740a4d2c52740adc8bd7d7081aa2e44a",
+  "scope": "Actual newly started MCP processes; no mutations or cloud dispatch."
+}

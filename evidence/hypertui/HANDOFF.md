@@ -1,3 +1,5 @@
+Current correction: [web/remote versus local tool boundary](TOOL-BOUNDARY.md). Earlier entries below are historical migration evidence.
+
 # HyperTUI render target and query-only programs
 
 Isolated implementation dated 2026-10-06. No original worker was stopped, no global harness settings were edited, and no production service was restarted.

@@ -1,0 +1,8 @@
+{
+  "at": "2026-10-07T00:21:16.124Z",
+  "threadId": "01a113bc-5260-77a1-b2c7-c8850acdd316",
+  "ordinaryWorkerListSucceeded": true,
+  "privateOpenLinearQuerySucceeded": true,
+  "rawEvidenceSHA256": "401c6d5bfea06d13fccf4a639594358fbe60b2295fb4416dd0d724c64447b2ba",
+  "scope": "Actual new Codex app-server ephemeral session; direct MCP calls, not model routing."
+}

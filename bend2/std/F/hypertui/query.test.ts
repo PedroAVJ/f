@@ -19,11 +19,10 @@ test('query catalog does not permit mutation calls or escape workspace',async()=
   await expect(gateway.open('hypertui://tools/codex/test/delete?args=%7B%7D')).rejects.toThrow('Only cataloged');
  } finally {gateway.close();await rm(root,{recursive:true,force:true});}
 });
-test('installed harness policies retain mutations and mixed tools and disable only queries',()=>{
- const entries:any[]=[{backend:'codex',server:'notes',name:'read',class:'query'},{backend:'codex',server:'notes',name:'write',class:'mutation'},{backend:'codex',server:'notes',name:'execute',class:'mixed'},{backend:'chrome',name:'read_page',class:'query'},{backend:'chrome',name:'computer',class:'mixed'}];
- const args=codexPolicy(entries,[{name:'notes',enabled:true,transport:{type:'stdio',command:'notes',args:[]}}]);
- expect(args.join(' ')).toContain('"enabled_tools"=["write","execute"]');expect(args.join(' ')).not.toContain('plugins.');
- expect(claudePolicy(entries)[1]).toContain('mcp__claude-in-chrome__read_page');expect(claudePolicy(entries)[1]).toContain('mcp__claude-in-chrome__computer');expect(claudePolicy(entries)[1]).toContain('mcp__codex_worker__worker_submit');
+test('catalog classification does not disable unverified replacements or local tools',()=>{
+ const entries:any[]=[{backend:'codex',server:'notes',name:'read',class:'query'},{backend:'chrome',name:'read_page',class:'query'},{backend:'chrome',name:'computer',class:'mixed'}];
+ expect(codexPolicy(entries,[{name:'notes',enabled:true,transport:{type:'stdio',command:'notes',args:[]}}])).toEqual([]);
+ expect(claudePolicy(entries)).toEqual([]);
 });
 test('real media decoders render seekable audio and video images',async()=>{
  const root=await mkdtemp(join(tmpdir(),'hyper-media-test-'));

@@ -11,9 +11,9 @@ import { checkSchema, validate, type Schema } from './schema.ts';
 import { CodexQueries, McpQueries } from './backend.ts';
 import { isMedia, mediaPage } from './media.ts';
 
-export type Entry = {backend:'codex'|'chrome';server:string;name:string;class:'query'|'mutation'|'mixed';description:string;inputSchema:Schema};
-export type Binding = {command:string;args:string[];cwd?:string;env?:NodeJS.ProcessEnv};
-export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
+export type Entry = {backend:'codex'|'chrome';server:string;name:string;class:'query'|'mutation'|'mixed';description:string;inputSchema:Schema;scope?:'remote'|'local'};
+export type Binding = {command:string;args:string[];cwd?:string;env?:NodeJS.ProcessEnv;scope?:'remote'|'local'};
+export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;remoteOnly?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;httpPrograms?:Record<string,{pathPrefix:string;headersFile:string}>;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
 type Block = {kind:string;[key:string]:unknown};
 type ScopedAction = {name:string;description:string;inputSchema:Schema;invoke:(args:any)=>Promise<Reply>};
 type Reply = {content:Content[];actions?:ScopedAction[];isError?:boolean};
@@ -43,12 +43,12 @@ export class QueryGateway {
   private renderer?:Promise<any>;
   private current?:{uri:string;actions:Map<string,ScopedAction>};
   private results=new Map<string,Reply>();
-  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'remote'|'programs'|'home'|'remoteQueries'|'links'>={}) {
+  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'remoteOnly'|'remote'|'programs'|'home'|'httpPrograms'|'remoteQueries'|'links'>={}) {
     this.codex=new CodexQueries(codex,workspace);
     this.chrome=new McpQueries(claude,['--claude-in-chrome-mcp'],workspace);
-    if(worker)this.worker=new McpQueries(worker.command,worker.args,worker.cwd??workspace,worker.env);
+    if(worker&&!options.remoteOnly)this.worker=new McpQueries(worker.command,worker.args,worker.cwd??workspace,worker.env);
     if(options.remote)this.remote=new McpQueries(options.remote.command,options.remote.args,options.remote.cwd??workspace,options.remote.env);
-    for(const [name,binding] of Object.entries(options.programs??{}))this.programs.set(name,new McpQueries(binding.command,binding.args,binding.cwd??workspace,binding.env));
+    for(const [name,binding] of Object.entries(options.programs??{}))if(!options.remoteOnly||binding.scope==='remote')this.programs.set(name,new McpQueries(binding.command,binding.args,binding.cwd??workspace,binding.env));
   }
   close(){this.codex.close();this.chrome.close();this.worker?.close();this.remote?.close();for(const backend of this.programs.values())backend.close();}
   private async page(title:string,blocks:Block[],images=new Map<string,Content>(),actions:ScopedAction[]=[]):Promise<Reply> {
@@ -151,7 +151,38 @@ export class QueryGateway {
   private remoteQuery(address:string,name:string) {
     const target=new URL('hypertui://remote/');target.searchParams.set('page',address);target.searchParams.set('query',name);return target;
   }
+  private async httpPage(address:string):Promise<Reply> {
+    const url=new URL(address),binding=this.options.httpPrograms?.[url.origin];
+    if(!binding||url.pathname!==binding.pathPrefix)throw Error('HTTP page is outside its configured program.');
+    const request=async(target:URL,body?:unknown)=>{
+      if(target.origin!==url.origin||target.pathname!==binding.pathPrefix)throw Error('HTTP action escaped its program.');
+      const headers=JSON.parse(await readFile(binding.headersFile,'utf8'));
+      const response=await fetch(target,{method:body===undefined?'GET':'POST',headers:{...headers,'Content-Type':'application/json'},redirect:'error',...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(15000)});
+      if(!response.ok)throw Error('Remote program returned HTTP '+response.status+'.');
+      if(!response.body)throw Error('Remote page has no body.');
+      const reader=response.body.getReader(),chunks:Uint8Array[]=[];let size=0;
+      try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>1024*1024){await reader.cancel();throw Error('Remote page exceeds 1 MiB.');}chunks.push(value);}}finally{reader.releaseLock();}
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    };
+    const page=await request(url);
+    if(page.version!==1||typeof page.markdown!=='string'||!Array.isArray(page.actions))throw Error('Invalid HTTP HyperTUI page.');
+    const actions:ScopedAction[]=this.options.mutations?page.actions.map((action:any)=>{
+      if(typeof action.name!=='string'||typeof action.description!=='string'||typeof action.href!=='string')throw Error('Invalid HTTP page action.');
+      checkSchema(action.inputSchema);
+      const target=new URL(action.href,url);
+      if(target.origin!==url.origin||target.pathname!==binding.pathPrefix)throw Error('HTTP action escaped its program.');
+      return {name:action.name,description:action.description,inputSchema:action.inputSchema,invoke:async(args:unknown)=>{
+        const result=await request(target,args);
+        if(typeof result.redirect!=='string')throw Error('Remote action returned no redirect. Inspect its source before retrying.');
+        const redirect=new URL(result.redirect,url);
+        if(redirect.origin!==url.origin||redirect.pathname!==binding.pathPrefix)throw Error('Remote redirect escaped its program.');
+        return this.page('Continue',[link('Continue',redirect.href)]);
+      }};
+    }):[];
+    return this.resultPage('Remote program',{content:[{type:'text',text:page.markdown}]},address,actions);
+  }
   private async remotePage(address:string,result?:any):Promise<Reply> {
+    if(this.options.httpPrograms?.[new URL(address).origin])return this.httpPage(address);
     if(!this.remote)throw Error('No remote HyperTUI provider is configured.');
     result??=await this.remote.call('hyperTUI',{uri:address});
     const operations=await this.remoteOperations(address,result),queries=this.options.remoteQueries?.[new URL(address).origin]??[];
@@ -191,13 +222,14 @@ export class QueryGateway {
   }
   private async read(url:URL):Promise<Reply> {
     if(url.protocol!=='hypertui:')return this.remotePage(url.href);
+    if(this.options.remoteOnly&&(['file','files','workers'].includes(url.hostname)||(url.hostname==='repos'&&url.pathname==='/local/')))throw Error('Local files, execution, workers and device operations use ordinary local tools, not HyperTUI.');
     if(url.hostname==='file') {const path=url.searchParams.get('path');if(!path||!isAbsolute(path))throw Error('The explicit file page requires an absolute path.');return this.files(url,path);}
     if(url.hostname==='files')return this.files(url);
     if(url.hostname==='workers')return this.workerPage(url);
     if(url.hostname==='program')return this.externalPage(url);
     if(url.hostname==='remote')return this.remoteQueryPage(url);
     if(url.hostname==='results'){const page=this.results.get(url.pathname.slice(1));if(!page)throw Error('Result page expired or belongs to another session.');return page;}
-    const available=this.entries.filter(entry=>this.options.mutations||entry.class==='query');
+    const available=this.entries.filter(entry=>(!this.options.remoteOnly||entry.scope==='remote')&&(this.options.mutations||entry.class==='query'));
     if(url.hostname==='repos'&&url.pathname==='/local/') {
       const status=await git(this.workspace,['status','--short','--branch']),files=await git(this.workspace,['ls-files']);
       const blocks:Block[]=[link('Programs','hypertui://programs/'),code(status,'text'),link('Workspace files','hypertui://files/')];
@@ -207,7 +239,8 @@ export class QueryGateway {
     if(url.hostname==='programs'||url.hostname==='browser'||url.hostname==='repos') {
       const selected=available.filter(entry=>url.hostname==='browser'?entry.backend==='chrome':url.hostname==='repos'?entry.name.startsWith('github.'):true);
       const groups=Array.from(new Set(selected.map(entry=>`${entry.backend}/${entry.server}/${entry.name.includes('.')?entry.name.split('.')[0]:''}`))).sort();
-      const blocks=[link('Files','hypertui://files/'),...(this.worker?[link('Workers','hypertui://workers/')]:[]),link('Browser','hypertui://browser/'),link('Repositories','hypertui://repos/'),link('Local repository','hypertui://repos/local/'),...(this.options.home?[link('Remote programs',this.options.home)]:[])];
+      const blocks:Block[]=this.options.remoteOnly?[words('Web and remote-state programs. Local work uses ordinary tools.')]:[link('Files','hypertui://files/'),...(this.worker?[link('Workers','hypertui://workers/')]:[]),link('Browser','hypertui://browser/'),link('Repositories','hypertui://repos/'),link('Local repository','hypertui://repos/local/')];
+      if(this.options.home)blocks.push(link('Remote programs',this.options.home));
       for(const item of this.options.links??[])blocks.push(link(item.label,item.uri));
       for(const name of this.programs.keys())blocks.push(link(name,'hypertui://program/'+encodeURIComponent(name)));
       for(const group of groups)blocks.push(link(group,'hypertui://tools/'+group.split('/').map(encodeURIComponent).join('/')+'/'));
@@ -263,7 +296,7 @@ export async function serveQueries(config:GatewayConfig) {
   const gateway=new QueryGateway(catalog.tools,config.workspace,config.codex,config.claude,config.worker,config);
   const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
   const close=()=>{gateway.close();lines.close();};process.once('SIGTERM',close);process.once('SIGINT',close);
-  const navigation={name:'hyperTUI',description:'Open an F program page. Start at hypertui://programs/. Read-only operations use URI links; mutations are typed actions on the current page. Explicit local files accept absolute paths, file:/// URIs, or hypertui://file/?path=ENCODED_ABSOLUTE_PATH. Normal filesystem permissions apply.',inputSchema:object({uri:{type:'string'}}),annotations:{readOnlyHint:true}};
+  const navigation={name:'hyperTUI',description:config.remoteOnly?'Open a web or remote-state program at hypertui://programs/. Read-only URI navigation exposes current-page typed actions. Use ordinary tools for local files, execution, workers, subagents, threads and native devices.':'Open an F program page. Start at hypertui://programs/. Read-only operations use URI links; mutations are typed actions on the current page. Explicit local files accept absolute paths, file:/// URIs, or hypertui://file/?path=ENCODED_ABSOLUTE_PATH. Normal filesystem permissions apply.',inputSchema:object({uri:{type:'string'}}),annotations:{readOnlyHint:true}};
   const mutation={name:'hyperTUI_action',description:'Invoke only a typed action advertised on the currently open page. Copy its exact input schema. Returns a redirect URI: open it with hyperTUI to read the result. Old page actions become invalid after invocation.',inputSchema:object({uri:{type:'string'},name:{type:'string'},arguments:{type:'object'}})};
   try {
     for await(const line of lines) {

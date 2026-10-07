@@ -1,3 +1,5 @@
+Current correction: [web/remote versus local tool boundary](TOOL-BOUNDARY.md). Earlier entries below are historical migration evidence.
+
 # Classified harness tools
 
 Captured installed catalog: **646 tools** — **351 query**, **278 mutation**, **17 mixed**. In Codex, query entries move to URI pages while mutation and mixed entries stay native. In owned Claude, every entry is reached through a page: query links or typed mutation/mixed actions. Only hyperTUI, hyperTUI_action and present_ui remain native. The dispositions below describe the original Codex policy; catalog.json additionally records each Claude page disposition. Config readback proves Codex filtering, but filtered Codex model routing remains unverified. Filtered Claude model use is verified.
