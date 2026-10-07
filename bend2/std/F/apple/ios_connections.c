@@ -1,5 +1,6 @@
 // Configured HTTPS connections share a renderer, never a pending-send namespace.
 static void ios_connection_keys(NSDictionary* connection) {
+  ios_subscriptions_clear();
   ios_connection_id = connection[@"id"];
   ios_origin = [NSURL URLWithString:connection[@"origin"]];
   NSString* primary = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BendOrigin"];

@@ -137,6 +137,8 @@ static BOOL ios_same_origin(NSURL* url) {
     [ios_port(url) isEqual:ios_port(ios_origin)] && !url.user.length && !url.password.length;
 }
 
+#include "ios_subscriptions.c"
+
 @interface BendIOSFetch : NSObject <NSURLSessionDataDelegate> {
 @public
   NSMutableData* body;
@@ -1436,6 +1438,9 @@ char* bend_native_request(unsigned op, const char* data, unsigned len, unsigned*
     } else if (op == 16 || op == 17) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
       reply = text ? (op == 16 ? ios_file_request(text, status) : ios_file_upload(text, status)) : ios_dup(@"request is not UTF-8");
+    } else if (op == 19) {
+      NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
+      reply = text ? ios_subscriptions_request(text, status) : ios_dup(@"request is not UTF-8");
     } else if (op == 18) {
       NSString* text = [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding];
       reply = text ? ios_connection_request(text, status) : ios_dup(@"request is not UTF-8");
@@ -1500,6 +1505,7 @@ static void* ios_run(void* ignored) {
   if ([ios_controller canRefreshConversation]) ios_action(@{@"action":@"refresh"});
 }
 - (void)applicationDidBecomeActive:(UIApplication*)application {
+  ios_subscriptions_pause(NO);
   [ios_notifications active];
   if (ios_controller.restoredPending) ios_share_import();
   [self.refreshTimer invalidate];
@@ -1517,8 +1523,9 @@ static void* ios_run(void* ignored) {
   [self.refreshTimer invalidate]; self.refreshTimer = nil;
   [NSUserDefaults.standardUserDefaults synchronize];
 }
-- (void)applicationDidEnterBackground:(UIApplication*)application { [ios_voice background]; [ios_image background]; [ios_file background]; }
+- (void)applicationDidEnterBackground:(UIApplication*)application { ios_subscriptions_pause(YES); [ios_voice background]; [ios_image background]; [ios_file background]; }
 - (void)applicationWillTerminate:(UIApplication*)application {
+  ios_subscriptions_clear();
   [ios_voice background];
   [ios_image background]; [ios_file background];
   atomic_store(&ios_stopped, YES);
