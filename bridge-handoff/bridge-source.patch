@@ -1,0 +1,303 @@
+diff --git a/bend2/std/F/hypertui/compact.test.ts b/bend2/std/F/hypertui/compact.test.ts
+new file mode 100644
+index 00000000..6f9c3b7e
+--- /dev/null
++++ b/bend2/std/F/hypertui/compact.test.ts
+@@ -0,0 +1,97 @@
++import {test,expect} from 'bun:test';
++import {mkdtemp,writeFile,rm} from 'node:fs/promises';
++import {tmpdir} from 'node:os';
++import {join} from 'node:path';
++import {QueryGateway} from './gateway.ts';
++import {RpcProcess} from './backend.ts';
++
++const markdown='# Remote page\n\n[Repository](<https://example.test/repos/one>)\n\nA single body.';
++const schema={type:'object',properties:{title:{type:'string',minLength:2,maxLength:12},mode:{type:'string',enum:['draft','ready']}},required:['title','mode'],additionalProperties:false};
++async function fixture(){
++ const root=await mkdtemp(join(tmpdir(),'hyper-compact-'));
++ const path=join(root,'provider.ts');
++ await writeFile(path,`import {createInterface} from 'node:readline';
++let generation=0;
++for await(const line of createInterface({input:process.stdin})){
++ const m=JSON.parse(line);if(m.id===undefined)continue;let result;
++ if(m.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:true}},serverInfo:{name:'fixture',version:'1'}};
++ else if(m.method==='tools/list')result={tools:[{name:'hyperTUI',inputSchema:{type:'object'}},...(generation?[{name:'p'+generation+'_rename',description:'Rename the current repository.',inputSchema:${JSON.stringify(schema)}}]:[])]};
++ else if(m.method==='tools/call'){
++  if(m.params.name!=='hyperTUI'&&m.params.name!=='p'+generation+'_rename')throw Error('Stale upstream action');
++  generation++;
++  const markdown=${JSON.stringify(markdown)};
++  result={content:[{type:'text',text:markdown},{type:'image',mimeType:'image/png',data:'aGVsbG8='}],structuredContent:{markdown,uri:'https://example.test/repos',generation,other:'keep this'}};
++ }else result={};
++ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
++}`);
++ return{root,remote:{command:process.execPath,args:[path]}};
++}
++
++test('compact remote pages preserve Markdown, images and nonduplicate metadata once',async()=>{
++ const f=await fixture();const gateway=new QueryGateway([],f.root,'unused','unused',undefined,{remote:f.remote,mutations:true,compact:true});
++ try{
++  const page=await gateway.open('https://example.test/repos');
++  expect(page.content[0]).toEqual({type:'text',text:markdown});
++  expect(page.content[1]).toEqual({type:'image',mimeType:'image/png',data:'aGVsbG8='});
++  expect(page.structuredContent).toEqual({uri:'https://example.test/repos',generation:1,other:'keep this'});
++  const text=page.content.filter(v=>v.type==='text').map(v=>v.text).join('\n');
++  expect(text.split('A single body.').length-1).toBe(1);
++  expect(text.split('[Repository]').length-1).toBe(1);
++  expect(text).not.toContain('```');expect(text).not.toContain('inputSchema');
++  expect(text).toContain('rename(title: string, mode: "draft"|"ready")');
++  const first=gateway.actionTools()[0];expect(first.inputSchema).toEqual(schema);
++  await expect(gateway.callActionTool(first.name,{title:'x',mode:'draft'})).rejects.toThrow();
++  await gateway.open('https://example.test/repos');
++  await expect(gateway.callActionTool(first.name,{title:'valid',mode:'draft'})).rejects.toThrow('Stale');
++  const next=gateway.actionTools()[0];const changed=await gateway.callActionTool(next.name,{title:'valid',mode:'ready'});
++  expect(gateway.actionTools()).toEqual([]);
++  await expect(gateway.callActionTool(next.name,{title:'valid',mode:'ready'})).rejects.toThrow('Stale');
++  const redirect=changed.content[0].text.match(/<(hypertui:[^>]+)>/)![1];
++  expect((await gateway.open(redirect)).content[0]).toEqual({type:'text',text:markdown});
++ }finally{gateway.close();await rm(f.root,{recursive:true,force:true});}
++});
++
++test('conversation wrapper exposes exact typed schemas but never appends them to page results',async()=>{
++ const f=await fixture();const catalog=join(f.root,'catalog.json'),config=join(f.root,'config.json'),session=join(f.root,'session.json');
++ await writeFile(catalog,JSON.stringify({tools:[]}));await writeFile(session,JSON.stringify({selectedThreadId:'a',threads:[{id:'a',messages:[{role:'user',text:'retained fixture'}]}]}));
++ await writeFile(config,JSON.stringify({catalog,workspace:f.root,codex:'unused',claude:'unused',mutations:true,remoteOnly:true,remote:f.remote,sessionFile:session}));
++ const rpc=new RpcProcess(process.execPath,[join(import.meta.dir,'conversation-gateway.ts'),config]);
++ try{
++  const init=await rpc.call('initialize',{});expect(init.capabilities.tools.listChanged).toBe(true);
++  const initial=await rpc.call('tools/list',{});expect(initial.tools.map((t:any)=>t.name)).toEqual(['hyperTUI','hyperTUI_action']);
++  const page=await rpc.call('tools/call',{name:'hyperTUI',arguments:{uri:'https://example.test/repos'}});
++  expect(JSON.stringify(page)).not.toContain('inputSchema');expect(page.content[0].text).toBe(markdown);
++  const listed=await rpc.call('tools/list',{}),tool=listed.tools.find((t:any)=>t.name==='p1_rename');expect(tool.inputSchema).toEqual(schema);
++  const bad=await rpc.call('tools/call',{name:tool.name,arguments:{title:'x',mode:'draft'}});expect(bad.isError).toBe(true);
++  const good=await rpc.call('tools/call',{name:'hyperTUI_action',arguments:{uri:'https://example.test/repos',name:'rename',arguments:{title:'valid',mode:'draft'}}});expect(good.isError).toBeUndefined();
++  expect((await rpc.call('tools/list',{})).tools.map((t:any)=>t.name)).toEqual(['hyperTUI','hyperTUI_action']);
++  const stale=await rpc.call('tools/call',{name:tool.name,arguments:{title:'valid',mode:'draft'}});expect(stale.isError).toBe(true);
++  await rpc.call('tools/call',{name:'hyperTUI',arguments:{uri:'https://example.test/repos'}});
++  const archived=await rpc.call('tools/call',{name:'hyperTUI',arguments:{uri:'hypertui://conversation/?q=retained'}});
++  expect(JSON.parse(archived.content[0].text)).toEqual({contextOnly:true,messages:[{index:0,role:'user',text:'retained fixture',excerpt:false}],nextBefore:0});
++  expect((await rpc.call('tools/list',{})).tools).toHaveLength(2);
++  const excluded=await rpc.call('tools/call',{name:'hyperTUI',arguments:{uri:'hypertui://files/config.json'}});
++  expect(excluded.isError).toBe(true);expect(excluded.content[0].text).toContain('ordinary local tools');
++  const requests=[{id:1,method:'initialize',params:{}},{id:2,method:'tools/call',params:{name:'hyperTUI',arguments:{uri:'https://example.test/repos'}}},{id:3,method:'tools/list',params:{}}];
++  const child=Bun.spawn([Bun.which('bun')!,join(import.meta.dir,'conversation-gateway.ts'),config],{stdin:new Blob([requests.map(request=>JSON.stringify({jsonrpc:'2.0',...request})).join('\n')+'\n']),stdout:'pipe',stderr:'pipe'});
++  const output=(await new Response(child.stdout).text()).trim().split('\n').map(line=>JSON.parse(line));
++  expect(await child.exited).toBe(0);
++  expect(output.map(message=>message.method??message.id)).toEqual([1,2,'notifications/tools/list_changed',3]);
++  expect(output.at(-1).result.tools.find((tool:any)=>tool.name==='p1_rename').inputSchema).toEqual(schema);
++ }finally{rpc.close();await rm(f.root,{recursive:true,force:true});}
++});
++
++test('conversation wrapper preserves presenter discovery and forwards its arguments unchanged',async()=>{
++ const root=await mkdtemp(join(tmpdir(),'hyper-presenter-'));
++ const presenter=join(root,'presenter.ts'),catalog=join(root,'catalog.json'),config=join(root,'config.json');
++ const uiTool={name:'present_ui',description:'Present fixture UI',inputSchema:{type:'object',properties:{title:{type:'string'}},required:['title']}};
++ await writeFile(presenter,`import {createInterface} from 'node:readline';for await(const line of createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;const result=m.method==='initialize'?{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}:m.method==='tools/list'?{tools:[${JSON.stringify(uiTool)}]}:{content:[{type:'text',text:JSON.stringify(m.params)}]};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}`);
++ await writeFile(catalog,JSON.stringify({tools:[]}));
++ await writeFile(config,JSON.stringify({catalog,workspace:root,codex:'unused',claude:'unused',mutations:true,presenter:{command:process.execPath,args:[presenter]}}));
++ const rpc=new RpcProcess(process.execPath,[join(import.meta.dir,'conversation-gateway.ts'),config]);
++ try{
++  await rpc.call('initialize',{});expect((await rpc.call('tools/list',{})).tools.at(-1)).toEqual(uiTool);
++  const result=await rpc.call('tools/call',{name:'present_ui',arguments:{title:'Fixture'}});
++  expect(JSON.parse(result.content[0].text)).toEqual({name:'present_ui',arguments:{title:'Fixture'}});
++ }finally{rpc.close();await rm(root,{recursive:true,force:true});}
++});
+diff --git a/bend2/std/F/hypertui/conversation-gateway.ts b/bend2/std/F/hypertui/conversation-gateway.ts
+new file mode 100644
+index 00000000..2133edf7
+--- /dev/null
++++ b/bend2/std/F/hypertui/conversation-gateway.ts
+@@ -0,0 +1,66 @@
++import {createInterface} from 'node:readline';
++import {readFile} from 'node:fs/promises';
++import {QueryGateway} from './gateway.ts';
++import {McpQueries} from './backend.ts';
++import {validate} from './schema.ts';
++const object=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
++const navigation={name:'hyperTUI',description:'Open a program page at hypertui://programs/. Page links are reads; mutations are current-page actions. Search retained conversation via hypertui://conversation/?q=WORDS (optional before=message-index).',inputSchema:object({uri:{type:'string'}}),annotations:{readOnlyHint:true}};
++const mutation={name:'hyperTUI_action',description:'Invoke an action advertised by the current page, then open its redirect. Never retry an uncertain mutation without checking the source.',inputSchema:object({uri:{type:'string'},name:{type:'string'},arguments:{type:'object'}})};
++export async function archive(sessionFile:string,uri:string) {
++  const u=new URL(uri),q=(u.searchParams.get('q')??'').toLowerCase();
++  const saved=JSON.parse(await readFile(sessionFile,'utf8'));
++  const messages=saved.threads.find((t:any)=>t.id===saved.selectedThreadId).messages;
++  const rawBefore=u.searchParams.get('before'),before=rawBefore===null?messages.length:Number(rawBefore);
++  if(!Number.isInteger(before)||before<0)throw Error('before must be a nonnegative message index.');
++  const hits=[];
++  for(let i=Math.min(before,messages.length)-1;i>=0&&hits.length<6;i--) {
++    const m=messages[i],text=String(m.text??m.audio?.transcript??'');
++    const index=text.toLowerCase().indexOf(q);
++    if(index<0)continue;
++    const start=Math.max(0,index-300);
++    hits.push({index:i,role:m.role,text:text.slice(start,start+1600),excerpt:text.length>1600});
++  }
++  return {content:[{type:'text',text:JSON.stringify({contextOnly:true,messages:hits.reverse(),nextBefore:hits.length?hits[0].index:null})}]};
++}
++if(import.meta.main) {
++  const config=JSON.parse(await readFile(process.argv[2],'utf8'));
++  const catalog=JSON.parse(await readFile(config.catalog,'utf8'));
++  const entries=catalog.tools;
++  const gateway=new QueryGateway(entries,config.workspace,config.codex,config.claude,undefined,{...config,compact:true});
++  const binding=config.presenter;
++  const presenter=binding?new McpQueries(binding.command,binding.args,binding.cwd??config.workspace,binding.env):undefined;
++  let uiTool:any;
++  const lines=createInterface({input:process.stdin,crlfDelay:Infinity});
++  const close=()=>{gateway.close();presenter?.close();lines.close();};
++  process.once('SIGINT',close);process.once('SIGTERM',close);
++  try {for await(const line of lines) {
++    let message:any;
++    try {
++      message=JSON.parse(line);if(message.id===undefined)continue;
++      let result:any;
++      if(message.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:true}},serverInfo:{name:'OpenDot conversation tools',version:'1'}};
++      else if(message.method==='ping')result={};
++      else if(message.method==='tools/list') {
++        if(presenter&&!uiTool)uiTool=(await presenter.listTools()).tools.find((t:any)=>t.name==='present_ui');
++        result={tools:[navigation,mutation,...gateway.actionTools(),...(uiTool?[uiTool]:[])]};
++      } else if(message.method==='tools/call') {
++        const {name,arguments:args={}}=message.params;
++        if(name==='hyperTUI') {
++          validate(navigation.inputSchema,args);
++          if(new URL(args.uri).hostname==='conversation'){gateway.clearActions();result=await archive(config.sessionFile,args.uri);}
++          else result=await gateway.open(args.uri);
++        } else if(name==='hyperTUI_action') {
++          validate(mutation.inputSchema,args);
++          result=await gateway.act(args.uri,args.name,args.arguments);
++        } else if(/^p[0-9]+_/.test(name))result=await gateway.callActionTool(name,args);
++        else if(name==='present_ui'&&presenter) result=await presenter.call(name,args);
++        else throw Error('This tool is unavailable in the conversation agent.');
++      } else throw Error('Unknown method.');
++      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\n');
++      if(message.method==='tools/call'&&message.params.name!=='present_ui')process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/tools/list_changed'})+'\n');
++    } catch(error) {
++      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message?.id??null,result:{isError:true,content:[{type:'text',text:error instanceof Error?error.message:String(error)}]}})+'\n');
++      if(message?.method==='tools/call'&&message.params?.name!=='present_ui')process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/tools/list_changed'})+'\n');
++    }
++  }} finally {close();}
++}
+diff --git a/bend2/std/F/hypertui/gateway.ts b/bend2/std/F/hypertui/gateway.ts
+index 8d0a7832..40559d4f 100644
+--- a/bend2/std/F/hypertui/gateway.ts
++++ b/bend2/std/F/hypertui/gateway.ts
+@@ -13,10 +13,10 @@ import { isMedia, mediaPage } from './media.ts';
+ 
+ export type Entry = {backend:'codex'|'chrome';server:string;name:string;class:'query'|'mutation'|'mixed';description:string;inputSchema:Schema;scope?:'remote'|'local'};
+ export type Binding = {command:string;args:string[];cwd?:string;env?:NodeJS.ProcessEnv;scope?:'remote'|'local'};
+-export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;remoteOnly?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;httpPrograms?:Record<string,{pathPrefix:string;headersFile:string}>;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
++export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;compact?:boolean;remoteOnly?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;httpPrograms?:Record<string,{pathPrefix:string;headersFile:string}>;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
+ type Block = {kind:string;[key:string]:unknown};
+ type ScopedAction = {name:string;description:string;inputSchema:Schema;invoke:(args:any)=>Promise<Reply>};
+-type Reply = {content:Content[];actions?:ScopedAction[];isError?:boolean};
++type Reply = {content:Content[];actions?:ScopedAction[];structuredContent?:Record<string,unknown>;isError?:boolean};
+ const toolUri = (entry:Entry) => `hypertui://tools/${encodeURIComponent(entry.backend)}/${encodeURIComponent(entry.server)}/${encodeURIComponent(entry.name)}`;
+ const link = (label:string,uri:string): Block => ({kind:'link',label,uri});
+ const code = (text:string,language=''): Block => ({kind:'code',text,language});
+@@ -41,9 +41,10 @@ export class QueryGateway {
+   private remote?:McpQueries;
+   private programs=new Map<string,McpQueries>();
+   private renderer?:Promise<any>;
+-  private current?:{uri:string;actions:Map<string,ScopedAction>};
++  private current?:{uri:string;generation:number;actions:Map<string,ScopedAction>};
++  private generation=0;
+   private results=new Map<string,Reply>();
+-  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'remoteOnly'|'remote'|'programs'|'home'|'httpPrograms'|'remoteQueries'|'links'>={}) {
++  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'compact'|'remoteOnly'|'remote'|'programs'|'home'|'httpPrograms'|'remoteQueries'|'links'>={}) {
+     this.codex=new CodexQueries(codex,workspace);
+     this.chrome=new McpQueries(claude,['--claude-in-chrome-mcp'],workspace);
+     if(worker&&!options.remoteOnly)this.worker=new McpQueries(worker.command,worker.args,worker.cwd??workspace,worker.env);
+@@ -61,6 +62,26 @@ export class QueryGateway {
+     return{content:result.content,actions};
+   }
+   private async resultPage(title:string,result:any,source:string,actions:ScopedAction[]=[],extra:Block[]=[]):Promise<Reply> {
++    if(this.options.compact) {
++      const content:Content[]=[];
++      for(const item of result.content??[]) {
++        if(item.type==='text'&&item.text.startsWith('Page actions (invoke with hyperTUI_action):\n```json\n')) {
++          const match=item.text.match(/```json\n([\s\S]*)\n```$/);
++          if(match&&Array.isArray(JSON.parse(match[1]).actions))continue;
++        }
++        if(item.type==='text'||item.type==='image')content.push(item);
++        else if(item.type==='resource_link')content.push({type:'text',text:`[${item.name}](<${item.uri}>)`});
++        else if(item.type==='resource'&&typeof item.resource?.text==='string')content.push({type:'text',text:item.resource.text});
++        else throw Error('This program returned an unsupported content type.');
++      }
++      let structuredContent=result.structuredContent;
++      if(structuredContent&&typeof structuredContent.markdown==='string'&&content.some(item=>item.type==='text'&&item.text===structuredContent.markdown)) {
++        const {markdown,...metadata}=structuredContent;structuredContent=metadata;
++      }
++      for(const block of extra)if(block.kind==='link')content.push({type:'text',text:`[${block.label}](<${block.uri}>)`});
++      if(!content.length&&structuredContent===undefined)content.push({type:'text',text:JSON.stringify(result)});
++      return{content,actions,...(structuredContent===undefined?{}:{structuredContent}),...(result.isError?{isError:true}:{})};
++    }
+     const blocks:Block[]=[link('Programs','hypertui://programs/'),link('Source page',source),...extra],images=new Map<string,Content>();
+     for(const item of result.content??[]) {
+       if(item.type==='text') {
+@@ -271,10 +292,32 @@ export class QueryGateway {
+   async open(address:string) {
+     const url=addressUri(address),page=await this.read(url);
+     const actions=page.actions??[];
+-    this.current={uri:url.href,actions:new Map(actions.map(action=>[action.name,action]))};
++    if(this.options.compact)for(const action of actions) {
++      if(!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(action.name)||typeof action.description!=='string')throw Error('Invalid action declaration.');
++      checkSchema(action.inputSchema);
++      if(action.inputSchema.type!=='object')throw Error('Action arguments must be an object.');
++    }
++    if(this.options.compact&&new Set(actions.map(action=>action.name)).size!==actions.length)throw Error('Duplicate page action.');
++    this.current={uri:url.href,generation:++this.generation,actions:new Map(actions.map(action=>[action.name,action]))};
++    if(this.options.compact) {
++      const content=[...page.content];
++      if(actions.length)content.push({type:'text',text:'Actions for '+url.href+' (hyperTUI_action: uri, name, arguments):\n'+actions.map(action=>action.name+'('+Object.entries(action.inputSchema.properties??{}).map(([name,schema])=>name+((action.inputSchema.required??[]).includes(name)?'':'?')+': '+argumentType(schema as Schema)).join(', ')+')').join('\n')});
++      return{content,...(page.structuredContent===undefined?{}:{structuredContent:page.structuredContent}),...(page.isError?{isError:true}:{})};
++    }
+     const metadata={uri:url.href,actions:actions.map(({invoke,...action})=>action)};
+     return{content:[...page.content,{type:'text' as const,text:'Page actions (invoke with hyperTUI_action):\n```json\n'+JSON.stringify(metadata,null,2)+'\n```'}],...(page.isError?{isError:true}:{})};
+   }
++  actionTools() {
++    if(!this.current)return[];
++    const generation=this.current.generation;
++    return Array.from(this.current.actions.values(),({invoke,...action})=>({...action,name:'p'+generation+'_'+action.name}));
++  }
++  async callActionTool(name:string,args:unknown) {
++    const match=/^p([0-9]+)_(.+)$/.exec(name);
++    if(!match||!this.current||Number(match[1])!==this.current.generation)throw Error('Stale page action. Open the page again.');
++    return this.act(this.current.uri,match[2],args);
++  }
++  clearActions(){this.current=undefined;}
+   async act(address:string,name:string,args:unknown) {
+     if(!this.options.mutations)throw Error('Mutation pages are not enabled in this harness.');
+     const uri=addressUri(address).href;
+@@ -287,6 +330,13 @@ export class QueryGateway {
+     return{content:[{type:'text' as const,text:'[Continue](<hypertui://results/'+id+'>)'}],...(result.isError?{isError:true}:{})};
+   }
+ }
++function argumentType(schema:Schema):string {
++  if(schema.const!==undefined)return JSON.stringify(schema.const);
++  if(schema.enum)return schema.enum.map((value:unknown)=>JSON.stringify(value)).join('|');
++  if(schema.type==='array')return argumentType(schema.items??{})+'[]';
++  if(schema.type==='object')return'{'+Object.entries(schema.properties??{}).map(([name,value])=>name+((schema.required??[]).includes(name)?'':'?')+':'+argumentType(value as Schema)).join(',')+'}';
++  return Array.isArray(schema.type)?schema.type.join('|'):schema.type??'JSON';
++}
+ function example(schema:Schema):unknown {
+   if(schema.default!==undefined)return schema.default;
+   if(schema.const!==undefined)return schema.const;
+@@ -311,18 +361,20 @@ export async function serveQueries(config:GatewayConfig) {
+         if(Buffer.byteLength(line)>2*1024*1024)throw Error('Request exceeds 2 MiB.');
+         message=JSON.parse(line);if(message.id===undefined)continue;
+         let result:unknown;
+-        if(message.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'F HyperTUI programs',version:'0.2.0'}};
++        if(message.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:config.compact?{listChanged:true}:{}},serverInfo:{name:'F HyperTUI programs',version:'0.2.0'}};
+         else if(message.method==='ping')result={};
+-        else if(message.method==='tools/list')result={tools:config.mutations?[navigation,mutation]:[navigation]};
++        else if(message.method==='tools/list')result={tools:[navigation,...(config.mutations?[mutation]:[]),...(config.compact?gateway.actionTools():[])]};
+         else if(message.method==='tools/call') {
+           try {
+             const args=message.params.arguments??{};
+             if(message.params.name==='hyperTUI'){validate(navigation.inputSchema,args);result=await gateway.open(args.uri);}
+             else if(message.params.name==='hyperTUI_action'){validate(mutation.inputSchema,args);result=await gateway.act(args.uri,args.name,args.arguments);}
++            else if(config.compact)result=await gateway.callActionTool(message.params.name,args);
+             else throw Error('Unknown tool.');
+           }catch(error){result={isError:true,content:[{type:'text',text:error instanceof Error?error.message:String(error)}]};}
+         }else throw Error('Unknown method.');
+         process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\n');
++        if(config.compact&&message.method==='tools/call')process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/tools/list_changed'})+'\n');
+       }catch(error){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message?.id??null,error:{code:-32600,message:error instanceof Error?error.message:String(error)}})+'\n');}
+     }
+   }finally{close();}

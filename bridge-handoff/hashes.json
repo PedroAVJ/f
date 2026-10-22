@@ -1,0 +1,22 @@
+{
+  "live_core": {
+    "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261007-open-repos/f/bend2/std/F/hypertui/gateway.ts",
+    "sha256": "327435713340c472a96f6f16e527416159bcfeedb8923f6dd82900e64d435d47"
+  },
+  "live_wrapper": {
+    "path": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261007-claude-efficient/gateway.ts",
+    "sha256": "d16d9cca9b5d40a176ae06480b7e07d4ae69e20dde7e0a93b1f4fc68fadcd89c"
+  },
+  "candidate_core": {
+    "path": "/Users/pedroantoniovillanuevajuarez/Developer/hypertui-compact-20261007-f/bend2/std/F/hypertui/gateway.ts",
+    "sha256": "d8ab9818a55be72870df3f7f13c3e0a0a5ee5c06787b1fc45e80738539452cf6"
+  },
+  "candidate_runtime_wrapper": {
+    "path": "/Users/pedroantoniovillanuevajuarez/Developer/hypertui-compact-20261007-f/bridge-handoff/gateway.runtime.ts",
+    "sha256": "fa431ae62ccef517c85f89bf1dbeb5ac20b2a51152f9b46256f3f60413d9d9b3"
+  },
+  "source_patch": {
+    "path": "/Users/pedroantoniovillanuevajuarez/Developer/hypertui-compact-20261007-f/bridge-handoff/bridge-source.patch",
+    "sha256": "79bf29024df34421626fe5b408b1e5b16224804d60f3e735095a03c55afcbe83"
+  }
+}

@@ -13,10 +13,10 @@ import { isMedia, mediaPage } from './media.ts';
 
 export type Entry = {backend:'codex'|'chrome';server:string;name:string;class:'query'|'mutation'|'mixed';description:string;inputSchema:Schema;scope?:'remote'|'local'};
 export type Binding = {command:string;args:string[];cwd?:string;env?:NodeJS.ProcessEnv;scope?:'remote'|'local'};
-export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;remoteOnly?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;httpPrograms?:Record<string,{pathPrefix:string;headersFile:string}>;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
+export type GatewayConfig = {catalog:string;workspace:string;codex:string;claude:string;worker?:Binding;mutations?:boolean;compact?:boolean;remoteOnly?:boolean;remote?:Binding;programs?:Record<string,Binding>;home?:string;httpPrograms?:Record<string,{pathPrefix:string;headersFile:string}>;remoteQueries?:Record<string,string[]>;links?:{label:string;uri:string}[]};
 type Block = {kind:string;[key:string]:unknown};
 type ScopedAction = {name:string;description:string;inputSchema:Schema;invoke:(args:any)=>Promise<Reply>};
-type Reply = {content:Content[];actions?:ScopedAction[];isError?:boolean};
+type Reply = {content:Content[];actions?:ScopedAction[];structuredContent?:Record<string,unknown>;isError?:boolean};
 const toolUri = (entry:Entry) => `hypertui://tools/${encodeURIComponent(entry.backend)}/${encodeURIComponent(entry.server)}/${encodeURIComponent(entry.name)}`;
 const link = (label:string,uri:string): Block => ({kind:'link',label,uri});
 const code = (text:string,language=''): Block => ({kind:'code',text,language});
@@ -41,9 +41,10 @@ export class QueryGateway {
   private remote?:McpQueries;
   private programs=new Map<string,McpQueries>();
   private renderer?:Promise<any>;
-  private current?:{uri:string;actions:Map<string,ScopedAction>};
+  private current?:{uri:string;generation:number;actions:Map<string,ScopedAction>};
+  private generation=0;
   private results=new Map<string,Reply>();
-  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'remoteOnly'|'remote'|'programs'|'home'|'httpPrograms'|'remoteQueries'|'links'>={}) {
+  constructor(private entries:Entry[],private workspace:string,codex:string,claude:string,worker?:Binding,private options:Pick<GatewayConfig,'mutations'|'compact'|'remoteOnly'|'remote'|'programs'|'home'|'httpPrograms'|'remoteQueries'|'links'>={}) {
     this.codex=new CodexQueries(codex,workspace);
     this.chrome=new McpQueries(claude,['--claude-in-chrome-mcp'],workspace);
     if(worker&&!options.remoteOnly)this.worker=new McpQueries(worker.command,worker.args,worker.cwd??workspace,worker.env);
@@ -61,6 +62,26 @@ export class QueryGateway {
     return{content:result.content,actions};
   }
   private async resultPage(title:string,result:any,source:string,actions:ScopedAction[]=[],extra:Block[]=[]):Promise<Reply> {
+    if(this.options.compact) {
+      const content:Content[]=[];
+      for(const item of result.content??[]) {
+        if(item.type==='text'&&item.text.startsWith('Page actions (invoke with hyperTUI_action):\n```json\n')) {
+          const match=item.text.match(/```json\n([\s\S]*)\n```$/);
+          if(match&&Array.isArray(JSON.parse(match[1]).actions))continue;
+        }
+        if(item.type==='text'||item.type==='image')content.push(item);
+        else if(item.type==='resource_link')content.push({type:'text',text:`[${item.name}](<${item.uri}>)`});
+        else if(item.type==='resource'&&typeof item.resource?.text==='string')content.push({type:'text',text:item.resource.text});
+        else throw Error('This program returned an unsupported content type.');
+      }
+      let structuredContent=result.structuredContent;
+      if(structuredContent&&typeof structuredContent.markdown==='string'&&content.some(item=>item.type==='text'&&item.text===structuredContent.markdown)) {
+        const {markdown,...metadata}=structuredContent;structuredContent=metadata;
+      }
+      for(const block of extra)if(block.kind==='link')content.push({type:'text',text:`[${block.label}](<${block.uri}>)`});
+      if(!content.length&&structuredContent===undefined)content.push({type:'text',text:JSON.stringify(result)});
+      return{content,actions,...(structuredContent===undefined?{}:{structuredContent}),...(result.isError?{isError:true}:{})};
+    }
     const blocks:Block[]=[link('Programs','hypertui://programs/'),link('Source page',source),...extra],images=new Map<string,Content>();
     for(const item of result.content??[]) {
       if(item.type==='text') {
@@ -271,10 +292,32 @@ export class QueryGateway {
   async open(address:string) {
     const url=addressUri(address),page=await this.read(url);
     const actions=page.actions??[];
-    this.current={uri:url.href,actions:new Map(actions.map(action=>[action.name,action]))};
+    if(this.options.compact)for(const action of actions) {
+      if(!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(action.name)||typeof action.description!=='string')throw Error('Invalid action declaration.');
+      checkSchema(action.inputSchema);
+      if(action.inputSchema.type!=='object')throw Error('Action arguments must be an object.');
+    }
+    if(this.options.compact&&new Set(actions.map(action=>action.name)).size!==actions.length)throw Error('Duplicate page action.');
+    this.current={uri:url.href,generation:++this.generation,actions:new Map(actions.map(action=>[action.name,action]))};
+    if(this.options.compact) {
+      const content=[...page.content];
+      if(actions.length)content.push({type:'text',text:'Actions for '+url.href+' (hyperTUI_action: uri, name, arguments):\n'+actions.map(action=>action.name+'('+Object.entries(action.inputSchema.properties??{}).map(([name,schema])=>name+((action.inputSchema.required??[]).includes(name)?'':'?')+': '+argumentType(schema as Schema)).join(', ')+')').join('\n')});
+      return{content,...(page.structuredContent===undefined?{}:{structuredContent:page.structuredContent}),...(page.isError?{isError:true}:{})};
+    }
     const metadata={uri:url.href,actions:actions.map(({invoke,...action})=>action)};
     return{content:[...page.content,{type:'text' as const,text:'Page actions (invoke with hyperTUI_action):\n```json\n'+JSON.stringify(metadata,null,2)+'\n```'}],...(page.isError?{isError:true}:{})};
   }
+  actionTools() {
+    if(!this.current)return[];
+    const generation=this.current.generation;
+    return Array.from(this.current.actions.values(),({invoke,...action})=>({...action,name:'p'+generation+'_'+action.name}));
+  }
+  async callActionTool(name:string,args:unknown) {
+    const match=/^p([0-9]+)_(.+)$/.exec(name);
+    if(!match||!this.current||Number(match[1])!==this.current.generation)throw Error('Stale page action. Open the page again.');
+    return this.act(this.current.uri,match[2],args);
+  }
+  clearActions(){this.current=undefined;}
   async act(address:string,name:string,args:unknown) {
     if(!this.options.mutations)throw Error('Mutation pages are not enabled in this harness.');
     const uri=addressUri(address).href;
@@ -286,6 +329,13 @@ export class QueryGateway {
     const id=randomUUID();this.results.set(id,result);while(this.results.size>16)this.results.delete(this.results.keys().next().value!);
     return{content:[{type:'text' as const,text:'[Continue](<hypertui://results/'+id+'>)'}],...(result.isError?{isError:true}:{})};
   }
+}
+function argumentType(schema:Schema):string {
+  if(schema.const!==undefined)return JSON.stringify(schema.const);
+  if(schema.enum)return schema.enum.map((value:unknown)=>JSON.stringify(value)).join('|');
+  if(schema.type==='array')return argumentType(schema.items??{})+'[]';
+  if(schema.type==='object')return'{'+Object.entries(schema.properties??{}).map(([name,value])=>name+((schema.required??[]).includes(name)?'':'?')+':'+argumentType(value as Schema)).join(',')+'}';
+  return Array.isArray(schema.type)?schema.type.join('|'):schema.type??'JSON';
 }
 function example(schema:Schema):unknown {
   if(schema.default!==undefined)return schema.default;
@@ -311,18 +361,20 @@ export async function serveQueries(config:GatewayConfig) {
         if(Buffer.byteLength(line)>2*1024*1024)throw Error('Request exceeds 2 MiB.');
         message=JSON.parse(line);if(message.id===undefined)continue;
         let result:unknown;
-        if(message.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'F HyperTUI programs',version:'0.2.0'}};
+        if(message.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:config.compact?{listChanged:true}:{}},serverInfo:{name:'F HyperTUI programs',version:'0.2.0'}};
         else if(message.method==='ping')result={};
-        else if(message.method==='tools/list')result={tools:config.mutations?[navigation,mutation]:[navigation]};
+        else if(message.method==='tools/list')result={tools:[navigation,...(config.mutations?[mutation]:[]),...(config.compact?gateway.actionTools():[])]};
         else if(message.method==='tools/call') {
           try {
             const args=message.params.arguments??{};
             if(message.params.name==='hyperTUI'){validate(navigation.inputSchema,args);result=await gateway.open(args.uri);}
             else if(message.params.name==='hyperTUI_action'){validate(mutation.inputSchema,args);result=await gateway.act(args.uri,args.name,args.arguments);}
+            else if(config.compact)result=await gateway.callActionTool(message.params.name,args);
             else throw Error('Unknown tool.');
           }catch(error){result={isError:true,content:[{type:'text',text:error instanceof Error?error.message:String(error)}]};}
         }else throw Error('Unknown method.');
         process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result})+'\n');
+        if(config.compact&&message.method==='tools/call')process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/tools/list_changed'})+'\n');
       }catch(error){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message?.id??null,error:{code:-32600,message:error instanceof Error?error.message:String(error)}})+'\n');}
     }
   }finally{close();}

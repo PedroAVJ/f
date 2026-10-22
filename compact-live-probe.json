@@ -1,0 +1,149 @@
+[
+  {
+    "name": "before",
+    "path": "/repos",
+    "bytes": 13251,
+    "textBytes": 12282,
+    "contentBlocks": 32,
+    "fullSchemaOccurrences": 1,
+    "structuredKeys": []
+  },
+  {
+    "name": "before",
+    "path": "/repos/b5590d53-ddcf-4c93-aa2a-4ada839371a6",
+    "bytes": 23970,
+    "textBytes": 22211,
+    "contentBlocks": 41,
+    "fullSchemaOccurrences": 7,
+    "structuredKeys": []
+  },
+  {
+    "name": "candidate",
+    "path": "/repos",
+    "bytes": 4162,
+    "textBytes": 3949,
+    "contentBlocks": 2,
+    "fullSchemaOccurrences": 0,
+    "structuredKeys": [
+      "uri",
+      "generation"
+    ],
+    "actions": [
+      {
+        "name": "p1_create_repo",
+        "required": [
+          "name",
+          "requestId"
+        ],
+        "fields": [
+          "name",
+          "requestId"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "candidate",
+    "path": "/repos/b5590d53-ddcf-4c93-aa2a-4ada839371a6",
+    "bytes": 6283,
+    "textBytes": 6014,
+    "contentBlocks": 2,
+    "fullSchemaOccurrences": 0,
+    "structuredKeys": [
+      "uri",
+      "generation"
+    ],
+    "actions": [
+      {
+        "name": "p2_write_file",
+        "required": [
+          "path",
+          "content",
+          "expectedHead",
+          "requestId"
+        ],
+        "fields": [
+          "path",
+          "content",
+          "branch",
+          "expectedHead",
+          "requestId"
+        ]
+      },
+      {
+        "name": "p2_commit",
+        "required": [
+          "message",
+          "expectedHead",
+          "requestId"
+        ],
+        "fields": [
+          "message",
+          "branch",
+          "expectedHead",
+          "requestId"
+        ]
+      },
+      {
+        "name": "p2_branch",
+        "required": [
+          "name",
+          "from",
+          "requestId"
+        ],
+        "fields": [
+          "name",
+          "from",
+          "requestId"
+        ]
+      },
+      {
+        "name": "p2_merge",
+        "required": [
+          "from",
+          "expectedHead",
+          "requestId"
+        ],
+        "fields": [
+          "from",
+          "message",
+          "branch",
+          "expectedHead",
+          "requestId"
+        ]
+      },
+      {
+        "name": "p2_make_bundle",
+        "required": [
+          "path",
+          "expectedHead",
+          "requestId"
+        ],
+        "fields": [
+          "path",
+          "branch",
+          "expectedHead",
+          "requestId"
+        ]
+      },
+      {
+        "name": "p2_discard_draft",
+        "required": [
+          "branch"
+        ],
+        "fields": [
+          "branch"
+        ]
+      },
+      {
+        "name": "p2_set_visibility",
+        "required": [
+          "visibility"
+        ],
+        "fields": [
+          "visibility"
+        ]
+      }
+    ]
+  }
+]
