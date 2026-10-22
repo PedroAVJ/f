@@ -1,0 +1,32 @@
+[
+  {
+    "id": "aff08f07-9122-4958-afb8-f480c9c84d85",
+    "status": 200,
+    "actions": [
+      "inspect_file",
+      "symbols",
+      "symbol_info",
+      "type_at",
+      "expected_type",
+      "change_impact",
+      "check_project",
+      "propose_intent"
+    ],
+    "preview": "# N language editor\n\nWorkspace: http://127.0.0.1:17693/workspaces/aff08f07-9122-4958-afb8-f480c9c84d85?rev=433f9519c7c4018714295f585c5aa15124a35a4bced3ec80f3b7d8c0e83ca0b1\n\nLocal worktree: source, drafts and checking stay on this Mac. Snapshots include Bend modules and AGENTS.md; hidden directories, dist, build, node_modules and directory symlinks are excluded.\n\nRead-only snapshot.\n\nRead-only: awa"
+  },
+  {
+    "id": "d2906914-375f-42b1-8e14-261ebbf6529e",
+    "status": 200,
+    "actions": [
+      "inspect_file",
+      "symbols",
+      "symbol_info",
+      "type_at",
+      "expected_type",
+      "change_impact",
+      "check_project",
+      "propose_intent"
+    ],
+    "preview": "# N language editor\n\nWorkspace: http://127.0.0.1:17693/workspaces/d2906914-375f-42b1-8e14-261ebbf6529e?rev=c40fff37803ab37d8094194706a2bf47c1749163598b17d362b7bb30fd5dc5f2\n\nLocal worktree: source, drafts and checking stay on this Mac. Snapshots include Bend modules and AGENTS.md; hidden directories, dist, build, node_modules and directory symlinks are excluded.\n\nRead-only snapshot.\n\nRead-only: awa"
+  }
+]

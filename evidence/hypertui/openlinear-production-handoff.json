@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-07T03:05:42.251Z",
+  "site": "https://open-linear.pedroavj.chatgpt.site",
+  "release": "/Users/pedroantoniovillanuevajuarez/Library/Application Support/OpenDot/releases/20261006-remote-local-boundary-status",
+  "provider": "claude",
+  "target": "open-linear",
+  "dispatches": 0,
+  "steps": [
+    {
+      "name": "create_project",
+      "redirect": "https://open-linear.pedroavj.chatgpt.site/hypertui?project=1f35ef8b-8161-4476-80b3-16a43c59c499"
+    },
+    {
+      "name": "create_issue",
+      "redirect": "https://open-linear.pedroavj.chatgpt.site/hypertui?issue=8d6fb7eb-8edc-42f1-b4f9-909dbed11417"
+    },
+    {
+      "name": "request_run",
+      "redirect": "https://open-linear.pedroavj.chatgpt.site/hypertui?run=14cc7660-859c-4a79-970c-ac10a9a774fe"
+    }
+  ],
+  "projectId": "1f35ef8b-8161-4476-80b3-16a43c59c499",
+  "issueId": "8d6fb7eb-8edc-42f1-b4f9-909dbed11417",
+  "runId": "14cc7660-859c-4a79-970c-ac10a9a774fe",
+  "projectUrl": "https://open-linear.pedroavj.chatgpt.site/hypertui?project=1f35ef8b-8161-4476-80b3-16a43c59c499",
+  "issueUrl": "https://open-linear.pedroavj.chatgpt.site/hypertui?issue=8d6fb7eb-8edc-42f1-b4f9-909dbed11417",
+  "runUrl": "https://open-linear.pedroavj.chatgpt.site/hypertui?run=14cc7660-859c-4a79-970c-ac10a9a774fe",
+  "dispatchUri": "hypertui://program/claude/dispatch?runId=14cc7660-859c-4a79-970c-ac10a9a774fe",
+  "status": "queued",
+  "runPage": "# Remote program\n[Programs](<hypertui://programs/>)\n[Source page](<https://open-linear.pedroavj.chatgpt.site/hypertui?run=14cc7660-859c-4a79-970c-ac10a9a774fe>)\n```\n# Claude Code cloud run\n\n[Issue](/hypertui?issue=8d6fb7eb-8edc-42f1-b4f9-909dbed11417)\n\nStatus: queued\n\nTarget: open-linear\n\n[Open claude dispatch program](hypertui://program/claude/dispatch?runId=14cc7660-859c-4a79-970c-ac10a9a774fe)\n\nNo result recorded.\n\nCloud results cover source and supported cloud checks only. Apple compilation, signing, installation, and device verification require separate Mac evidence.\n```\n[Issue](<https://open-linear.pedroavj.chatgpt.site/hypertui?issue=8d6fb7eb-8edc-42f1-b4f9-909dbed11417>)\n[Open claude dispatch program](<hypertui://program/claude/dispatch?runId=14cc7660-859c-4a79-970c-ac10a9a774fe>)\nCancel this queued run before provider dispatch. (action: cancel)\nPage actions (invoke with hyperTUI_action):\n```json\n{\n  \"uri\": \"https://open-linear.pedroavj.chatgpt.site/hypertui?run=14cc7660-859c-4a79-970c-ac10a9a774fe\",\n  \"actions\": [\n    {\n      \"name\": \"cancel\",\n      \"description\": \"Cancel this queued run before provider dispatch.\",\n      \"inputSchema\": {\n        \"type\": \"object\",\n        \"properties\": {},\n        \"required\": [],\n        \"additionalProperties\": false\n      }\n    }\n  ]\n}\n```",
+  "dispatchPage": "# dispatch\n[Program](<hypertui://program/claude>)\nDispatch a queued issue run once\nthrough the subscription-authenticated\nprovider CLI.\n```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"runId\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\n    \"runId\"\n  ],\n  \"additionalProperties\": false\n}\n```\nDispatch a queued issue run once through the subscription-authenticated provider CLI. (action: run)\nPage actions (invoke with hyperTUI_action):\n```json\n{\n  \"uri\": \"hypertui://program/claude/dispatch?runId=14cc7660-859c-4a79-970c-ac10a9a774fe\",\n  \"actions\": [\n    {\n      \"name\": \"run\",\n      \"description\": \"Dispatch a queued issue run once through the subscription-authenticated provider CLI.\",\n      \"inputSchema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"runId\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"runId\"\n        ],\n        \"additionalProperties\": false\n      }\n    }\n  ]\n}\n```"
+}

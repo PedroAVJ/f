@@ -1,0 +1,77 @@
+bun test v1.4.2 (50a8a8387)
+
+bend2/std/F/hypertui/query.test.ts:
+111 |         add(text(escape(meta.label)+(meta.enabled ? ` (action: ${meta.name})` : ' (disabled)')));
+112 |       } else throw Error('Unknown HyperTUI semantic node.');
+113 |     } else if (kind === 'Fork') {
+114 |       if (name.startsWith('heading · ')) add(text('# '+escape(name.slice(10))));
+115 |       else {
+116 |         if (!Array.isArray(node.children)) throw Error('Expected UI tree children.');
+                                                       ^
+error: Expected UI tree children.
+      at walk (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:116:50)
+      at render (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:129:9)
+      at page (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/gateway.ts:32:26)
+      at async files (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/gateway.ts:71:25)
+(fail) query catalog does not permit mutation calls or escape workspace [667.14ms]
+(pass) installed harness policies retain mutations and mixed tools and disable only queries [0.87ms]
+(pass) real media decoders render seekable audio and video images [345.19ms]
+111 |         add(text(escape(meta.label)+(meta.enabled ? ` (action: ${meta.name})` : ' (disabled)')));
+112 |       } else throw Error('Unknown HyperTUI semantic node.');
+113 |     } else if (kind === 'Fork') {
+114 |       if (name.startsWith('heading · ')) add(text('# '+escape(name.slice(10))));
+115 |       else {
+116 |         if (!Array.isArray(node.children)) throw Error('Expected UI tree children.');
+                                                       ^
+error: Expected UI tree children.
+      at walk (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:116:50)
+      at render (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:129:9)
+      at page (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/gateway.ts:32:26)
+      at async files (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/gateway.ts:64:27)
+(fail) explicit absolute image paths and file URIs preserve image bytes outside the workspace [3.40ms]
+
+bend2/std/F/hypertui/render.test.ts:
+111 |         add(text(escape(meta.label)+(meta.enabled ? ` (action: ${meta.name})` : ' (disabled)')));
+112 |       } else throw Error('Unknown HyperTUI semantic node.');
+113 |     } else if (kind === 'Fork') {
+114 |       if (name.startsWith('heading · ')) add(text('# '+escape(name.slice(10))));
+115 |       else {
+116 |         if (!Array.isArray(node.children)) throw Error('Expected UI tree children.');
+                                                       ^
+error: Expected UI tree children.
+      at walk (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:116:50)
+      at render (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:129:9)
+      at <anonymous> (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.test.ts:10:22)
+(fail) same F tree renders interleaved text, real image bytes, links and typed actions [2.12ms]
+111 |         add(text(escape(meta.label)+(meta.enabled ? ` (action: ${meta.name})` : ' (disabled)')));
+112 |       } else throw Error('Unknown HyperTUI semantic node.');
+113 |     } else if (kind === 'Fork') {
+114 |       if (name.startsWith('heading · ')) add(text('# '+escape(name.slice(10))));
+115 |       else {
+116 |         if (!Array.isArray(node.children)) throw Error('Expected UI tree children.');
+                                                       ^
+error: Expected UI tree children.
+      at walk (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:116:50)
+      at render (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:129:9)
+      at open (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/host.ts:22:24)
+      at <anonymous> (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.test.ts:24:17)
+(fail) mutation validates page scope and types, returns redirect and invalidates stale actions [1.16ms]
+111 |         add(text(escape(meta.label)+(meta.enabled ? ` (action: ${meta.name})` : ' (disabled)')));
+112 |       } else throw Error('Unknown HyperTUI semantic node.');
+113 |     } else if (kind === 'Fork') {
+114 |       if (name.startsWith('heading · ')) add(text('# '+escape(name.slice(10))));
+115 |       else {
+116 |         if (!Array.isArray(node.children)) throw Error('Expected UI tree children.');
+                                                       ^
+error: Expected UI tree children.
+      at walk (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:116:50)
+      at render (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.ts:129:9)
+      at open (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/host.ts:22:24)
+      at <anonymous> (/Users/pedroantoniovillanuevajuarez/Developer/f-hypertui-20261006/bend2/std/F/hypertui/render.test.ts:35:17)
+(fail) code page has a fence and no previous page actions [0.42ms]
+(pass) image resolver rejects paths outside the asset root and unsupported schema keywords fail closed [0.38ms]
+
+ 3 pass
+ 5 fail
+ 12 expect() calls
+Ran 8 tests across 2 files. [1.55s]
