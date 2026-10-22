@@ -18,6 +18,7 @@ async function fixture(effects: object[], scenario = '') {
       initial(input) {const config=decode(input); return step({events:[],scenario:config.scenario},config.effects);},
       transition(input,message) {
         const state=decode(input),event=decode(message); state.events.push(event);
+        if (event.type==='signal') return step(state,[{type:'exit',code:0}]);
         if (event.type==='cancel') return step(state,[{type:'http.cancel',id:'request'}]);
         if (state.scenario && event.operation==='http.fetch' && event.ok && !state.reused) {
           state.reused=true; return step(state,[{type:'http.fetch',id:'request',url:state.scenario}]);
@@ -28,7 +29,7 @@ async function fixture(effects: object[], scenario = '') {
   const host = await run(module, {effects, scenario} as Parameters<typeof run>[1]);
   cleanups.push(host.close);
   const events = () => (host.state() as {events: {type:string; id?:string; operation?:string; ok?:boolean; value?:unknown; error?:string}[]}).events;
-  return {host, events, directory};
+  return {host, events, directory, module};
 }
 
 async function until(check: () => boolean) {
@@ -77,4 +78,20 @@ test('duplicate active fetch IDs fail without losing the original cancellation h
   host.emit({type:'cancel'});
   await until(() => events().filter(event => event.operation === 'http.fetch' && event.ok === false).length === 2);
   expect(events().some(event => event.operation === 'http.fetch' && event.ok)).toBe(false);
+});
+
+test('signal exit releases an open MCP-style stdin pipe', async () => {
+  const {module} = await fixture([]);
+  const program = `import {run} from ${JSON.stringify(join(import.meta.dir, 'host.ts'))}; await run(process.argv[1], JSON.parse(process.argv[2]));`;
+  const child = Bun.spawn([process.execPath, '-e', program, module, JSON.stringify({scenario:'',effects:[{type:'stdio.listen'}, {type:'stdio.write',data:'ready\n'}]})], {stdin:'pipe',stdout:'pipe',stderr:'pipe'});
+  cleanups.push(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  const reader = child.stdout.getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toBe('ready\n');
+  reader.releaseLock();
+  child.kill('SIGTERM');
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const code = await Promise.race([child.exited, new Promise<never>((_, reject) => {timer=setTimeout(() => reject(Error('Host retained stdin after exit.')), 3000);})]);
+    expect(code).toBe(0);
+  } finally { clearTimeout(timer!); }
 });

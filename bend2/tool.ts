@@ -233,7 +233,8 @@ function emit(book: Bend.Book, out: string, mac: Record<string, string> = {}): v
       const flags = [c, "-O3", "-DBEND_WEB=1", `-DBEND_WEB_CORPUS_BYTES=${corpusBytes}`, "--js-library",
         path.join(Bend.BEND_DIR, "std/F/browser/stdio.js"), "-sMODULARIZE=1", "-sEXPORT_ES6=1",
         "-sENVIRONMENT=web,worker,node", "-sINVOKE_RUN=0", "-sASYNCIFY=1",
-        "-sASYNCIFY_REMOVE=work_loop",
+        // Evaluator helpers return before the caller suspends for browser IO.
+        "-sASYNCIFY_REMOVE=work_loop,work_web_*",
         "-sASYNCIFY_STACK_SIZE=262144", `-sINITIAL_MEMORY=${memoryBytes}`,
         "-sALLOW_MEMORY_GROWTH=0", "-sSTACK_SIZE=1048576",
         "-sEXPORTED_FUNCTIONS=_bend_start,_bend_worker_rows,_malloc,_free",

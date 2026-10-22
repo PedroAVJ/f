@@ -36,11 +36,13 @@ export function decode(value: any): JSONValue {
 export async function run(modulePath: string, configuration: JSONValue) {
   await import("../../../main.ts");
   const app = (await import(path.resolve(modulePath))).default;
-  let state: any, draining = false, closed = false;
+  let state: any, draining = false, closed = false, stdinListening = false;
   const queue: any[] = [], processes = new Map<string, ReturnType<typeof spawn>>();
   const servers = new Map<string, ReturnType<typeof Bun.serve>>(), requests = new Map<string, (r: Response) => void>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>(), fetches = new Map<string, AbortController>();
   const emit = (event: any, priority = false) => { if (!closed) { const encoded = encode({ ...event, at: new Date().toISOString(), now: Date.now(), uuid: randomUUID() }); priority ? queue.unshift(encoded) : queue.push(encoded); drain(); } };
+  const stdinData = (data: string) => emit({type:"stdio.data", data});
+  const stdinEnd = () => emit({type:"stdio.end"});
   const reply = (effect: Effect, value: any) => emit({ type: "effect", id: effect.id ?? "", operation: effect.type, ok: true, value }, true);
   const fail = (effect: Effect, error: unknown) => emit({ type: "effect", id: effect.id ?? "", operation: effect.type, ok: false, error: error instanceof Error ? error.message : String(error), code: errorCode(error) }, true);
   const execute = (effect: Effect) => {
@@ -53,7 +55,7 @@ export async function run(modulePath: string, configuration: JSONValue) {
         case "file.remove": fs.rmSync(effect.path, { recursive: effect.recursive === true, force: false }); reply(effect, null); break;
         case "http.cancel": fetches.get(effect.id!)?.abort(); break;
         case "file.create": { fs.mkdirSync(path.dirname(effect.path), { recursive: true, mode: 0o700 }); const temporary = `${effect.path}.${randomUUID()}.tmp`; let fd: number | undefined; try { fd = fs.openSync(temporary, "wx", effect.mode ?? 0o600); fs.writeFileSync(fd, effect.data, { encoding: effect.encoding ?? "utf8" }); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined; let created = true; try { fs.linkSync(temporary, effect.path); } catch (error) { if (errorCode(error) !== "EEXIST") throw error; created = false; } const directory = fs.openSync(path.dirname(effect.path), "r"); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); } reply(effect, { created }); } finally { if (fd !== undefined) fs.closeSync(fd); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } break; }
-        case "stdio.listen": process.stdin.setEncoding("utf8"); process.stdin.on("data", data => emit({ type: "stdio.data", data })); process.stdin.on("end", () => emit({ type: "stdio.end" })); break;
+        case "stdio.listen": if (!stdinListening) { stdinListening = true; process.stdin.setEncoding("utf8"); process.stdin.on("data", stdinData); process.stdin.on("end", stdinEnd); } break;
         case "stdio.write": process.stdout.write(effect.data); break;
         case "crypto.hashMany": reply(effect, effect.data.map((input: string) => ({ input, digest: createHash(effect.algorithm ?? "sha256").update(input).digest(effect.encoding ?? "hex") }))); break;
         case "file.list": reply(effect, fs.readdirSync(effect.path, { withFileTypes: true }).map(item => ({ name: item.name, directory: item.isDirectory(), file: item.isFile(), symlink: item.isSymbolicLink() }))); break;
@@ -100,8 +102,21 @@ export async function run(modulePath: string, configuration: JSONValue) {
   };
   const apply = (step: any) => { state = step.state; for (const effect of array(step.effects)) execute(decode(effect) as Effect); };
   function drain() { if (draining) return; draining = true; try { while (queue.length) apply(app.transition(state, queue.shift())); } finally { draining = false; } }
-  function close() { closed = true; for (const timer of timers.values()) clearTimeout(timer); for (const controller of fetches.values()) controller.abort(); for (const server of servers.values()) server.stop(true); for (const child of processes.values()) child.kill(); for (const resolve of requests.values()) resolve(new Response("Server stopped.", { status: 503 })); }
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGUSR1", "SIGUSR2"] as const) process.on(signal, () => emit({ type: "signal", signal }));
+  function close() {
+    closed = true;
+    if (stdinListening) { process.stdin.removeListener("data", stdinData); process.stdin.removeListener("end", stdinEnd); process.stdin.pause(); }
+    for (const [signal, handler] of signals) process.removeListener(signal, handler);
+    for (const timer of timers.values()) clearTimeout(timer);
+    for (const controller of fetches.values()) controller.abort();
+    for (const server of servers.values()) server.stop(true);
+    for (const child of processes.values()) child.kill();
+    for (const resolve of requests.values()) resolve(new Response("Server stopped.", { status: 503 }));
+  }
+  const signals = (["SIGINT", "SIGTERM", "SIGHUP", "SIGUSR1", "SIGUSR2"] as const).map(signal => {
+    const handler = () => emit({type:"signal", signal});
+    process.on(signal, handler);
+    return [signal, handler] as const;
+  });
   draining = true; apply(app.initial(encode(configuration))); draining = false; drain();
   return { close, state: () => decode(state), emit };
 }
